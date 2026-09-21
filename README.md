@@ -5,6 +5,8 @@ an existing ComfyUI service using trusted templates and user-facing parameters.
 No .NET runtime or `flamoris-mcp-core` package is required. MCP Core informed the
 typed-tool and single-authority boundary only; ComfyUI owns execution.
 
+Part of the [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons) ecosystem.
+
 ## Setup
 
 Requires Python 3.11+ and an independently installed ComfyUI instance. No GPU or
@@ -248,3 +250,37 @@ loading or raw node mutation tools. Provider-specific HTTP stays in `comfyui.py`
 API references: [ComfyUI server routes](https://docs.comfy.org/development/comfyui-server/comms_routes),
 [ComfyUI server implementation](https://github.com/Comfy-Org/ComfyUI/blob/master/server.py),
 [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
+
+
+## License
+
+Code in this repository is licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
+
+Commercial use does not require permission. If you'd like, we'd be happy to hear what you used FLAMORIS for. This is completely optional.
+
+FLAMORIS software is provided as-is and does not include guaranteed individual support. AI-assisted self-support is encouraged.
+
+AI models, model weights, datasets, generated media, and other non-code assets are not automatically covered by this repository's license. Their applicable licenses and usage terms must be checked separately.
+
+If FLAMORIS helps you or you find it interesting, your support helps fund development and keeps the project growing. 🌱  
+<sub>Mostly GPU bills.</sub>
+
+---
+
+## 日本語
+
+FLAMORIS Generation MCPは、画像・動画・音楽・音声などの生成をMCPから扱うための小さなPythonサーバーです。
+
+勝手に使ってください。  
+改造しても、組み込んでも、面白いものや変なものを作ってもOKです。
+
+商用作品や製品で使う場合も、許可は不要です。  
+もしよければ「こんなのに使ったよ」と教えてもらえるとうれしいです。もちろん強制ではありません。
+
+FLAMORISのソフトウェアは現状のまま提供され、個別サポートや動作保証はありません。困ったときは、README、Issue、テスト、ソースコードをAIに読ませて自己サポートしてください。
+
+このリポジトリのコードはApache License 2.0です。AIモデル、model weights、データセット、生成物、その他の非コード資産には別のライセンスや利用条件が適用される場合があるため、それぞれ確認してください。
+
+もしお役に立てたり、面白いと思っていただけたなら、開発費用をご支援いただけるとうれしいです。  
+FLAMORISは元気になって育ちます。🌱  
+<sub>主にGPU代とか。</sub>
