@@ -1,0 +1,197 @@
+# FLAMORIS Generation MCP
+
+A small Python MCP server for media generation. Phase 1 generates images through
+an existing ComfyUI service using trusted templates and user-facing parameters.
+No .NET runtime or `flamoris-mcp-core` package is required. MCP Core informed the
+typed-tool and single-authority boundary only; ComfyUI owns execution.
+
+## Setup
+
+Requires Python 3.11+ and an independently installed ComfyUI instance. No GPU or
+ComfyUI installation is needed on the MCP host, but the host must be able to scan
+the configured model directories. Model weights are neither downloaded nor loaded
+by this server.
+
+```sh
+python -m venv .venv
+# Activate the virtual environment for your shell, then:
+python -m pip install -e '.[dev]'
+flamoris-generation-mcp
+```
+
+The command starts a **stdio** MCP server; configure your MCP client to launch
+`flamoris-generation-mcp` from the installed environment (or its resolved executable
+path). There is no HTTP listener, authentication system, web UI, or automatic
+dependency installer. Logs use stderr; stdout is reserved for MCP messages.
+
+Example MCP client configuration (adapt the outer format to your client):
+
+```json
+{
+  "mcpServers": {
+    "generation": {
+      "command": "flamoris-generation-mcp",
+      "env": {
+        "FLAMORIS_COMFYUI_URL": "http://localhost:8188",
+        "FLAMORIS_MODEL_ROOT": "./models",
+        "FLAMORIS_WORKFLOW_DIR": "./.generation/workflows",
+        "FLAMORIS_OUTPUT_DIR": "./.generation/outputs"
+      }
+    }
+  }
+}
+```
+
+Relative paths resolve against the MCP process's working directory, which clients
+may choose differently. Set these variables to your own accessible directories.
+Do not commit local configuration or weights. Use only a trusted ComfyUI endpoint;
+provider redirects and environment HTTP proxies are disabled.
+
+## Configuration
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | ComfyUI HTTP base URL; path prefixes supported |
+| `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
+| `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
+| `FLAMORIS_WORKFLOW_DIR` | `.generation/workflows` | Saved parameter recipes |
+| `FLAMORIS_OUTPUT_DIR` | `.generation/outputs` | Downloaded outputs and metadata, grouped by job ID |
+| `FLAMORIS_REQUEST_TIMEOUT` | `30` | HTTP timeout in seconds (greater than 0, at most 300) |
+| `FLAMORIS_TARGETED_INTERRUPT` | `false` | Enable running cancellation only for a provider with prompt-ID-scoped `/interrupt` |
+
+Model kinds map to these subdirectories:
+
+| Kind | Subdirectory |
+| --- | --- |
+| `checkpoint` | `checkpoints` |
+| `lora` | `loras` |
+| `vae` | `vae` |
+| `controlnet` | `controlnet` |
+| `clip` | `clip` |
+| `clip_vision` | `clip_vision` |
+| `diffusion_model` | `diffusion_models` |
+| `text_encoder` | `text_encoders` |
+| `unet` | `unet` |
+
+For example, `FLAMORIS_MODEL_DIRS='{"lora":["./model-library/styles"]}'`
+overrides the LoRA directory. Missing directories are treated as empty. Recursive
+scans recognize `.safetensors`, `.ckpt`, `.pt`, `.pth`, `.bin`, and `.gguf` files.
+Names are relative POSIX paths; IDs are `kind:name`. Duplicate names across roots
+of the same kind are rejected as ambiguous. Symlinks escaping a root are ignored;
+configure the actual external directory as a root instead.
+
+**Discovery does not establish model compatibility.** Use checkpoint models that
+work with ComfyUI's built-in `CheckpointLoaderSimple`, `CLIPTextEncode`, and
+`EmptyLatentImage`, with compatible LoRAs. This is suitable for ordinary SD1.x/SDXL
+checkpoint experiments. Separate diffusion/text-encoder models, ControlNet and
+GGUF may be discoverable but have no execution templates in Phase 1. ComfyUI must
+resolve the same relative checkpoint/LoRA names, e.g. through its configured model
+directories or `extra_model_paths.yaml`. Its API validates sampler/scheduler names
+and actual node/model compatibility on submission.
+
+## Tools and first generation
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `system.health` | none | Process health and separate provider availability/queue counts |
+| `models.list` | optional `kind` | Installed file metadata; no weight deserialization |
+| `models.get` | `model_id` | One installed model |
+| `workflows.list` | none | Templates and built/saved workflow IDs |
+| `workflows.build` | `template`, `parameters` | Workflow ID, normalized recipe and executable prompt |
+| `workflows.save` | `workflow_id` | Persist a recipe, preserving its ID |
+| `jobs.submit` | `workflow_id` | New job ID and reproducibility metadata |
+| `jobs.status` | `job_id` | Poll execution state |
+| `jobs.result` | `job_id` | Metadata; when complete, local output files and metadata JSON |
+| `jobs.cancel` | `job_id` | Cancellation result or an explicit running-cancellation limitation |
+
+1. Call `system.health`, then `models.list` for `checkpoint` and `lora`.
+2. Call `workflows.build` with installed relative names, for example:
+
+```json
+{
+  "template": "text-to-image-lora",
+  "parameters": {
+    "checkpoint": "example.safetensors",
+    "positive_prompt": "watercolor flowers on a quiet windowsill",
+    "negative_prompt": "blurry",
+    "width": 512,
+    "height": 512,
+    "seed": 42,
+    "steps": 20,
+    "cfg": 7,
+    "sampler": "euler",
+    "scheduler": "normal",
+    "denoise": 1,
+    "loras": [
+      {"name": "style.safetensors", "strength_model": 0.8, "strength_clip": 0.6},
+      {"name": "detail.safetensors", "strength_model": 0.4, "strength_clip": 0.3}
+    ]
+  }
+}
+```
+
+3. Optionally call `workflows.save` with the returned `workflow_id`.
+4. Call `jobs.submit` with that ID, poll `jobs.status`, then call `jobs.result`.
+
+Use `text-to-image` with no LoRAs for a plain checkpoint workflow. The LoRA
+template requires at least one LoRA, preserves order, and chains both model and
+CLIP through every entry. Seed is an explicit nonnegative integer (default 0),
+not a randomized sentinel. Width/height must be multiples of 8 from 64 to 4096;
+steps range from 1 to 150; at most 16 LoRAs are accepted. These bounds do not
+guarantee sufficient provider VRAM.
+
+Returned raw prompts are inspectable exports, **not mutable submission inputs**.
+`jobs.submit` accepts only a workflow ID and rebuilds the known template from its
+recipe, rechecking installed models. Saved files contain only versioned recipes.
+
+## Job behavior and limits
+
+- States: `queued`, `running`, `completed`, `failed`, `cancelled`,
+  `cancel_requested`, `unknown`. A missing queue/history entry is `unknown`, not
+  successful completion. Errors include node ID/type where available without
+  returning provider tracebacks. Transient HTTP failures are MCP tool errors and
+  do not overwrite a job's execution state.
+- Jobs and unsaved workflows belong to one server process; there is no persistent
+  job queue or recovery after restart. Each session holds up to 1024 of each.
+  Save recipes before restart; retain completed result files/metadata. Process
+  shutdown does not cancel already submitted ComfyUI work.
+- Submission is not idempotent. HTTP POST is never retried automatically. After
+  an ambiguous timeout, inspect the provider queue before manually resubmitting.
+- Queued cancellation deletes only the requested prompt. Running cancellation
+  defaults to unsupported because older ComfyUI versions ignore `prompt_id` and
+  interrupt globally. Set `FLAMORIS_TARGETED_INTERRUPT=true` only after verifying
+  your provider supports targeted interruption. There is no global-interrupt
+  fallback. An accepted request remains `cancel_requested` until history confirms
+  a terminal state; completion can win a cancellation race.
+- `jobs.result` copies images from ComfyUI's `/view` into local output storage;
+  it does not change the provider's own output directory. Downloads are atomic,
+  retryable and reused on subsequent calls, limited to 64 MiB per image and 64
+  images per result. Local names are generated, not trusted provider paths. Files
+  are paths on the MCP host; this server does not publish a download web service.
+- Reproducibility metadata contains the template, all parameters (including
+  prompts, checkpoint, ordered LoRAs and seed), workflow/job IDs, status and output
+  references. No weight hashes are calculated. Replacing weights under the same
+  filename or changing provider versions can change results.
+
+## Development
+
+```sh
+python -m pytest
+ruff check .
+ruff format --check .
+python -m build
+```
+
+Tests use temporary model files and mocked HTTP, plus real MCP client/server
+protocol calls. CI needs neither live ComfyUI nor a GPU. The official MCP Python
+SDK 2.x owns protocol handling; dependencies are bounded to compatible majors.
+
+To add a template, extend the explicit `Template` type, template descriptions and
+trusted builder in `workflows.py`, add typed parameters where necessary, and test
+the emitted graph and rejection paths. Templates are shipped with the Python
+package; the workflow directory stores recipes only. Do not add dynamic code
+loading or raw node mutation tools. Provider-specific HTTP stays in `comfyui.py`.
+
+API references: [ComfyUI server routes](https://docs.comfy.org/development/comfyui-server/comms_routes),
+[ComfyUI server implementation](https://github.com/Comfy-Org/ComfyUI/blob/master/server.py),
+[official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
