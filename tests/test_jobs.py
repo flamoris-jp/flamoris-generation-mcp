@@ -1,9 +1,11 @@
+import asyncio
 import json
 
 import httpx
 import pytest
 
 from flamoris_generation_mcp.comfyui import ComfyUIClient, ProviderError
+from flamoris_generation_mcp.jobs import GenerationBusyError
 from flamoris_generation_mcp.workflows import Parameters
 
 
@@ -38,6 +40,63 @@ async def test_complete_lifecycle_and_repeated_result(stores, fake, settings):
     assert not any(call[1] == "/interrupt" for call in fake.calls)
 
 
+async def test_rejects_queued_and_running_then_allows_after_completion(stores, fake):
+    _, jobs, _ = stores
+    first = await submit(stores)
+
+    with pytest.raises(GenerationBusyError, match=first):
+        await submit(stores)
+
+    fake.running, fake.pending = fake.pending, []
+    assert (await jobs.status(first))["status"] == "running"
+    with pytest.raises(GenerationBusyError, match="is running"):
+        await submit(stores)
+
+    fake.finish()
+    assert (await jobs.status(first))["status"] == "completed"
+    second = await submit(stores)
+    assert second != first
+
+
+async def test_simultaneous_submits_cannot_both_reach_provider(stores, fake, monkeypatch):
+    _, jobs, _ = stores
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original_submit = jobs.client.submit
+
+    async def blocked_submit(prompt, client_id):
+        entered.set()
+        await release.wait()
+        return await original_submit(prompt, client_id)
+
+    monkeypatch.setattr(jobs.client, "submit", blocked_submit)
+    first_task = asyncio.create_task(submit(stores))
+    await entered.wait()
+
+    with pytest.raises(GenerationBusyError, match="is submitting"):
+        await submit(stores)
+
+    release.set()
+    await first_task
+    assert len(fake.prompts) == 1
+
+
+async def test_provider_submit_failure_releases_exclusivity(stores, fake, monkeypatch):
+    _, jobs, _ = stores
+    original_submit = jobs.client.submit
+
+    async def failed_submit(prompt, client_id):
+        raise ProviderError("provider rejected test submission")
+
+    monkeypatch.setattr(jobs.client, "submit", failed_submit)
+    with pytest.raises(ProviderError, match="provider rejected"):
+        await submit(stores)
+
+    monkeypatch.setattr(jobs.client, "submit", original_submit)
+    await submit(stores)
+    assert len(fake.prompts) == 1
+
+
 async def test_unknown_failure_and_interrupted(stores, fake):
     _, jobs, _ = stores
     key = await submit(stores)
@@ -69,15 +128,20 @@ async def test_unknown_failure_and_interrupted(stores, fake):
     assert (await jobs.status(second))["status"] == "cancelled"
 
 
-async def test_queued_cancel_is_scoped(stores, fake):
+async def test_queued_cancel_is_scoped_and_releases_exclusivity(stores, fake):
     _, jobs, _ = stores
     key = await submit(stores)
-    await submit(stores)
+    with pytest.raises(GenerationBusyError, match="Generation is busy"):
+        await submit(stores)
+
     assert (await jobs.cancel(key))["status"] == "cancelled"
-    assert [entry[1] for entry in fake.pending] == ["prompt-2"]
     assert (await jobs.status(key))["status"] == "cancelled"
     assert ("POST", "/queue", {"delete": ["prompt-1"]}) in fake.calls
     assert not any(call[1] == "/interrupt" for call in fake.calls)
+
+    second = await submit(stores)
+    assert second != key
+    assert [entry[1] for entry in fake.pending] == ["prompt-2"]
 
 
 async def test_running_cancel_requires_explicit_capability(stores, fake, settings):
@@ -90,6 +154,8 @@ async def test_running_cancel_requires_explicit_capability(stores, fake, setting
     settings.targeted_interrupt = True
     assert (await jobs.cancel(key))["status"] == "cancel_requested"
     assert ("POST", "/interrupt", {"prompt_id": "prompt-1"}) in fake.calls
+    with pytest.raises(GenerationBusyError, match="is cancel_requested"):
+        await submit(stores)
     fake.finish()  # Completion wins the race; do not incorrectly label cancelled.
     assert (await jobs.status(key))["status"] == "completed"
 
