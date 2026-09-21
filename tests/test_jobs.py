@@ -1,0 +1,234 @@
+import json
+
+import httpx
+import pytest
+
+from flamoris_generation_mcp.comfyui import ComfyUIClient, ProviderError
+from flamoris_generation_mcp.workflows import Parameters
+
+
+async def submit(stores):
+    workflows, jobs, _ = stores
+    workflow = workflows.build(
+        "text-to-image",
+        Parameters(checkpoint="base.safetensors", positive_prompt="flowers", seed=42),
+    )
+    job = await jobs.submit(workflow["workflow_id"])
+    return job["job_id"]
+
+
+async def test_complete_lifecycle_and_repeated_result(stores, fake, settings):
+    _, jobs, client = stores
+    key = await submit(stores)
+    assert (await jobs.status(key))["status"] == "queued"
+    assert (await jobs.result(key))["files"] == []
+    assert (await client.health())["queued"] == 1
+    fake.running, fake.pending = fake.pending, []
+    assert (await jobs.status(key))["status"] == "running"
+    fake.finish()
+    result = await jobs.result(key)
+    assert result["status"] == "completed"
+    assert result["parameters"]["seed"] == 42
+    assert result["template"] == "text-to-image"
+    assert len(result["files"]) == 1
+    assert json.loads((settings.output_dir / key / "metadata.json").read_text()) == result
+    assert await jobs.result(key) == result
+    assert fake.download_count == 1
+    assert (await jobs.cancel(key))["status"] == "completed"
+    assert not any(call[1] == "/interrupt" for call in fake.calls)
+
+
+async def test_unknown_failure_and_interrupted(stores, fake):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    fake.pending = []
+    assert (await jobs.status(key))["status"] == "unknown"
+    fake.finish(
+        state="error",
+        messages=[
+            [
+                "execution_error",
+                {
+                    "node_id": "5",
+                    "exception_type": "OutOfMemoryError",
+                    "traceback": ["private detail"],
+                },
+            ]
+        ],
+    )
+    failed = await jobs.result(key)
+    assert failed["status"] == "failed"
+    assert failed["error"] == {
+        "code": "execution_error",
+        "node_id": "5",
+        "exception_type": "OutOfMemoryError",
+    }
+    assert failed["files"] == []
+    second = await submit(stores)
+    fake.finish("prompt-2", state="error", messages=[["execution_interrupted", {}]])
+    assert (await jobs.status(second))["status"] == "cancelled"
+
+
+async def test_queued_cancel_is_scoped(stores, fake):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    await submit(stores)
+    assert (await jobs.cancel(key))["status"] == "cancelled"
+    assert [entry[1] for entry in fake.pending] == ["prompt-2"]
+    assert (await jobs.status(key))["status"] == "cancelled"
+    assert ("POST", "/queue", {"delete": ["prompt-1"]}) in fake.calls
+    assert not any(call[1] == "/interrupt" for call in fake.calls)
+
+
+async def test_running_cancel_requires_explicit_capability(stores, fake, settings):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    fake.race_to_running = True
+    result = await jobs.cancel(key)
+    assert result["status"] == "running" and result["cancel_supported"] is False
+    assert not any(call[1] == "/interrupt" for call in fake.calls)
+    settings.targeted_interrupt = True
+    assert (await jobs.cancel(key))["status"] == "cancel_requested"
+    assert ("POST", "/interrupt", {"prompt_id": "prompt-1"}) in fake.calls
+    fake.finish()  # Completion wins the race; do not incorrectly label cancelled.
+    assert (await jobs.status(key))["status"] == "completed"
+
+
+async def test_failed_download_can_retry_without_partial_file(stores, fake, settings):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    fake.finish()
+    fake.output_error = True
+    with pytest.raises(ProviderError):
+        await jobs.result(key)
+    assert not (settings.output_dir / key / "000.png").exists()
+    fake.output_error = False
+    assert len((await jobs.result(key))["files"]) == 1
+
+
+async def test_no_foreign_job_and_models_revalidated_at_submit(stores, fake, settings):
+    workflows, jobs, _ = stores
+    with pytest.raises(ValueError, match="Unknown job"):
+        await jobs.cancel("0" * 32)
+    assert not fake.calls
+    workflow = workflows.build(
+        "text-to-image", Parameters(checkpoint="base.safetensors", positive_prompt="x")
+    )
+    (settings.model_root / "checkpoints/base.safetensors").unlink()
+    with pytest.raises(ValueError, match="Model not found"):
+        await jobs.submit(workflow["workflow_id"])
+    assert not fake.calls
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(400, json={"error": "bad prompt"}),
+        httpx.Response(200, text="invalid"),
+        httpx.Response(200, json=[]),
+        httpx.Response(200, json={}),
+        httpx.Response(200, json={"prompt_id": "x", "node_errors": {"5": {}}}),
+    ],
+)
+async def test_submit_error_responses(settings, response):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return response
+
+    client = ComfyUIClient(settings, httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ProviderError):
+            await client.submit({}, "client")
+        assert len(calls) == 1
+    finally:
+        await client.close()
+
+
+async def test_timeout_unavailable_health_and_no_submit_retry(settings):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        raise httpx.ReadTimeout("test timeout", request=request)
+
+    client = ComfyUIClient(settings, httpx.MockTransport(handler))
+    try:
+        assert (await client.health())["available"] is False
+        with pytest.raises(ProviderError, match="connectivity"):
+            await client.submit({}, "client")
+        assert len(calls) == 2
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize(
+    "filename,subfolder",
+    [("../bad.png", ""), ("x.png", "../outside"), ("/bad.png", ""), ("bad\\x.png", "")],
+)
+async def test_provider_output_traversal_rejected(stores, fake, filename, subfolder):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    fake.finish()
+    fake.history["prompt-1"]["outputs"]["7"]["images"][0].update(
+        filename=filename, subfolder=subfolder
+    )
+    with pytest.raises(ProviderError, match="invalid execution history"):
+        await jobs.result(key)
+    assert fake.download_count == 0
+
+
+async def test_output_size_bound_and_prefix_url(settings, monkeypatch):
+    monkeypatch.setattr("flamoris_generation_mcp.comfyui.MAX_OUTPUT_BYTES", 4)
+    settings.comfyui_url = "http://localhost:8188/api/"
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, content=b"12345")
+
+    client = ComfyUIClient(settings, httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ProviderError, match="download limit"):
+            await client.download({"filename": "x.png", "subfolder": "", "type": "output"})
+        assert seen == ["/api/view"]
+    finally:
+        await client.close()
+
+
+async def test_rejection_contains_actionable_node_error(settings):
+    def handler(request):
+        return httpx.Response(
+            400,
+            json={
+                "error": {"message": "Prompt outputs failed validation"},
+                "node_errors": {
+                    "5": {"errors": [{"message": "Value not in list", "details": "sampler_name"}]}
+                },
+            },
+        )
+
+    client = ComfyUIClient(settings, httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ProviderError, match="node 5: Value not in list sampler_name"):
+            await client.submit({}, "test")
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        [],
+        {},
+        {"status": None},
+        {"status": {"status_str": "success", "completed": True}, "outputs": {}},
+    ],
+)
+async def test_malformed_history_does_not_report_success(stores, fake, history):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    fake.history["prompt-1"] = history
+    with pytest.raises(ProviderError, match="invalid execution history"):
+        await jobs.status(key)
