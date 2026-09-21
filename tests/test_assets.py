@@ -100,3 +100,22 @@ async def test_asset_retrieval_size_is_bounded(stores, fake, monkeypatch):
     assert listing["assets"][0]["size_bytes"] > 4
     with pytest.raises(ValueError, match="retrieval limit"):
         await jobs.get_asset(f"{job_id}:000")
+
+
+async def test_get_asset_does_not_materialize_unrelated_outputs(stores, fake, settings):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    fake.history["prompt-1"]["outputs"]["7"]["images"].append(
+        {"filename": "second.png", "subfolder": "flamoris", "type": "output"}
+    )
+    await jobs.list_assets(job_id)
+    (settings.output_dir / job_id / "001.png").unlink()
+    fake.output_error = True
+
+    metadata, data, media_format = await jobs.get_asset(f"{job_id}:000")
+
+    assert metadata["output_index"] == 0
+    assert data == b"image fixture"
+    assert media_format == "png"
+    assert fake.download_count == 2
