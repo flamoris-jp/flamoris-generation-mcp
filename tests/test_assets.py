@@ -27,15 +27,23 @@ async def test_list_and_get_completed_png_asset(stores, fake):
             "filename": "000.png",
             "media_kind": "image",
             "mime_type": "image/png",
-            "size_bytes": len(b"image fixture"),
+            "size_bytes": None,
+            "materialized": False,
             "output_index": 0,
         }
     ]
+    assert fake.download_count == 0
 
     metadata, data, media_format = await jobs.get_asset(f"{job_id}:000")
-    assert metadata == listing["assets"][0]
+    assert metadata == {
+        **listing["assets"][0],
+        "size_bytes": len(b"image fixture"),
+        "materialized": True,
+    }
     assert data == b"image fixture"
     assert media_format == "png"
+    assert fake.download_count == 1
+    assert (await jobs.list_assets(job_id))["assets"] == [metadata]
 
 
 async def test_multiple_outputs_have_stable_asset_ids(stores, fake):
@@ -53,6 +61,9 @@ async def test_multiple_outputs_have_stable_asset_ids(stores, fake):
     ]
     assert [asset["filename"] for asset in listing["assets"]] == ["000.png", "001.webp"]
     assert [asset["mime_type"] for asset in listing["assets"]] == ["image/png", "image/webp"]
+    assert [asset["materialized"] for asset in listing["assets"]] == [False, False]
+    assert [asset["size_bytes"] for asset in listing["assets"]] == [None, None]
+    assert fake.download_count == 0
 
 
 async def test_assets_reject_unknown_unfinished_and_unknown_asset(stores, fake):
@@ -97,6 +108,7 @@ async def test_asset_retrieval_size_is_bounded(stores, fake, monkeypatch):
     monkeypatch.setattr("flamoris_generation_mcp.jobs.MAX_ASSET_BYTES", 4)
 
     listing = await jobs.list_assets(job_id)
+    assert listing["assets"][0]["materialized"] is True
     assert listing["assets"][0]["size_bytes"] > 4
     with pytest.raises(ValueError, match="retrieval limit"):
         await jobs.get_asset(f"{job_id}:000")
@@ -109,13 +121,15 @@ async def test_get_asset_does_not_materialize_unrelated_outputs(stores, fake, se
     fake.history["prompt-1"]["outputs"]["7"]["images"].append(
         {"filename": "second.png", "subfolder": "flamoris", "type": "output"}
     )
-    await jobs.list_assets(job_id)
-    (settings.output_dir / job_id / "001.png").unlink()
-    fake.output_error = True
+    listing = await jobs.list_assets(job_id)
+    assert fake.download_count == 0
+    assert all(not asset["materialized"] for asset in listing["assets"])
 
     metadata, data, media_format = await jobs.get_asset(f"{job_id}:000")
 
     assert metadata["output_index"] == 0
+    assert metadata["materialized"] is True
     assert data == b"image fixture"
     assert media_format == "png"
-    assert fake.download_count == 2
+    assert fake.download_count == 1
+    assert not (settings.output_dir / job_id / "001.png").exists()

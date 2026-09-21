@@ -121,26 +121,35 @@ class JobStore:
             raise ValueError("Asset ID must come from assets.list")
         return match.group(1), int(match.group(2))
 
-    async def _materialize_asset(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
+    def _asset_metadata(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
         if index >= len(job.snapshot["outputs"]):
             raise ValueError("Unknown asset ID")
         output = job.snapshot["outputs"][index]
         suffix = Path(output["filename"]).suffix.lower()
-        media_kind, mime_type, media_format = MEDIA_TYPES.get(suffix, (None, None, None))
+        media_kind, mime_type, _ = MEDIA_TYPES.get(suffix, (None, None, None))
         if media_kind is None:
             raise ValueError("Unsupported generated media output extension")
         path = self._local_output_path(job_id, index, suffix)
-        if not path.is_file():
-            atomic_write(path, await self.client.download(output))
+        materialized = path.is_file()
         asset = {
             "asset_id": self._asset_id(job_id, index),
             "job_id": job_id,
             "filename": path.name,
             "media_kind": media_kind,
             "mime_type": mime_type,
-            "size_bytes": path.stat().st_size,
+            "size_bytes": path.stat().st_size if materialized else None,
+            "materialized": materialized,
             "output_index": index,
         }
+        return asset, path
+
+    async def _materialize_asset(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
+        asset, path = self._asset_metadata(job_id, job, index)
+        if not asset["materialized"]:
+            output = job.snapshot["outputs"][index]
+            atomic_write(path, await self.client.download(output))
+            asset["size_bytes"] = path.stat().st_size
+            asset["materialized"] = True
         return asset, path
 
     async def list_assets(self, job_id: str) -> dict:
@@ -149,10 +158,10 @@ class JobStore:
             await self._refresh(job)
             if job.snapshot["status"] != "completed":
                 raise ValueError("Assets are available only for completed jobs")
-            assets = []
-            for index in range(len(job.snapshot["outputs"])):
-                asset, _ = await self._materialize_asset(job_id, job, index)
-                assets.append(asset)
+            assets = [
+                self._asset_metadata(job_id, job, index)[0]
+                for index in range(len(job.snapshot["outputs"]))
+            ]
             return {"job_id": job_id, "assets": assets}
 
     async def get_asset(self, asset_id: str) -> tuple[dict, bytes, str]:
