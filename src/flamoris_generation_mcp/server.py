@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from . import __version__
 from .comfyui import ComfyUIClient, ProviderError
 from .config import ModelKind, Settings
-from .jobs import JobStore
+from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
 from .workflows import Parameters, Template, WorkflowStore
 
@@ -74,8 +74,11 @@ def create_server(
 
     @server.tool(name="jobs.submit")
     async def submit_job(workflow_id: str) -> dict[str, Any]:
-        """Submit a built/saved workflow once. Do not retry automatically after timeout."""
-        return await jobs.submit(workflow_id)
+        """Submit one workflow when this process has no active generation."""
+        try:
+            return await jobs.submit(workflow_id)
+        except GenerationBusyError as exc:
+            raise ToolError(str(exc)) from exc
 
     @server.tool(name="jobs.status")
     async def job_status(job_id: str) -> dict[str, Any]:

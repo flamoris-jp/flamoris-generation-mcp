@@ -139,11 +139,11 @@ and actual node/model compatibility on submission.
 | `workflows.list` | none | Templates and built/saved workflow IDs |
 | `workflows.build` | `template`, `parameters` | Workflow ID, normalized recipe and executable prompt |
 | `workflows.save` | `workflow_id` | Persist a recipe, preserving its ID |
-| `jobs.submit` | `workflow_id` | New job ID and reproducibility metadata |
+| `jobs.submit` | `workflow_id` | New job ID, or a busy error while another generation is active |
 | `jobs.status` | `job_id` | Poll execution state |
 | `jobs.result` | `job_id` | Metadata; when complete, local output files and metadata JSON |
 | `jobs.cancel` | `job_id` | Cancellation result or an explicit running-cancellation limitation |
-| `assets.list` | `job_id` | Stable generated-asset IDs and safe media metadata for a completed job |
+| `assets.list` | `job_id` | Metadata-only stable asset IDs; never downloads payloads |
 | `assets.get` | `asset_id` | MCP-native binary media content for one generated asset |
 
 1. Call `system.health`, then `models.list` for `checkpoint` and `lora`.
@@ -181,9 +181,11 @@ and actual node/model compatibility on submission.
 
 The asset layer is intentionally media-oriented rather than filesystem-oriented.
 Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
-supply arbitrary file paths. The current provider emits images, while the same
-`assets.list` / `assets.get` surface can be extended later for video and audio
-content without exposing the output filesystem.
+supply arbitrary file paths. `assets.list` is metadata-only: an output that has not
+been downloaded reports `size_bytes: null` and `materialized: false`.
+`assets.get` materializes only the requested asset. The current provider emits
+images, while the same `assets.list` / `assets.get` surface can be extended later
+for video and audio content without exposing the output filesystem.
 
 Use `text-to-image` with no LoRAs for a plain checkpoint workflow. The LoRA
 template requires at least one LoRA, preserves order, and chains both model and
@@ -198,6 +200,12 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
 
 ## Job behavior and limits
 
+- One server process permits one active generation at a time. While a job is queued,
+  running, submitting, or otherwise non-terminal, another `jobs.submit` fails
+  immediately with a bounded busy error. The server does not add a waiting queue.
+  Status, result, cancellation, model and workflow inspection remain available.
+  Capacity is released only after terminal completion, failure or cancellation is
+  observed; stdio and Streamable HTTP share the same process-owned guard.
 - States: `queued`, `running`, `completed`, `failed`, `cancelled`,
   `cancel_requested`, `unknown`. A missing queue/history entry is `unknown`, not
   successful completion. Errors include node ID/type where available without

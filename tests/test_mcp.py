@@ -61,6 +61,9 @@ async def test_mcp_protocol_validation_and_generation(settings, fake):
         assert key in listing.structured_content["saved_workflows"]
         submission = await client.call_tool("jobs.submit", {"workflow_id": key})
         job_id = submission.structured_content["job_id"]
+        busy = await client.call_tool("jobs.submit", {"workflow_id": key})
+        assert busy.is_error
+        assert "Generation is busy" in busy.content[0].text
         status = await client.call_tool("jobs.status", {"job_id": job_id})
         assert status.structured_content["status"] == "queued"
         fake.finish()
