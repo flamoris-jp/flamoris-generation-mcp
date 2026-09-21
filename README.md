@@ -141,6 +141,8 @@ and actual node/model compatibility on submission.
 | `jobs.status` | `job_id` | Poll execution state |
 | `jobs.result` | `job_id` | Metadata; when complete, local output files and metadata JSON |
 | `jobs.cancel` | `job_id` | Cancellation result or an explicit running-cancellation limitation |
+| `assets.list` | `job_id` | Stable generated-asset IDs and safe media metadata for a completed job |
+| `assets.get` | `asset_id` | MCP-native binary media content for one generated asset |
 
 1. Call `system.health`, then `models.list` for `checkpoint` and `lora`.
 2. Call `workflows.build` with installed relative names, for example:
@@ -170,6 +172,16 @@ and actual node/model compatibility on submission.
 
 3. Optionally call `workflows.save` with the returned `workflow_id`.
 4. Call `jobs.submit` with that ID, poll `jobs.status`, then call `jobs.result`.
+5. For a completed job, call `assets.list` with the job ID, then pass one returned
+   `asset_id` to `assets.get`. PNG/JPEG/WebP outputs are returned as MCP image
+   content, so remote clients receive the media bytes rather than a host-only
+   filesystem path.
+
+The asset layer is intentionally media-oriented rather than filesystem-oriented.
+Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
+supply arbitrary file paths. The current provider emits images, while the same
+`assets.list` / `assets.get` surface can be extended later for video and audio
+content without exposing the output filesystem.
 
 Use `text-to-image` with no LoRAs for a plain checkpoint workflow. The LoRA
 template requires at least one LoRA, preserves order, and chains both model and
@@ -204,8 +216,11 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
 - `jobs.result` copies images from ComfyUI's `/view` into local output storage;
   it does not change the provider's own output directory. Downloads are atomic,
   retryable and reused on subsequent calls, limited to 64 MiB per image and 64
-  images per result. Local names are generated, not trusted provider paths. Files
-  are paths on the MCP host; this server does not publish a download web service.
+  images per result. Local names are generated, not trusted provider paths. Existing
+  `jobs.result` file-path metadata remains available for local inspection. Remote
+  clients should use `assets.list` / `assets.get` to receive generated media through
+  MCP. Asset reads are limited to completed known jobs, checked against the configured
+  output root, reject symlinks/path escapes, and are bounded to 64 MiB per asset.
 - Reproducibility metadata contains the template, all parameters (including
   prompts, checkpoint, ordered LoRAs and seed), workflow/job IDs, status and output
   references. No weight hashes are calculated. Replacing weights under the same
