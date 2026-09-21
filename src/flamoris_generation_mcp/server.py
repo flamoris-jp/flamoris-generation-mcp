@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Image
 
 from . import __version__
 from .comfyui import ComfyUIClient
@@ -89,6 +90,17 @@ def create_server(
     async def cancel_job(job_id: str) -> dict[str, Any]:
         """Cancel queued work; targeted running interruption requires configured support."""
         return await jobs.cancel(job_id)
+
+    @server.tool(name="assets.list")
+    async def list_assets(job_id: str) -> dict[str, Any]:
+        """List generated media assets belonging to one completed generation job."""
+        return await jobs.list_assets(job_id)
+
+    @server.tool(name="assets.get")
+    async def get_asset(asset_id: str) -> Image:
+        """Return one generated image asset as MCP-native binary media content."""
+        _, data, media_format = await jobs.get_asset(asset_id)
+        return Image(data=data, format=media_format)
 
     return server
 
