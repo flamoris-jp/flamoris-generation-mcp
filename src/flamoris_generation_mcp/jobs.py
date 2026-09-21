@@ -1,7 +1,8 @@
-"""Session-owned jobs; ComfyUI remains the execution authority."""
+"""Session-owned jobs and generated assets; ComfyUI remains the execution authority."""
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +11,13 @@ from .comfyui import ComfyUIClient
 from .workflows import Recipe, WorkflowStore, atomic_write, build_prompt, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
+MAX_ASSET_BYTES = 64 * 1024 * 1024
+MEDIA_TYPES = {
+    ".png": ("image", "image/png", "png"),
+    ".jpg": ("image", "image/jpeg", "jpeg"),
+    ".jpeg": ("image", "image/jpeg", "jpeg"),
+    ".webp": ("image", "image/webp", "webp"),
+}
 
 
 @dataclass
@@ -69,6 +77,22 @@ class JobStore:
             await self._refresh(job)
             return self._metadata(job_id, job)
 
+    def _local_output_path(self, job_id: str, index: int, suffix: str) -> Path:
+        checked_id(job_id)
+        if suffix not in MEDIA_TYPES:
+            raise ValueError("Unsupported generated media output extension")
+        root = self.output_dir.resolve()
+        directory = self.output_dir / job_id
+        if directory.is_symlink():
+            raise ValueError("Output job directory must not be a symlink")
+        path = directory / f"{index:03d}{suffix}"
+        if path.is_symlink():
+            raise ValueError("Output file must not be a symlink")
+        resolved = path.resolve()
+        if not resolved.is_relative_to(root):
+            raise ValueError("Output file escapes the configured output root")
+        return path
+
     async def result(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
@@ -76,22 +100,68 @@ class JobStore:
             result = self._metadata(job_id, job)
             result["files"] = []
             if job.snapshot["status"] == "completed":
-                # Local destinations are generated, never taken from provider paths.
-                directory = self.output_dir / job_id
-                if directory.is_symlink():
-                    raise ValueError("Output job directory must not be a symlink")
                 for index, output in enumerate(job.snapshot["outputs"]):
                     suffix = Path(output["filename"]).suffix.lower()
-                    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
-                        raise ValueError("Unsupported image output extension")
-                    path = directory / f"{index:03d}{suffix}"
-                    if path.is_symlink():
-                        raise ValueError("Output file must not be a symlink")
+                    path = self._local_output_path(job_id, index, suffix)
                     if not path.is_file():
                         atomic_write(path, await self.client.download(output))
                     result["files"].append({"file": str(path), "size_bytes": path.stat().st_size})
+                directory = self.output_dir / job_id
                 atomic_write(directory / "metadata.json", json.dumps(result, indent=2).encode())
             return result
+
+    @staticmethod
+    def _asset_id(job_id: str, index: int) -> str:
+        return f"{job_id}:{index:03d}"
+
+    @staticmethod
+    def _parse_asset_id(asset_id: str) -> tuple[str, int]:
+        match = re.fullmatch(r"([0-9a-f]{32}):([0-9]{3})", asset_id)
+        if not match:
+            raise ValueError("Asset ID must come from assets.list")
+        return match.group(1), int(match.group(2))
+
+    async def list_assets(self, job_id: str) -> dict:
+        result = await self.result(job_id)
+        if result["status"] != "completed":
+            raise ValueError("Assets are available only for completed jobs")
+        assets = []
+        for index, file_info in enumerate(result["files"]):
+            path = Path(file_info["file"])
+            suffix = path.suffix.lower()
+            media_kind, mime_type, _ = MEDIA_TYPES[suffix]
+            checked = self._local_output_path(job_id, index, suffix)
+            if checked != path or not checked.is_file():
+                raise ValueError("Generated asset is unavailable")
+            assets.append(
+                {
+                    "asset_id": self._asset_id(job_id, index),
+                    "job_id": job_id,
+                    "filename": checked.name,
+                    "media_kind": media_kind,
+                    "mime_type": mime_type,
+                    "size_bytes": checked.stat().st_size,
+                    "output_index": index,
+                }
+            )
+        return {"job_id": job_id, "assets": assets}
+
+    async def get_asset(self, asset_id: str) -> tuple[dict, bytes, str]:
+        job_id, index = self._parse_asset_id(asset_id)
+        listing = await self.list_assets(job_id)
+        asset = next((item for item in listing["assets"] if item["output_index"] == index), None)
+        if asset is None or asset["asset_id"] != asset_id:
+            raise ValueError("Unknown asset ID")
+        suffix = Path(asset["filename"]).suffix.lower()
+        _, _, media_format = MEDIA_TYPES[suffix]
+        path = self._local_output_path(job_id, index, suffix)
+        size = path.stat().st_size
+        if size > MAX_ASSET_BYTES:
+            raise ValueError(f"Asset exceeds the {MAX_ASSET_BYTES} byte retrieval limit")
+        data = path.read_bytes()
+        if len(data) > MAX_ASSET_BYTES or len(data) != size:
+            raise ValueError("Generated asset changed while being read")
+        return asset, data, media_format
 
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
