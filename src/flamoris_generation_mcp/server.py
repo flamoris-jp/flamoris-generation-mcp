@@ -7,9 +7,10 @@ from typing import Any
 import httpx
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
+from mcp.server.mcpserver.exceptions import ToolError
 
 from . import __version__
-from .comfyui import ComfyUIClient
+from .comfyui import ComfyUIClient, ProviderError
 from .config import ModelKind, Settings
 from .jobs import JobStore
 from .models import ModelCatalog
@@ -94,13 +95,19 @@ def create_server(
     @server.tool(name="assets.list")
     async def list_assets(job_id: str) -> dict[str, Any]:
         """List generated media assets belonging to one completed generation job."""
-        return await jobs.list_assets(job_id)
+        try:
+            return await jobs.list_assets(job_id)
+        except (ValueError, ProviderError) as exc:
+            raise ToolError(str(exc)) from exc
 
     @server.tool(name="assets.get")
     async def get_asset(asset_id: str) -> Image:
         """Return one generated image asset as MCP-native binary media content."""
-        _, data, media_format = await jobs.get_asset(asset_id)
-        return Image(data=data, format=media_format)
+        try:
+            _, data, media_format = await jobs.get_asset(asset_id)
+            return Image(data=data, format=media_format)
+        except (ValueError, ProviderError) as exc:
+            raise ToolError(str(exc)) from exc
 
     return server
 
