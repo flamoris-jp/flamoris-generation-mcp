@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import socket
 from contextlib import asynccontextmanager
 from unittest.mock import Mock
@@ -181,6 +182,14 @@ async def test_http_tools_validation_and_shared_authority(settings, fake, monkey
             result = await third.call_tool("jobs.result", {"job_id": job_id})
             assert result.structured_content["status"] == "completed"
             assert len(result.structured_content["files"]) == 1
+            assets = await third.call_tool("assets.list", {"job_id": job_id})
+            asset_id = assets.structured_content["assets"][0]["asset_id"]
+            media = await third.call_tool("assets.get", {"asset_id": asset_id})
+            assert not media.is_error
+            assert media.structured_content is None
+            assert media.content[0].type == "image"
+            assert media.content[0].mime_type == "image/png"
+            assert base64.b64decode(media.content[0].data) == b"image fixture"
     for factory in factories.values():
         factory.assert_called_once()
     assert len(fake.prompts) == 1

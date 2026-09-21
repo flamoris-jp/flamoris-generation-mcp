@@ -1,3 +1,4 @@
+import base64
 import sys
 
 import httpx
@@ -17,6 +18,8 @@ TOOL_NAMES = {
     "jobs.status",
     "jobs.result",
     "jobs.cancel",
+    "assets.list",
+    "assets.get",
 }
 
 
@@ -64,6 +67,18 @@ async def test_mcp_protocol_validation_and_generation(settings, fake):
         result = await client.call_tool("jobs.result", {"job_id": job_id})
         assert result.structured_content["status"] == "completed"
         assert len(result.structured_content["files"]) == 1
+
+        assets = await client.call_tool("assets.list", {"job_id": job_id})
+        asset_id = assets.structured_content["assets"][0]["asset_id"]
+        media = await client.call_tool("assets.get", {"asset_id": asset_id})
+        assert not media.is_error
+        assert media.structured_content is None
+        assert len(media.content) == 1
+        image = media.content[0]
+        assert image.type == "image"
+        assert image.mime_type == "image/png"
+        assert base64.b64decode(image.data) == b"image fixture"
+
         assert not (await client.call_tool("jobs.cancel", {"job_id": job_id})).is_error
 
 
@@ -77,3 +92,32 @@ async def test_real_stdio_startup_and_tools(tmp_path):
     async with Client(server, read_timeout_seconds=10) as client:
         assert {tool.name for tool in (await client.list_tools()).tools} == TOOL_NAMES
         assert (await client.call_tool("models.list")).structured_content == {"models": []}
+
+
+async def test_asset_size_limit_is_actionable_over_mcp(settings, fake, monkeypatch):
+    monkeypatch.setattr("flamoris_generation_mcp.jobs.MAX_ASSET_BYTES", 4)
+    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    async with Client(server) as client:
+        workflow = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "text-to-image",
+                "parameters": {
+                    "checkpoint": "base.safetensors",
+                    "positive_prompt": "flowers",
+                },
+            },
+        )
+        submission = await client.call_tool(
+            "jobs.submit", {"workflow_id": workflow.structured_content["workflow_id"]}
+        )
+        fake.finish()
+        assets = await client.call_tool(
+            "assets.list", {"job_id": submission.structured_content["job_id"]}
+        )
+        asset_id = assets.structured_content["assets"][0]["asset_id"]
+
+        result = await client.call_tool("assets.get", {"asset_id": asset_id})
+
+        assert result.is_error
+        assert "retrieval limit" in result.content[0].text
