@@ -1,5 +1,6 @@
-"""Typed MCP tools served over stdio. Provider access is owned by one process."""
+"""Typed MCP tools served over stdio or HTTP, with one process-owned authority."""
 
+import argparse
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -92,8 +93,29 @@ def create_server(
     return server
 
 
-def main() -> None:
-    create_server().run(transport="stdio")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="FLAMORIS generation MCP server")
+    parser.add_argument("--transport", dest="mcp_transport", choices=("stdio", "streamable-http"))
+    parser.add_argument("--host", dest="http_host", help="HTTP bind host (default: 127.0.0.1)")
+    parser.add_argument("--port", dest="http_port", type=int, help="HTTP port (default: 8765)")
+    parser.add_argument("--mcp-path", help="HTTP MCP path (default: /mcp)")
+    args = parser.parse_args(argv)
+    try:
+        settings = Settings.from_env(**vars(args))
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    # Construct tools, stores and provider once, before selecting the transport.
+    server = create_server(settings)
+    if settings.mcp_transport == "stdio":
+        server.run(transport="stdio")
+    else:
+        server.run(
+            transport="streamable-http",
+            host=settings.http_host,
+            port=settings.http_port,
+            streamable_http_path=settings.mcp_path,
+        )
 
 
 if __name__ == "__main__":
