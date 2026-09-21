@@ -173,6 +173,10 @@ async def test_http_tools_validation_and_shared_authority(settings, fake, monkey
                 assert key in listing.structured_content["built_workflows"]
                 submitted = await second.call_tool("jobs.submit", {"workflow_id": key})
                 job_id = submitted.structured_content["job_id"]
+            # The process-owned guard is shared across independent HTTP sessions.
+            busy = await first.call_tool("jobs.submit", {"workflow_id": key})
+            assert busy.is_error
+            assert "Generation is busy" in busy.content[0].text
             # Disconnecting that session must not close the shared provider client.
             status = await first.call_tool("jobs.status", {"job_id": job_id})
             assert status.structured_content["status"] == "queued"

@@ -11,6 +11,12 @@ from .comfyui import ComfyUIClient
 from .workflows import Recipe, WorkflowStore, atomic_write, build_prompt, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
+
+
+class GenerationBusyError(ValueError):
+    """A second generation cannot start while this process owns active work."""
+
+
 MAX_ASSET_BYTES = 64 * 1024 * 1024
 MEDIA_TYPES = {
     ".png": ("image", "image/png", "png"),
@@ -38,18 +44,51 @@ class JobStore:
         self.output_dir = output_dir
         self._jobs: dict[str, Job] = {}
         self._submit_lock = asyncio.Lock()
+        self._active_job_id: str | None = None
+
+    def _active_job(self) -> tuple[str, str] | None:
+        if self._active_job_id is None:
+            return None
+        job = self._jobs.get(self._active_job_id)
+        return self._active_job_id, job.snapshot["status"] if job else "submitting"
+
+    async def _release_if_terminal(self, job_id: str, job: Job) -> None:
+        if job.snapshot["status"] not in TERMINAL:
+            return
+        async with self._submit_lock:
+            if self._active_job_id == job_id:
+                self._active_job_id = None
 
     async def submit(self, workflow_id: str) -> dict:
         recipe = self.workflows.get(workflow_id)
         prompt = build_prompt(recipe, self.workflows.catalog)
         async with self._submit_lock:
+            active = self._active_job()
+            if active is not None:
+                active_job_id, state = active
+                if state in TERMINAL:
+                    self._active_job_id = None
+                else:
+                    raise GenerationBusyError(
+                        f"Generation is busy: active job {active_job_id} is {state}; "
+                        "poll jobs.status/jobs.result or cancel it before submitting again"
+                    )
             if len(self._jobs) >= 1024:
                 raise ValueError("Job session is full; retrieve results before restarting")
             job_id = uuid4().hex
-            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+            self._active_job_id = job_id
+
+        prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        try:
             prompt_id = await self.client.submit(prompt, job_id)
-            self._jobs[job_id] = Job(workflow_id, recipe, prompt_id)
-            return self._metadata(job_id, self._jobs[job_id])
+        except BaseException:
+            async with self._submit_lock:
+                if self._active_job_id == job_id:
+                    self._active_job_id = None
+            raise
+
+        self._jobs[job_id] = Job(workflow_id, recipe, prompt_id)
+        return self._metadata(job_id, self._jobs[job_id])
 
     def _get(self, job_id: str) -> Job:
         checked_id(job_id)
@@ -67,14 +106,15 @@ class JobStore:
             **job.snapshot,
         }
 
-    async def _refresh(self, job: Job) -> None:
+    async def _refresh(self, job_id: str, job: Job) -> None:
         if job.snapshot["status"] not in TERMINAL:
             job.snapshot = await self.client.inspect(job.prompt_id)
+        await self._release_if_terminal(job_id, job)
 
     async def status(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
-            await self._refresh(job)
+            await self._refresh(job_id, job)
             return self._metadata(job_id, job)
 
     def _local_output_path(self, job_id: str, index: int, suffix: str) -> Path:
@@ -96,7 +136,7 @@ class JobStore:
     async def result(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
-            await self._refresh(job)
+            await self._refresh(job_id, job)
             result = self._metadata(job_id, job)
             result["files"] = []
             if job.snapshot["status"] == "completed":
@@ -155,7 +195,7 @@ class JobStore:
     async def list_assets(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
-            await self._refresh(job)
+            await self._refresh(job_id, job)
             if job.snapshot["status"] != "completed":
                 raise ValueError("Assets are available only for completed jobs")
             assets = [
@@ -168,7 +208,7 @@ class JobStore:
         job_id, index = self._parse_asset_id(asset_id)
         job = self._get(job_id)
         async with job.lock:
-            await self._refresh(job)
+            await self._refresh(job_id, job)
             if job.snapshot["status"] != "completed":
                 raise ValueError("Assets are available only for completed jobs")
             asset, path = await self._materialize_asset(job_id, job, index)
@@ -187,4 +227,5 @@ class JobStore:
         async with job.lock:
             if job.snapshot["status"] not in TERMINAL:
                 job.snapshot = await self.client.cancel(job.prompt_id)
+            await self._release_if_terminal(job_id, job)
             return self._metadata(job_id, job)
