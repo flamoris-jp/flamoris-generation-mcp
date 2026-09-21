@@ -7,6 +7,7 @@ name = "flamoris-generation-mcp"
 version = "0.1.0"
 description = "Small MCP server for template-based media generation"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = ["mcp>=2.2,<3", "httpx>=0.28,<1", "pydantic>=2.11,<3"]
 
