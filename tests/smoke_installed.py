@@ -15,8 +15,8 @@ from mcp.client.stdio import StdioServerParameters
 
 async def check_tools(client):
     tools = await client.list_tools()
-    assert len(tools.tools) == 10
-    assert "jobs.submit" in {tool.name for tool in tools.tools}
+    assert len(tools.tools) == 12
+    assert {"jobs.submit", "assets.get"} <= {tool.name for tool in tools.tools}
     result = await client.call_tool("models.list")
     assert not result.is_error and result.structured_content == {"models": []}
 
