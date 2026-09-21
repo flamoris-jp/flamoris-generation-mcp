@@ -59,3 +59,11 @@ These instructions apply to the entire repository.
 - Do not expand a phase with unrelated UI, deployment, authentication, database, download-manager, or provider work unless the issue explicitly requires it.
 - Keep changes reviewable and avoid unrelated refactors.
 - Update README or other public documentation when behavior, configuration, or supported tools change.
+
+
+## Licensing and support
+
+- Unless stated otherwise, code in this repository is licensed under Apache License 2.0.
+- Do not add third-party code, AI models, model weights, datasets, fonts, media, generated assets, or other non-code material unless its license and redistribution terms are compatible and clearly documented.
+- Do not assume that generated media or provider-hosted assets inherit this repository's code license.
+- FLAMORIS does not provide guaranteed individual support. Repository documentation, issues, tests, logs, and source code are the primary support references; AI-assisted self-support is encouraged.
