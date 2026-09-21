@@ -21,8 +21,9 @@ flamoris-generation-mcp
 
 The command starts a **stdio** MCP server; configure your MCP client to launch
 `flamoris-generation-mcp` from the installed environment (or its resolved executable
-path). There is no HTTP listener, authentication system, web UI, or automatic
-dependency installer. Logs use stderr; stdout is reserved for MCP messages.
+path). The default stdio mode opens no HTTP listener. There is no authentication
+system, web UI, or automatic dependency installer. In stdio mode, logs use stderr
+and stdout is reserved for MCP messages.
 
 Example MCP client configuration (adapt the outer format to your client):
 
@@ -47,10 +48,47 @@ may choose differently. Set these variables to your own accessible directories.
 Do not commit local configuration or weights. Use only a trusted ComfyUI endpoint;
 provider redirects and environment HTTP proxies are disabled.
 
+## Streamable HTTP
+
+Select HTTP explicitly to serve the same tools on a local endpoint:
+
+```sh
+flamoris-generation-mcp --transport streamable-http
+# Explicit equivalent, with configurable bind address, port and route:
+flamoris-generation-mcp --transport streamable-http --host 127.0.0.1 --port 8765 --mcp-path /mcp
+```
+
+The default endpoint is `http://127.0.0.1:8765/mcp`. CLI options override the
+corresponding environment variables below; otherwise defaults apply. With no
+options or transport environment override, the command remains stdio-compatible.
+The MCP path is a literal absolute URL path, such as `/mcp` or `/api/generation`,
+without query parameters, fragments, route placeholders or a trailing slash
+(except `/` itself). The module entrypoint accepts the same options.
+
+A tunnel/reverse-proxy runtime may target this loopback HTTP endpoint. Install,
+configure and authenticate that runtime separately; the Python package does not
+manage tunnels or credentials. HTTP has no application authentication and every
+connected client can access the same process-owned workflows/jobs. Keep external
+access controlled by the deployment layer. SDK Host/Origin checks remain enabled
+for the default loopback bind; the forwarding runtime must send headers accepted
+by that local endpoint (an external Host/Origin can be rejected). No proxy or
+authentication middleware is added here.
+
+Run one server process with one selected transport. Both startup modes use the
+same `MCPServer` factory, validation, stores and provider client. HTTP requests and
+client sessions share that process's state; disconnecting a client does not erase
+jobs or close the provider. Separate processes do not share in-memory state, so
+multiple workers/replicas and simultaneous stdio/HTTP listeners are not provided.
+ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
+| `FLAMORIS_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http`; CLI `--transport` |
+| `FLAMORIS_HTTP_HOST` | `127.0.0.1` | HTTP bind hostname/IP; CLI `--host` |
+| `FLAMORIS_HTTP_PORT` | `8765` | HTTP port (1–65535); CLI `--port` |
+| `FLAMORIS_MCP_PATH` | `/mcp` | Literal HTTP route; CLI `--mcp-path` |
 | `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | ComfyUI HTTP base URL; path prefixes supported |
 | `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
 | `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
