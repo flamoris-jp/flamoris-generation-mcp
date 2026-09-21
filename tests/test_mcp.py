@@ -1,3 +1,4 @@
+import base64
 import sys
 
 import httpx
@@ -17,6 +18,8 @@ TOOL_NAMES = {
     "jobs.status",
     "jobs.result",
     "jobs.cancel",
+    "assets.list",
+    "assets.get",
 }
 
 
@@ -64,6 +67,18 @@ async def test_mcp_protocol_validation_and_generation(settings, fake):
         result = await client.call_tool("jobs.result", {"job_id": job_id})
         assert result.structured_content["status"] == "completed"
         assert len(result.structured_content["files"]) == 1
+
+        assets = await client.call_tool("assets.list", {"job_id": job_id})
+        asset_id = assets.structured_content["assets"][0]["asset_id"]
+        media = await client.call_tool("assets.get", {"asset_id": asset_id})
+        assert not media.is_error
+        assert media.structured_content is None
+        assert len(media.content) == 1
+        image = media.content[0]
+        assert image.type == "image"
+        assert image.mime_type == "image/png"
+        assert base64.b64decode(image.data) == b"image fixture"
+
         assert not (await client.call_tool("jobs.cancel", {"job_id": job_id})).is_error
 
 
