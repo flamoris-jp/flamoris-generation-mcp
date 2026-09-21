@@ -34,3 +34,4 @@ jobs:
           "$RUNNER_TEMP/wheel-smoke/bin/python" -m pip install dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from flamoris_generation_mcp.server import create_server; assert create_server().name == 'FLAMORIS Generation'"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" "$GITHUB_WORKSPACE/tests/smoke_installed.py"
