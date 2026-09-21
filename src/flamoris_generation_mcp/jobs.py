@@ -78,8 +78,8 @@ class JobStore:
             job_id = uuid4().hex
             self._active_job_id = job_id
 
-        prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
         try:
+            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
             prompt_id = await self.client.submit(prompt, job_id)
         except BaseException:
             async with self._submit_lock:

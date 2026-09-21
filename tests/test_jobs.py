@@ -154,6 +154,8 @@ async def test_running_cancel_requires_explicit_capability(stores, fake, setting
     settings.targeted_interrupt = True
     assert (await jobs.cancel(key))["status"] == "cancel_requested"
     assert ("POST", "/interrupt", {"prompt_id": "prompt-1"}) in fake.calls
+    with pytest.raises(GenerationBusyError, match="is cancel_requested"):
+        await submit(stores)
     fake.finish()  # Completion wins the race; do not incorrectly label cancelled.
     assert (await jobs.status(key))["status"] == "completed"
 
