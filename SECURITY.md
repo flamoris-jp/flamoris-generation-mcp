@@ -10,6 +10,27 @@ If private reporting is not available, avoid publishing exploit details or secre
 
 For non-sensitive security hardening, dependency updates, or general security discussions, a normal GitHub issue is welcome.
 
+## Generation-specific security scope
+
+Generation MCP crosses trust boundaries between MCP clients, providers, model libraries, workflows, local files, generated assets, and optional HTTP/tunnel deployment.
+
+Treat the following as security-sensitive:
+
+- provider credentials and API keys;
+- prompts and generation parameters that may contain private information;
+- MCP HTTP exposure, reverse proxies, and tunnel configuration;
+- provider responses, filenames, paths, and metadata;
+- workflow/template injection;
+- arbitrary filesystem access or path traversal;
+- generated or uploaded media that may be private;
+- model and dataset provenance;
+- resource exhaustion from generation, analysis, large assets, or concurrency;
+- retry and cancellation behavior for non-idempotent provider operations.
+
+Provider responses and model-generated metadata are untrusted input. Validate paths, identifiers, MIME types, sizes, and control data before using them.
+
+Do not commit live credentials, private deployment details, model weights, private datasets, or private generated media.
+
 ## Supported versions
 
 FLAMORIS is developed as an open-source project without a guaranteed support window or security-response SLA.
@@ -35,6 +56,16 @@ Third-party dependencies, AI models, model weights, datasets, services, and medi
 Private reportingが利用できない場合も、攻撃手順や秘密情報を公開せず、機密情報を共有する前にFLAMORISのメンテナへ適切な非公開手段で連絡してください。
 
 機密性のないセキュリティ改善、依存関係の更新、一般的なセキュリティ議論については、通常のGitHub Issueを利用して構いません。
+
+## Generation MCP固有の注意点
+
+Generation MCPはMCP client、provider、model library、workflow、local file、generated asset、HTTP/tunnel deploymentの間をまたぎます。
+
+特にprovider credential、private prompt、MCP HTTP公開範囲、tunnel設定、provider response、filename/path、workflow injection、path traversal、private media、model/datasetの出所、resource exhaustion、non-idempotent operationのretry/cancellationをsecurity-sensitiveとして扱ってください。
+
+Provider responseやmodel由来metadataは信頼済み入力として扱わず、path、identifier、MIME type、size、control dataを検証してください。
+
+live credential、個人環境のdeployment情報、model weights、private dataset、非公開生成物はcommitしないでください。
 
 ## サポート対象
 
