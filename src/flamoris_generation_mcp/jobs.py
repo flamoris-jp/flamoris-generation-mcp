@@ -110,7 +110,7 @@ class JobStore:
             provider_id=self.provider_id,
             provider_execution_id=provider_job.execution_id,
         )
-        return self._metadata(job_id, self._jobs[job_id])
+        return self._metadata(self._jobs[job_id])
 
     def _get(self, job_id: str) -> Job:
         checked_id(job_id)
@@ -119,9 +119,9 @@ class JobStore:
         return self._jobs[job_id]
 
     @staticmethod
-    def _metadata(job_id: str, job: Job) -> dict:
+    def _metadata(job: Job) -> dict:
         return {
-            "job_id": job_id,
+            "job_id": job.job_id,
             "operation": job.operation,
             "provider": job.provider_id,
             "provider_id": job.provider_id,
@@ -141,7 +141,7 @@ class JobStore:
         job = self._get(job_id)
         async with job.lock:
             await self._refresh(job_id, job)
-            return self._metadata(job_id, job)
+            return self._metadata(job)
 
     def _local_output_path(self, job_id: str, index: int, suffix: str) -> Path:
         checked_id(job_id)
@@ -163,7 +163,7 @@ class JobStore:
         job = self._get(job_id)
         async with job.lock:
             await self._refresh(job_id, job)
-            result = self._metadata(job_id, job)
+            result = self._metadata(job)
             result["files"] = []
             if job.snapshot.status == "completed":
                 provider = self.providers.get(job.provider_id)
@@ -265,7 +265,7 @@ class JobStore:
                 provider = self.providers.get(job.provider_id)
                 job.snapshot = await provider.cancel(job.provider_execution_id)
             await self._release_if_terminal(job_id, job)
-            return self._metadata(job_id, job)
+            return self._metadata(job)
 
     def activity(self) -> dict[str, object]:
         active = self._active_job()

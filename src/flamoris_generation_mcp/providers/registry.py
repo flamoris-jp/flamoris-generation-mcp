@@ -35,7 +35,7 @@ class ProviderRegistry:
                 health = (await provider.health()).as_dict()
             except ProviderError as exc:
                 health = {"available": False, "error": str(exc)}
-            results.append({"id": provider_id, **health})
+            results.append({**health, "id": provider_id})
         return results
 
     async def close(self) -> None:

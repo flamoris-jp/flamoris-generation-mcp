@@ -66,7 +66,9 @@ def create_server(
             **jobs.activity(),
             "providers": provider_health,
             "provider": "comfyui",
-            "provider_health": provider_health[0],
+            "provider_health": {
+                key: value for key, value in provider_health[0].items() if key != "id"
+            },
         }
 
     @server.tool(name="capabilities.list")

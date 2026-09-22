@@ -2,10 +2,7 @@
 
 from pathlib import Path
 
-import httpx
-
 from ..comfyui import ComfyUIClient
-from ..config import Settings
 from ..models import ModelCatalog
 from ..workflows import Recipe, build_prompt
 from .base import (
@@ -41,15 +38,6 @@ class ComfyUIProvider:
         self.client = client
         self.catalog = catalog
         self._outputs: dict[tuple[str, str], dict] = {}
-
-    @classmethod
-    def create(
-        cls,
-        settings: Settings,
-        catalog: ModelCatalog,
-        transport: httpx.AsyncBaseTransport | None = None,
-    ) -> "ComfyUIProvider":
-        return cls(ComfyUIClient(settings, transport), catalog)
 
     async def health(self) -> ProviderHealth:
         raw = await self.client.health()
