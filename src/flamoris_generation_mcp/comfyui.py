@@ -6,6 +6,7 @@ import httpx
 
 from .config import Settings
 from .models import model_name
+from .providers.base import ProviderError
 
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 
@@ -27,10 +28,6 @@ def rejection_detail(response: httpx.Response) -> str:
         return "; ".join(part for part in parts if part)[:1500]
     except (ValueError, AttributeError, TypeError):
         return ""
-
-
-class ProviderError(RuntimeError):
-    """A bounded provider failure safe to surface as an MCP tool error."""
 
 
 class ComfyUIClient:

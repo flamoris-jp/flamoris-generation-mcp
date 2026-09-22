@@ -9,6 +9,8 @@ from flamoris_generation_mcp.server import create_server
 
 TOOL_NAMES = {
     "system.health",
+    "capabilities.list",
+    "capabilities.get",
     "models.list",
     "models.get",
     "workflows.list",
@@ -28,7 +30,22 @@ async def test_mcp_protocol_validation_and_generation(settings, fake):
     async with Client(server) as client:
         tools = await client.list_tools()
         assert {tool.name for tool in tools.tools} == TOOL_NAMES
-        assert (await client.call_tool("system.health")).structured_content["healthy"]
+        health = (await client.call_tool("system.health")).structured_content
+        assert health["healthy"] and health["providers"][0]["id"] == "comfyui"
+        capabilities = await client.call_tool("capabilities.list")
+        capability = capabilities.structured_content["capabilities"][0]
+        assert capability == {
+            "id": "image.generate",
+            "provider_id": "comfyui",
+            "runtime_id": "janku",
+            "workflow_templates": ["text-to-image", "text-to-image-lora"],
+            "available": True,
+        }
+        detail = await client.call_tool("capabilities.get", {"capability_id": "image.generate"})
+        assert detail.structured_content == capability
+        assert (
+            await client.call_tool("capabilities.get", {"capability_id": "missing.operation"})
+        ).is_error
         models = await client.call_tool("models.list", {"kind": "checkpoint"})
         assert len(models.structured_content["models"]) == 1
         detail = await client.call_tool("models.get", {"model_id": "checkpoint:base.safetensors"})
@@ -95,6 +112,19 @@ async def test_real_stdio_startup_and_tools(tmp_path):
     async with Client(server, read_timeout_seconds=10) as client:
         assert {tool.name for tool in (await client.list_tools()).tools} == TOOL_NAMES
         assert (await client.call_tool("models.list")).structured_content == {"models": []}
+
+
+async def test_provider_unavailable_does_not_make_hub_unhealthy(settings):
+    def unavailable(request):
+        raise httpx.ConnectError("provider offline", request=request)
+
+    server = create_server(settings, transport=httpx.MockTransport(unavailable))
+    async with Client(server) as client:
+        health = (await client.call_tool("system.health")).structured_content
+        assert health["healthy"] is True
+        assert health["providers"][0]["available"] is False
+        capabilities = (await client.call_tool("capabilities.list")).structured_content
+        assert capabilities["capabilities"][0]["available"] is False
 
 
 async def test_asset_size_limit_is_actionable_over_mcp(settings, fake, monkeypatch):
