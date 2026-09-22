@@ -10,6 +10,7 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import __version__
+from .capabilities import Capability, CapabilityRegistry
 from .comfyui import ComfyUIClient
 from .config import ModelKind, Settings
 from .jobs import GenerationBusyError, JobStore
@@ -29,6 +30,16 @@ def create_server(
     workflows = WorkflowStore(catalog, settings.workflow_dir)
     client = ComfyUIClient(settings, transport)
     providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
+    capabilities = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="comfyui",
+                runtime_id="janku",
+                workflow_templates=("text-to-image", "text-to-image-lora"),
+            ),
+        )
+    )
     jobs = JobStore(workflows, providers, settings.output_dir)
 
     @asynccontextmanager
@@ -40,10 +51,15 @@ def create_server(
 
     server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
 
+    async def provider_availability() -> tuple[list[dict[str, object]], dict[str, bool]]:
+        health = await providers.health()
+        availability = {item["id"]: item.get("available") is True for item in health}
+        return health, availability
+
     @server.tool(name="system.health")
     async def health() -> dict[str, Any]:
         """Check this process and provider connectivity/queue availability."""
-        provider_health = await providers.health()
+        provider_health, _ = await provider_availability()
         return {
             "healthy": True,
             "version": __version__,
@@ -52,6 +68,18 @@ def create_server(
             "provider": "comfyui",
             "provider_health": provider_health[0],
         }
+
+    @server.tool(name="capabilities.list")
+    async def list_capabilities() -> dict[str, Any]:
+        """List provider-independent operations and current availability."""
+        _, availability = await provider_availability()
+        return {"capabilities": capabilities.list(availability)}
+
+    @server.tool(name="capabilities.get")
+    async def get_capability(capability_id: str) -> dict[str, Any]:
+        """Inspect one capability ID independently from provider transport details."""
+        _, availability = await provider_availability()
+        return capabilities.get(capability_id, availability)
 
     @server.tool(name="models.list")
     def list_models(kind: ModelKind | None = None) -> dict[str, Any]:
