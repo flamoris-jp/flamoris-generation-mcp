@@ -12,6 +12,8 @@ For larger changes, new providers, new public MCP tools, transport changes, or a
 
 Keep provider-specific behavior behind adapters and avoid speculative abstractions for media types or providers that are not yet implemented.
 
+Before adding a feature, confirm that it belongs here rather than in `flamoris-ai-agent`, `flamoris-intelligence-mcp`, a FLAMORIS product repository, or FLAMORIS Commons. Generation MCP owns generative-media and closely related media-analysis execution, not persistent Agent memory or general language/reasoning/coding intelligence.
+
 ## Pull requests
 
 Please:
@@ -52,6 +54,8 @@ FLAMORIS Generation MCPは、MCPネイティブなメディア生成サーバー
 大きな変更、新しいprovider、新しい公開MCP tool、transport変更、アーキテクチャ変更は、実装前にIssueで意図や境界を相談してください。
 
 provider固有の処理はadapterの後ろに置き、まだ実装していないmedia typeやproviderのための先回りした抽象化は避けます。
+
+機能を追加する前に、`flamoris-ai-agent`、`flamoris-intelligence-mcp`、各FLAMORIS製品、FLAMORIS Commonsのどこへ置くべきか確認してください。Generation MCPはgenerative mediaと密接なmedia-domain analysisを担当し、永続Agent Memoryや一般的な言語・推論・Coding intelligenceは担当しません。
 
 ## Pull Request
 
