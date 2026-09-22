@@ -92,37 +92,31 @@ Conceptual interface:
 
 ```python
 class GenerationProvider(Protocol):
-    async def health(self) -> ProviderHealth:
-        ...
+    async def health(self) -> ProviderHealth: ...
 
     async def submit(
         self,
         operation: Operation,
         request: GenerationRequest,
         job_id: str,
-    ) -> ProviderJob:
-        ...
+    ) -> ProviderJob: ...
 
     async def inspect(
         self,
         provider_job_id: str,
-    ) -> JobSnapshot:
-        ...
+    ) -> JobSnapshot: ...
 
     async def cancel(
         self,
         provider_job_id: str,
-    ) -> JobSnapshot:
-        ...
+    ) -> JobSnapshot: ...
 
     async def materialize(
         self,
         output: ProviderOutput,
-    ) -> bytes | Path:
-        ...
+    ) -> bytes | Path: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 ```
 
 Expected provider modules:
@@ -709,3 +703,4 @@ video.motion_reference
 ```
 
 without depending on whether the implementation is AnimeGen, another future video runtime, or a different provider transport.
+

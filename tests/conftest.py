@@ -3,10 +3,13 @@ import json
 import httpx
 import pytest
 
+from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
 from flamoris_generation_mcp.comfyui import ComfyUIClient
 from flamoris_generation_mcp.config import Settings
 from flamoris_generation_mcp.jobs import JobStore
 from flamoris_generation_mcp.models import ModelCatalog
+from flamoris_generation_mcp.providers import ProviderRegistry
+from flamoris_generation_mcp.providers.comfyui import ComfyUIProvider
 from flamoris_generation_mcp.workflows import WorkflowStore
 
 
@@ -101,6 +104,18 @@ def fake():
 @pytest.fixture
 async def stores(settings, fake):
     client = ComfyUIClient(settings, httpx.MockTransport(fake.handle))
-    workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
-    yield workflows, JobStore(workflows, client, settings.output_dir), client
+    catalog = ModelCatalog(settings)
+    workflows = WorkflowStore(catalog, settings.workflow_dir)
+    providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
+    capabilities = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="comfyui",
+                runtime_id="janku",
+                workflow_templates=("text-to-image", "text-to-image-lora"),
+            ),
+        )
+    )
+    yield workflows, JobStore(workflows, providers, capabilities, settings.output_dir), client
     await client.close()

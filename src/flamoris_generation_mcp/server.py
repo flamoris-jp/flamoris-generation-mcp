@@ -10,10 +10,13 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import __version__
-from .comfyui import ComfyUIClient, ProviderError
+from .capabilities import Capability, CapabilityRegistry
+from .comfyui import ComfyUIClient
 from .config import ModelKind, Settings
 from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
+from .providers import ProviderError, ProviderRegistry
+from .providers.comfyui import ComfyUIProvider
 from .workflows import Parameters, Template, WorkflowStore
 
 
@@ -26,26 +29,59 @@ def create_server(
     catalog = ModelCatalog(settings)
     workflows = WorkflowStore(catalog, settings.workflow_dir)
     client = ComfyUIClient(settings, transport)
-    jobs = JobStore(workflows, client, settings.output_dir)
+    providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
+    capabilities = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="comfyui",
+                runtime_id="janku",
+                workflow_templates=("text-to-image", "text-to-image-lora"),
+            ),
+        )
+    )
+    jobs = JobStore(workflows, providers, capabilities, settings.output_dir)
 
     @asynccontextmanager
     async def lifespan(server):
         try:
             yield None
         finally:
-            await client.close()
+            await providers.close()
 
     server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
+
+    async def provider_availability() -> tuple[list[dict[str, object]], dict[str, bool]]:
+        health = await providers.health()
+        availability = {item["id"]: item.get("available") is True for item in health}
+        return health, availability
 
     @server.tool(name="system.health")
     async def health() -> dict[str, Any]:
         """Check this process and provider connectivity/queue availability."""
+        provider_health, _ = await provider_availability()
         return {
             "healthy": True,
             "version": __version__,
+            **jobs.activity(),
+            "providers": provider_health,
             "provider": "comfyui",
-            "provider_health": await client.health(),
+            "provider_health": {
+                key: value for key, value in provider_health[0].items() if key != "id"
+            },
         }
+
+    @server.tool(name="capabilities.list")
+    async def list_capabilities() -> dict[str, Any]:
+        """List provider-independent operations and current availability."""
+        _, availability = await provider_availability()
+        return {"capabilities": capabilities.list(availability)}
+
+    @server.tool(name="capabilities.get")
+    async def get_capability(capability_id: str) -> dict[str, Any]:
+        """Inspect one capability ID independently from provider transport details."""
+        _, availability = await provider_availability()
+        return capabilities.get(capability_id, availability)
 
     @server.tool(name="models.list")
     def list_models(kind: ModelKind | None = None) -> dict[str, Any]:

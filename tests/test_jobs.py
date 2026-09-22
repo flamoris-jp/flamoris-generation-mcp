@@ -30,6 +30,17 @@ async def test_complete_lifecycle_and_repeated_result(stores, fake, settings):
     fake.finish()
     result = await jobs.result(key)
     assert result["status"] == "completed"
+    assert result["operation"] == "image.generate"
+    assert result["provider_id"] == "comfyui"
+    assert result["provider_execution_id"] == "prompt-1"
+    assert result["outputs"] == [
+        {
+            "output_id": "000",
+            "filename": "result.png",
+            "media_kind": "image",
+            "mime_type": "image/png",
+        }
+    ]
     assert result["parameters"]["seed"] == 42
     assert result["template"] == "text-to-image"
     assert len(result["files"]) == 1
@@ -62,14 +73,15 @@ async def test_simultaneous_submits_cannot_both_reach_provider(stores, fake, mon
     _, jobs, _ = stores
     entered = asyncio.Event()
     release = asyncio.Event()
-    original_submit = jobs.client.submit
+    provider = jobs.providers.get("comfyui")
+    original_submit = provider.submit
 
-    async def blocked_submit(prompt, client_id):
+    async def blocked_submit(request, job_id):
         entered.set()
         await release.wait()
-        return await original_submit(prompt, client_id)
+        return await original_submit(request, job_id)
 
-    monkeypatch.setattr(jobs.client, "submit", blocked_submit)
+    monkeypatch.setattr(provider, "submit", blocked_submit)
     first_task = asyncio.create_task(submit(stores))
     await entered.wait()
 
@@ -83,16 +95,17 @@ async def test_simultaneous_submits_cannot_both_reach_provider(stores, fake, mon
 
 async def test_provider_submit_failure_releases_exclusivity(stores, fake, monkeypatch):
     _, jobs, _ = stores
-    original_submit = jobs.client.submit
+    provider = jobs.providers.get("comfyui")
+    original_submit = provider.submit
 
-    async def failed_submit(prompt, client_id):
+    async def failed_submit(request, job_id):
         raise ProviderError("provider rejected test submission")
 
-    monkeypatch.setattr(jobs.client, "submit", failed_submit)
+    monkeypatch.setattr(provider, "submit", failed_submit)
     with pytest.raises(ProviderError, match="provider rejected"):
         await submit(stores)
 
-    monkeypatch.setattr(jobs.client, "submit", original_submit)
+    monkeypatch.setattr(provider, "submit", original_submit)
     await submit(stores)
     assert len(fake.prompts) == 1
 
