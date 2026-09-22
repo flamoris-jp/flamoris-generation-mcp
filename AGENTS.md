@@ -22,6 +22,16 @@ These instructions apply to the entire repository.
 - Keep model discovery filesystem-based unless a future requirement justifies a registry or database.
 - LoRA support must preserve explicit ordering and separate model/CLIP strengths.
 
+## FLAMORIS AI boundaries
+
+- This repository is the generative-media and closely related media-analysis execution boundary in the FLAMORIS AI family.
+- `flamoris-ai-agent` owns persistent conversations, memory, prompts, tools, and Agent policy.
+- `flamoris-intelligence-mcp` owns language, reasoning, coding, and related intelligence capabilities exposed through MCP.
+- Media-domain analysis may remain here when it participates in the same capability/workflow/job/provider/asset lifecycle as generative media.
+- Product repositories remain authoritative for their own project/document state and editing behavior.
+- The Generation Hub is the provider-neutral coordination architecture inside this repository, not a separate repository or second authority.
+- Shared non-AI infrastructure belongs in FLAMORIS Commons or its dedicated shared repositories.
+
 ## Compatibility and dependencies
 
 - Do not depend on the .NET implementation or packages from `flamoris-mcp-core`.
