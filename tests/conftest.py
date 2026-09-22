@@ -3,6 +3,7 @@ import json
 import httpx
 import pytest
 
+from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
 from flamoris_generation_mcp.comfyui import ComfyUIClient
 from flamoris_generation_mcp.config import Settings
 from flamoris_generation_mcp.jobs import JobStore
@@ -106,5 +107,15 @@ async def stores(settings, fake):
     catalog = ModelCatalog(settings)
     workflows = WorkflowStore(catalog, settings.workflow_dir)
     providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
-    yield workflows, JobStore(workflows, providers, settings.output_dir), client
+    capabilities = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="comfyui",
+                runtime_id="janku",
+                workflow_templates=("text-to-image", "text-to-image-lora"),
+            ),
+        )
+    )
+    yield workflows, JobStore(workflows, providers, capabilities, settings.output_dir), client
     await client.close()

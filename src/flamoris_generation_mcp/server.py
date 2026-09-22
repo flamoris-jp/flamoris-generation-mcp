@@ -40,7 +40,7 @@ def create_server(
             ),
         )
     )
-    jobs = JobStore(workflows, providers, settings.output_dir)
+    jobs = JobStore(workflows, providers, capabilities, settings.output_dir)
 
     @asynccontextmanager
     async def lifespan(server):

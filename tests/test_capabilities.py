@@ -21,6 +21,7 @@ def test_capability_identity_is_independent_from_provider_and_runtime():
     assert capability["provider_id"] == "comfyui"
     assert capability["runtime_id"] == "janku"
     assert capability["available"] is True
+    assert registry.resolve_workflow("text-to-image").capability_id == "image.generate"
 
 
 def test_capability_availability_defaults_false_and_unknown_is_rejected():
@@ -49,6 +50,26 @@ def test_invalid_capability_identity_is_rejected(capability_id):
                     capability_id=capability_id,
                     provider_id="comfyui",
                     runtime_id="janku",
+                    workflow_templates=("text-to-image",),
+                ),
+            )
+        )
+
+
+def test_workflow_template_cannot_route_to_multiple_capabilities():
+    with pytest.raises(ValueError, match="already assigned"):
+        CapabilityRegistry(
+            (
+                Capability(
+                    capability_id="image.generate",
+                    provider_id="comfyui",
+                    runtime_id="janku",
+                    workflow_templates=("text-to-image",),
+                ),
+                Capability(
+                    capability_id="image.alternate",
+                    provider_id="alternate",
+                    runtime_id="alternate",
                     workflow_templates=("text-to-image",),
                 ),
             )

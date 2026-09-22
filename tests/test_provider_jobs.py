@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
 from flamoris_generation_mcp.jobs import GenerationBusyError, JobStore
 from flamoris_generation_mcp.models import ModelCatalog
 from flamoris_generation_mcp.providers import (
@@ -13,13 +14,12 @@ from flamoris_generation_mcp.providers import (
     ProviderOutput,
     ProviderRegistry,
 )
-from flamoris_generation_mcp.workflows import Parameters, WorkflowStore
+from flamoris_generation_mcp.workflows import Lora, Parameters, WorkflowStore
 
 
 class FakeProvider:
-    provider_id = "fake"
-
-    def __init__(self):
+    def __init__(self, provider_id="fake"):
+        self.provider_id = provider_id
         self.requests: list[tuple[GenerationRequest, str]] = []
         self.snapshots: dict[str, JobSnapshot] = {}
         self.submit_error: ProviderError | None = None
@@ -64,7 +64,17 @@ def make_store(settings):
     workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
     provider = FakeProvider()
     providers = ProviderRegistry((provider,))
-    jobs = JobStore(workflows, providers, settings.output_dir, provider_id="fake")
+    capabilities = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="fake",
+                runtime_id="fake-image",
+                workflow_templates=("text-to-image", "text-to-image-lora"),
+            ),
+        )
+    )
+    jobs = JobStore(workflows, providers, capabilities, settings.output_dir)
     workflow = workflows.build(
         "text-to-image",
         Parameters(checkpoint="base.safetensors", positive_prompt="flowers"),
@@ -87,6 +97,7 @@ async def test_job_store_tracks_provider_neutral_identity_and_outputs(settings):
 
     provider.snapshots["execution-1"] = JobSnapshot(
         status="completed",
+        metadata={"job_id": "provider-override", "provider_id": "provider-override"},
         outputs=(
             ProviderOutput(
                 output_id="image-0",
@@ -98,6 +109,8 @@ async def test_job_store_tracks_provider_neutral_identity_and_outputs(settings):
     )
     result = await jobs.result(submitted["job_id"])
 
+    assert result["job_id"] == submitted["job_id"]
+    assert result["provider_id"] == "fake"
     assert result["outputs"] == [
         {
             "output_id": "image-0",
@@ -134,6 +147,78 @@ async def test_provider_neutral_submit_reservation_is_race_safe(settings):
     provider.submit_release.set()
     assert (await first)["provider_execution_id"] == "execution-1"
     assert len(provider.requests) == 1
+
+
+async def test_capability_routes_two_operations_through_one_job_authority(settings):
+    workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
+    image_provider = FakeProvider("image-provider")
+    music_provider = FakeProvider("music-provider")
+    providers = ProviderRegistry((image_provider, music_provider))
+    capabilities = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="image-provider",
+                runtime_id="image-runtime",
+                workflow_templates=("text-to-image",),
+            ),
+            Capability(
+                capability_id="music.generate",
+                provider_id="music-provider",
+                runtime_id="music-runtime",
+                workflow_templates=("text-to-image-lora",),
+            ),
+        )
+    )
+    jobs = JobStore(workflows, providers, capabilities, settings.output_dir)
+    image_workflow = workflows.build(
+        "text-to-image",
+        Parameters(checkpoint="base.safetensors", positive_prompt="flowers"),
+    )["workflow_id"]
+    music_workflow = workflows.build(
+        "text-to-image-lora",
+        Parameters(
+            checkpoint="base.safetensors",
+            positive_prompt="melody",
+            loras=(Lora(name="style.safetensors"),),
+        ),
+    )["workflow_id"]
+
+    image_job = await jobs.submit(image_workflow)
+    with pytest.raises(GenerationBusyError, match="Generation is busy"):
+        await jobs.submit(music_workflow)
+
+    image_provider.snapshots["execution-1"] = JobSnapshot(status="completed")
+    assert (await jobs.status(image_job["job_id"]))["status"] == "completed"
+    music_job = await jobs.submit(music_workflow)
+
+    assert image_job["operation"] == "image.generate"
+    assert image_job["provider_id"] == "image-provider"
+    assert image_provider.requests[0][0].operation == "image.generate"
+    assert music_job["operation"] == "music.generate"
+    assert music_job["provider_id"] == "music-provider"
+    assert music_provider.requests[0][0].operation == "music.generate"
+
+
+def test_provider_metadata_cannot_override_normalized_job_fields():
+    snapshot = JobSnapshot(
+        status="running",
+        error=None,
+        outputs=(),
+        metadata={
+            "status": "failed",
+            "error": {"code": "provider_override"},
+            "outputs": [{"provider": "override"}],
+            "provider_note": "retained",
+        },
+    )
+
+    serialized = snapshot.as_dict()
+
+    assert serialized["status"] == "running"
+    assert serialized["error"] is None
+    assert serialized["outputs"] == []
+    assert serialized["provider_note"] == "retained"
 
 
 async def test_cancel_requested_keeps_capacity_until_terminal_confirmation(settings):

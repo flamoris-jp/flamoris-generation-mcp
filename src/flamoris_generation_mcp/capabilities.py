@@ -24,6 +24,7 @@ class Capability:
 class CapabilityRegistry:
     def __init__(self, capabilities: tuple[Capability, ...] = ()):
         self._capabilities: dict[str, Capability] = {}
+        self._workflow_capabilities: dict[str, Capability] = {}
         for capability in capabilities:
             self.register(capability)
 
@@ -32,7 +33,19 @@ class CapabilityRegistry:
             raise ValueError("Capability ID must be a stable dotted lowercase identifier")
         if capability.capability_id in self._capabilities:
             raise ValueError(f"Duplicate capability ID: {capability.capability_id}")
+        duplicate_workflows = [
+            template
+            for template in capability.workflow_templates
+            if template in self._workflow_capabilities
+        ]
+        if duplicate_workflows:
+            raise ValueError(
+                "Workflow template is already assigned to a capability: "
+                + ", ".join(duplicate_workflows)
+            )
         self._capabilities[capability.capability_id] = capability
+        for template in capability.workflow_templates:
+            self._workflow_capabilities[template] = capability
 
     def list(self, availability: dict[str, bool]) -> list[dict[str, object]]:
         return [
@@ -46,3 +59,11 @@ class CapabilityRegistry:
         except KeyError:
             raise ValueError(f"Unknown capability ID: {capability_id}") from None
         return capability.as_dict(available=availability.get(capability.provider_id, False))
+
+    def resolve_workflow(self, workflow_template: str) -> Capability:
+        try:
+            return self._workflow_capabilities[workflow_template]
+        except KeyError:
+            raise ValueError(
+                f"No capability is registered for workflow template: {workflow_template}"
+            ) from None

@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
+from .capabilities import CapabilityRegistry
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
-from .workflows import Recipe, WorkflowStore, atomic_write, checked_id, operation_for
+from .workflows import Recipe, WorkflowStore, atomic_write, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -43,13 +44,13 @@ class JobStore:
         self,
         workflows: WorkflowStore,
         providers: ProviderRegistry,
+        capabilities: CapabilityRegistry,
         output_dir: Path,
-        provider_id: str = "comfyui",
     ):
         self.workflows = workflows
         self.providers = providers
+        self.capabilities = capabilities
         self.output_dir = output_dir
-        self.provider_id = provider_id
         self._jobs: dict[str, Job] = {}
         self._submit_lock = asyncio.Lock()
         self._active_job_id: str | None = None
@@ -69,8 +70,10 @@ class JobStore:
 
     async def submit(self, workflow_id: str) -> dict:
         recipe = self.workflows.get(workflow_id)
-        operation = operation_for(recipe)
-        provider = self.providers.get(self.provider_id)
+        capability = self.capabilities.resolve_workflow(recipe.template)
+        operation = capability.capability_id
+        provider_id = capability.provider_id
+        provider = self.providers.get(provider_id)
         async with self._submit_lock:
             active = self._active_job()
             if active is not None:
@@ -107,7 +110,7 @@ class JobStore:
             workflow_id=workflow_id,
             operation=operation,
             recipe=recipe,
-            provider_id=self.provider_id,
+            provider_id=provider_id,
             provider_execution_id=provider_job.execution_id,
         )
         return self._metadata(self._jobs[job_id])
@@ -121,6 +124,7 @@ class JobStore:
     @staticmethod
     def _metadata(job: Job) -> dict:
         return {
+            **job.snapshot.as_dict(),
             "job_id": job.job_id,
             "operation": job.operation,
             "provider": job.provider_id,
@@ -128,7 +132,6 @@ class JobStore:
             "provider_execution_id": job.provider_execution_id,
             "workflow_id": job.workflow_id,
             **job.recipe.model_dump(mode="json"),
-            **job.snapshot.as_dict(),
         }
 
     async def _refresh(self, job_id: str, job: Job) -> None:

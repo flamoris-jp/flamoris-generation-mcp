@@ -17,10 +17,6 @@ TEMPLATES = [
     {"id": "text-to-image", "description": "Checkpoint-based text-to-image; no LoRAs"},
     {"id": "text-to-image-lora", "description": "Text-to-image with an ordered LoRA chain"},
 ]
-TEMPLATE_OPERATIONS: dict[Template, str] = {
-    "text-to-image": "image.generate",
-    "text-to-image-lora": "image.generate",
-}
 
 
 class Lora(BaseModel):
@@ -55,10 +51,6 @@ class Recipe(BaseModel):
     schema_version: Literal[1] = 1
     template: Template
     parameters: Parameters
-
-
-def operation_for(recipe: Recipe) -> str:
-    return TEMPLATE_OPERATIONS[recipe.template]
 
 
 def build_prompt(recipe: Recipe, catalog: ModelCatalog) -> dict:

@@ -68,10 +68,10 @@ class JobSnapshot:
 
     def as_dict(self) -> dict[str, object]:
         return {
+            **self.metadata,
             "status": self.status,
             "error": dict(self.error) if self.error is not None else None,
             "outputs": [output.as_dict() for output in self.outputs],
-            **self.metadata,
         }
 
 

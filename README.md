@@ -13,6 +13,8 @@ The process owns one `ProviderRegistry`, `CapabilityRegistry`, `WorkflowStore` a
 `JobStore`. `JobStore` is the single authority for Hub job identity and the
 single-generation reservation; providers execute work and normalize their own
 execution IDs, states, errors and outputs behind a small provider interface.
+Each workflow template maps to exactly one capability, whose explicit provider ID
+is resolved at submission time; there is no automatic provider selection.
 ComfyUI is the only registered provider in this phase, but it is not the identity
 of the Hub.
 
