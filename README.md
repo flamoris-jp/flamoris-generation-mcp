@@ -5,7 +5,20 @@ an existing ComfyUI service using trusted templates and user-facing parameters.
 No .NET runtime or `flamoris-mcp-core` package is required. MCP Core informed the
 typed-tool and single-authority boundary only; ComfyUI owns execution.
 
-Part of the [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons) ecosystem.
+Part of the [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai) family.
+
+Shared non-AI foundations remain in [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons).
+
+## Ecosystem boundary
+
+FLAMORIS Generation MCP owns generative-media and closely related media-analysis execution: workflows, jobs, provider coordination, and generated/materialized assets.
+
+- [FLAMORIS AI Agent](https://github.com/flamoris-jp/flamoris-ai-agent) owns persistent conversations, memory, prompts, tools, and Agent policy.
+- [FLAMORIS Intelligence MCP](https://github.com/flamoris-jp/flamoris-intelligence-mcp) owns the MCP-facing boundary for language, reasoning, coding, and related intelligence capabilities.
+- FLAMORIS product repositories remain authoritative for their own project/document state and editing behavior.
+- The **Generation Hub** is the provider-neutral coordination architecture inside this repository. It is not a separate repository or a second authority.
+
+Media-domain analysis such as music transcription may belong here when it participates in the same capability → workflow → job → provider → asset lifecycle. General language/reasoning/coding intelligence belongs in Intelligence MCP.
 
 ## Setup
 
@@ -277,7 +290,11 @@ If FLAMORIS helps you or you find it interesting, your support helps fund develo
 
 ## 日本語
 
-FLAMORIS Generation MCPは、画像・動画・音楽・音声などの生成をMCPから扱うための小さなPythonサーバーです。
+FLAMORIS Generation MCPは、画像・動画・音楽・音声などの生成と、それに密接なmedia-domain analysisをMCPから扱うprovider-neutralなgatewayを目指す小さなPythonサーバーです。
+
+現行実装はComfyUIによる画像生成から開始しています。複数providerへ拡張するGeneration Hubは、このリポジトリ内部のcoordination architectureであり、別リポジトリではありません。
+
+Conversation / Memory / Agent policyは `flamoris-ai-agent`、言語・推論・Coding系のintelligenceは `flamoris-intelligence-mcp`、制作データのauthorityは各FLAMORIS製品が持ちます。
 
 勝手に使ってください。  
 改造しても、組み込んでも、面白いものや変なものを作ってもOKです。
