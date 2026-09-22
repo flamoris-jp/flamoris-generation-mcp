@@ -1,4 +1,4 @@
-"""Session-owned jobs and generated assets; ComfyUI remains the execution authority."""
+"""Process-owned Hub jobs, exclusivity and generated asset authority."""
 
 import asyncio
 import json
@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
-from .comfyui import ComfyUIClient
-from .workflows import Recipe, WorkflowStore, atomic_write, build_prompt, checked_id
+from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
+from .workflows import Recipe, WorkflowStore, atomic_write, checked_id, operation_for
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -28,20 +28,28 @@ MEDIA_TYPES = {
 
 @dataclass
 class Job:
+    job_id: str
     workflow_id: str
+    operation: str
     recipe: Recipe
-    prompt_id: str
-    snapshot: dict = field(
-        default_factory=lambda: {"status": "queued", "error": None, "outputs": []}
-    )
+    provider_id: str
+    provider_execution_id: str
+    snapshot: JobSnapshot = field(default_factory=lambda: JobSnapshot(status="queued"))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class JobStore:
-    def __init__(self, workflows: WorkflowStore, client: ComfyUIClient, output_dir: Path):
+    def __init__(
+        self,
+        workflows: WorkflowStore,
+        providers: ProviderRegistry,
+        output_dir: Path,
+        provider_id: str = "comfyui",
+    ):
         self.workflows = workflows
-        self.client = client
+        self.providers = providers
         self.output_dir = output_dir
+        self.provider_id = provider_id
         self._jobs: dict[str, Job] = {}
         self._submit_lock = asyncio.Lock()
         self._active_job_id: str | None = None
@@ -50,10 +58,10 @@ class JobStore:
         if self._active_job_id is None:
             return None
         job = self._jobs.get(self._active_job_id)
-        return self._active_job_id, job.snapshot["status"] if job else "submitting"
+        return self._active_job_id, job.snapshot.status if job else "submitting"
 
     async def _release_if_terminal(self, job_id: str, job: Job) -> None:
-        if job.snapshot["status"] not in TERMINAL:
+        if job.snapshot.status not in TERMINAL:
             return
         async with self._submit_lock:
             if self._active_job_id == job_id:
@@ -61,7 +69,8 @@ class JobStore:
 
     async def submit(self, workflow_id: str) -> dict:
         recipe = self.workflows.get(workflow_id)
-        prompt = build_prompt(recipe, self.workflows.catalog)
+        operation = operation_for(recipe)
+        provider = self.providers.get(self.provider_id)
         async with self._submit_lock:
             active = self._active_job()
             if active is not None:
@@ -79,15 +88,28 @@ class JobStore:
             self._active_job_id = job_id
 
         try:
-            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
-            prompt_id = await self.client.submit(prompt, job_id)
+            provider_job = await provider.submit(
+                GenerationRequest(
+                    operation=operation,
+                    workflow_id=workflow_id,
+                    payload=recipe,
+                ),
+                job_id,
+            )
         except BaseException:
             async with self._submit_lock:
                 if self._active_job_id == job_id:
                     self._active_job_id = None
             raise
 
-        self._jobs[job_id] = Job(workflow_id, recipe, prompt_id)
+        self._jobs[job_id] = Job(
+            job_id=job_id,
+            workflow_id=workflow_id,
+            operation=operation,
+            recipe=recipe,
+            provider_id=self.provider_id,
+            provider_execution_id=provider_job.execution_id,
+        )
         return self._metadata(job_id, self._jobs[job_id])
 
     def _get(self, job_id: str) -> Job:
@@ -100,15 +122,19 @@ class JobStore:
     def _metadata(job_id: str, job: Job) -> dict:
         return {
             "job_id": job_id,
-            "provider": "comfyui",
+            "operation": job.operation,
+            "provider": job.provider_id,
+            "provider_id": job.provider_id,
+            "provider_execution_id": job.provider_execution_id,
             "workflow_id": job.workflow_id,
             **job.recipe.model_dump(mode="json"),
-            **job.snapshot,
+            **job.snapshot.as_dict(),
         }
 
     async def _refresh(self, job_id: str, job: Job) -> None:
-        if job.snapshot["status"] not in TERMINAL:
-            job.snapshot = await self.client.inspect(job.prompt_id)
+        if job.snapshot.status not in TERMINAL:
+            provider = self.providers.get(job.provider_id)
+            job.snapshot = await provider.inspect(job.provider_execution_id)
         await self._release_if_terminal(job_id, job)
 
     async def status(self, job_id: str) -> dict:
@@ -139,12 +165,16 @@ class JobStore:
             await self._refresh(job_id, job)
             result = self._metadata(job_id, job)
             result["files"] = []
-            if job.snapshot["status"] == "completed":
-                for index, output in enumerate(job.snapshot["outputs"]):
-                    suffix = Path(output["filename"]).suffix.lower()
+            if job.snapshot.status == "completed":
+                provider = self.providers.get(job.provider_id)
+                for index, output in enumerate(job.snapshot.outputs):
+                    suffix = Path(output.filename).suffix.lower()
                     path = self._local_output_path(job_id, index, suffix)
                     if not path.is_file():
-                        atomic_write(path, await self.client.download(output))
+                        atomic_write(
+                            path,
+                            await provider.materialize(job.provider_execution_id, output.output_id),
+                        )
                     result["files"].append({"file": str(path), "size_bytes": path.stat().st_size})
                 directory = self.output_dir / job_id
                 atomic_write(directory / "metadata.json", json.dumps(result, indent=2).encode())
@@ -162,13 +192,15 @@ class JobStore:
         return match.group(1), int(match.group(2))
 
     def _asset_metadata(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
-        if index >= len(job.snapshot["outputs"]):
+        if index >= len(job.snapshot.outputs):
             raise ValueError("Unknown asset ID")
-        output = job.snapshot["outputs"][index]
-        suffix = Path(output["filename"]).suffix.lower()
+        output = job.snapshot.outputs[index]
+        suffix = Path(output.filename).suffix.lower()
         media_kind, mime_type, _ = MEDIA_TYPES.get(suffix, (None, None, None))
         if media_kind is None:
             raise ValueError("Unsupported generated media output extension")
+        if (output.media_kind, output.mime_type) != (media_kind, mime_type):
+            raise ValueError("Provider output metadata does not match its filename")
         path = self._local_output_path(job_id, index, suffix)
         materialized = path.is_file()
         asset = {
@@ -186,8 +218,12 @@ class JobStore:
     async def _materialize_asset(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
         asset, path = self._asset_metadata(job_id, job, index)
         if not asset["materialized"]:
-            output = job.snapshot["outputs"][index]
-            atomic_write(path, await self.client.download(output))
+            output = job.snapshot.outputs[index]
+            provider = self.providers.get(job.provider_id)
+            atomic_write(
+                path,
+                await provider.materialize(job.provider_execution_id, output.output_id),
+            )
             asset["size_bytes"] = path.stat().st_size
             asset["materialized"] = True
         return asset, path
@@ -196,11 +232,11 @@ class JobStore:
         job = self._get(job_id)
         async with job.lock:
             await self._refresh(job_id, job)
-            if job.snapshot["status"] != "completed":
+            if job.snapshot.status != "completed":
                 raise ValueError("Assets are available only for completed jobs")
             assets = [
                 self._asset_metadata(job_id, job, index)[0]
-                for index in range(len(job.snapshot["outputs"]))
+                for index in range(len(job.snapshot.outputs))
             ]
             return {"job_id": job_id, "assets": assets}
 
@@ -209,7 +245,7 @@ class JobStore:
         job = self._get(job_id)
         async with job.lock:
             await self._refresh(job_id, job)
-            if job.snapshot["status"] != "completed":
+            if job.snapshot.status != "completed":
                 raise ValueError("Assets are available only for completed jobs")
             asset, path = await self._materialize_asset(job_id, job, index)
             suffix = path.suffix.lower()
@@ -225,7 +261,15 @@ class JobStore:
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
-            if job.snapshot["status"] not in TERMINAL:
-                job.snapshot = await self.client.cancel(job.prompt_id)
+            if job.snapshot.status not in TERMINAL:
+                provider = self.providers.get(job.provider_id)
+                job.snapshot = await provider.cancel(job.provider_execution_id)
             await self._release_if_terminal(job_id, job)
             return self._metadata(job_id, job)
+
+    def activity(self) -> dict[str, object]:
+        active = self._active_job()
+        return {
+            "busy": active is not None and active[1] not in TERMINAL,
+            "active_job_id": active[0] if active is not None else None,
+        }

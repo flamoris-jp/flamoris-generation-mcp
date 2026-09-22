@@ -7,6 +7,8 @@ from flamoris_generation_mcp.comfyui import ComfyUIClient
 from flamoris_generation_mcp.config import Settings
 from flamoris_generation_mcp.jobs import JobStore
 from flamoris_generation_mcp.models import ModelCatalog
+from flamoris_generation_mcp.providers import ProviderRegistry
+from flamoris_generation_mcp.providers.comfyui import ComfyUIProvider
 from flamoris_generation_mcp.workflows import WorkflowStore
 
 
@@ -101,6 +103,8 @@ def fake():
 @pytest.fixture
 async def stores(settings, fake):
     client = ComfyUIClient(settings, httpx.MockTransport(fake.handle))
-    workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
-    yield workflows, JobStore(workflows, client, settings.output_dir), client
+    catalog = ModelCatalog(settings)
+    workflows = WorkflowStore(catalog, settings.workflow_dir)
+    providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
+    yield workflows, JobStore(workflows, providers, settings.output_dir), client
     await client.close()

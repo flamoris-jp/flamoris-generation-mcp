@@ -10,10 +10,12 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import __version__
-from .comfyui import ComfyUIClient, ProviderError
+from .comfyui import ComfyUIClient
 from .config import ModelKind, Settings
 from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
+from .providers import ProviderError, ProviderRegistry
+from .providers.comfyui import ComfyUIProvider
 from .workflows import Parameters, Template, WorkflowStore
 
 
@@ -26,25 +28,29 @@ def create_server(
     catalog = ModelCatalog(settings)
     workflows = WorkflowStore(catalog, settings.workflow_dir)
     client = ComfyUIClient(settings, transport)
-    jobs = JobStore(workflows, client, settings.output_dir)
+    providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
+    jobs = JobStore(workflows, providers, settings.output_dir)
 
     @asynccontextmanager
     async def lifespan(server):
         try:
             yield None
         finally:
-            await client.close()
+            await providers.close()
 
     server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
 
     @server.tool(name="system.health")
     async def health() -> dict[str, Any]:
         """Check this process and provider connectivity/queue availability."""
+        provider_health = await providers.health()
         return {
             "healthy": True,
             "version": __version__,
+            **jobs.activity(),
+            "providers": provider_health,
             "provider": "comfyui",
-            "provider_health": await client.health(),
+            "provider_health": provider_health[0],
         }
 
     @server.tool(name="models.list")
