@@ -1,11 +1,26 @@
 # FLAMORIS Generation MCP
 
-A small Python MCP server for media generation. Phase 1 generates images through
-an existing ComfyUI service using trusted templates and user-facing parameters.
-No .NET runtime or `flamoris-mcp-core` package is required. MCP Core informed the
-typed-tool and single-authority boundary only; ComfyUI owns execution.
+A small Python MCP-native Generation Hub. It currently generates images through
+an existing ComfyUI service using trusted templates and user-facing parameters,
+while keeping Hub jobs, capabilities and assets independent from provider HTTP
+details. No .NET runtime or `flamoris-mcp-core` package is required.
 
 Part of the [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons) ecosystem.
+
+## Architecture
+
+The process owns one `ProviderRegistry`, `CapabilityRegistry`, `WorkflowStore` and
+`JobStore`. `JobStore` is the single authority for Hub job identity and the
+single-generation reservation; providers execute work and normalize their own
+execution IDs, states, errors and outputs behind a small provider interface.
+ComfyUI is the only registered provider in this phase, but it is not the identity
+of the Hub.
+
+`system.health` reports Hub process health separately from provider availability.
+A stopped ComfyUI instance makes the `comfyui` provider and its capabilities
+unavailable, but does not make the Hub process unhealthy. `capabilities.list` and
+`capabilities.get` expose the provider-independent operation `image.generate`
+without automatically selecting a provider.
 
 ## Setup
 
@@ -77,7 +92,7 @@ by that local endpoint (an external Host/Origin can be rejected). No proxy or
 authentication middleware is added here.
 
 Run one server process with one selected transport. Both startup modes use the
-same `MCPServer` factory, validation, stores and provider client. HTTP requests and
+same `MCPServer` factory, validation, stores and provider registry. HTTP requests and
 client sessions share that process's state; disconnecting a client does not erase
 jobs or close the provider. Separate processes do not share in-memory state, so
 multiple workers/replicas and simultaneous stdio/HTTP listeners are not provided.
@@ -134,6 +149,8 @@ and actual node/model compatibility on submission.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `system.health` | none | Process health and separate provider availability/queue counts |
+| `capabilities.list` | none | Provider-independent operations and current availability |
+| `capabilities.get` | `capability_id` | One capability, runtime/provider identity and workflow templates |
 | `models.list` | optional `kind` | Installed file metadata; no weight deserialization |
 | `models.get` | `model_id` | One installed model |
 | `workflows.list` | none | Templates and built/saved workflow IDs |
@@ -146,7 +163,8 @@ and actual node/model compatibility on submission.
 | `assets.list` | `job_id` | Metadata-only stable asset IDs; never downloads payloads |
 | `assets.get` | `asset_id` | MCP-native binary media content for one generated asset |
 
-1. Call `system.health`, then `models.list` for `checkpoint` and `lora`.
+1. Call `system.health` and optionally `capabilities.list`, then `models.list` for
+   `checkpoint` and `lora`.
 2. Call `workflows.build` with installed relative names, for example:
 
 ```json
@@ -206,7 +224,7 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
   Status, result, cancellation, model and workflow inspection remain available.
   Capacity is released only after terminal completion, failure or cancellation is
   observed; stdio and Streamable HTTP share the same process-owned guard.
-- States: `queued`, `running`, `completed`, `failed`, `cancelled`,
+- States: `submitting`, `queued`, `running`, `completed`, `failed`, `cancelled`,
   `cancel_requested`, `unknown`. A missing queue/history entry is `unknown`, not
   successful completion. Errors include node ID/type where available without
   returning provider tracebacks. Transient HTTP failures are MCP tool errors and
@@ -231,7 +249,8 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
   clients should use `assets.list` / `assets.get` to receive generated media through
   MCP. Asset reads are limited to completed known jobs, checked against the configured
   output root, reject symlinks/path escapes, and are bounded to 64 MiB per asset.
-- Reproducibility metadata contains the template, all parameters (including
+- Reproducibility metadata contains the operation, provider ID, provider-owned
+  execution ID, template, all parameters (including
   prompts, checkpoint, ordered LoRAs and seed), workflow/job IDs, status and output
   references. No weight hashes are calculated. Replacing weights under the same
   filename or changing provider versions can change results.
@@ -253,7 +272,8 @@ To add a template, extend the explicit `Template` type, template descriptions an
 trusted builder in `workflows.py`, add typed parameters where necessary, and test
 the emitted graph and rejection paths. Templates are shipped with the Python
 package; the workflow directory stores recipes only. Do not add dynamic code
-loading or raw node mutation tools. Provider-specific HTTP stays in `comfyui.py`.
+loading or raw node mutation tools. Provider-specific execution belongs behind
+`providers/`; ComfyUI HTTP parsing remains isolated in `comfyui.py`.
 
 API references: [ComfyUI server routes](https://docs.comfy.org/development/comfyui-server/comms_routes),
 [ComfyUI server implementation](https://github.com/Comfy-Org/ComfyUI/blob/master/server.py),

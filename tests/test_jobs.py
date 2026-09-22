@@ -30,6 +30,17 @@ async def test_complete_lifecycle_and_repeated_result(stores, fake, settings):
     fake.finish()
     result = await jobs.result(key)
     assert result["status"] == "completed"
+    assert result["operation"] == "image.generate"
+    assert result["provider_id"] == "comfyui"
+    assert result["provider_execution_id"] == "prompt-1"
+    assert result["outputs"] == [
+        {
+            "output_id": "000",
+            "filename": "result.png",
+            "media_kind": "image",
+            "mime_type": "image/png",
+        }
+    ]
     assert result["parameters"]["seed"] == 42
     assert result["template"] == "text-to-image"
     assert len(result["files"]) == 1
