@@ -133,3 +133,54 @@ async def test_get_asset_does_not_materialize_unrelated_outputs(stores, fake, se
     assert media_format == "png"
     assert fake.download_count == 1
     assert not (settings.output_dir / job_id / "001.png").exists()
+
+
+async def test_delete_one_of_multiple_assets_does_not_rematerialize(stores, fake, settings):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    fake.history["prompt-1"]["outputs"]["7"]["images"].append(
+        {"filename": "second.png", "subfolder": "flamoris", "type": "output"}
+    )
+    await jobs.result(job_id)
+    first = settings.output_dir / job_id / "000.png"
+    second = settings.output_dir / job_id / "001.png"
+    assert first.is_file() and second.is_file()
+
+    deleted = await jobs.delete_asset(f"{job_id}:000")
+    assert deleted["materialized_deleted"] is True
+    assert not first.exists() and second.exists()
+    assert (await jobs.delete_asset(f"{job_id}:000"))["already_deleted"] is True
+    assert [item["output_index"] for item in (await jobs.list_assets(job_id))["assets"]] == [1]
+    with pytest.raises(ValueError, match="Unknown asset"):
+        await jobs.get_asset(f"{job_id}:000")
+    await jobs.result(job_id)
+    assert not first.exists()
+    assert (await jobs.get_asset(f"{job_id}:001"))[1] == b"image fixture"
+
+
+async def test_delete_unmaterialized_asset_and_reject_invalid_paths(stores, fake, settings, tmp_path):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    assert (await jobs.delete_asset(f"{job_id}:000"))["materialized_deleted"] is False
+    assert (settings.output_dir / job_id / ".deleted-assets.json").read_text() == "[0]"
+    assert (await jobs.list_assets(job_id))["assets"] == []
+    with pytest.raises(ValueError, match="assets.list"):
+        await jobs.delete_asset("../../etc/passwd")
+
+
+
+async def test_delete_rejects_symlink_escape(stores, fake, settings, tmp_path):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    await jobs.result(job_id)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"private")
+    local = settings.output_dir / job_id / "000.png"
+    local.unlink()
+    local.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        await jobs.delete_asset(f"{job_id}:000")
+    assert outside.read_bytes() == b"private"
