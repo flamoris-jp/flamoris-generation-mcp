@@ -124,7 +124,7 @@ def create_server(
         """Submit one workflow when this process has no active generation."""
         try:
             return await jobs.submit(workflow_id)
-        except GenerationBusyError as exc:
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
 
     @server.tool(name="jobs.status")

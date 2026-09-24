@@ -151,7 +151,7 @@ class WorkflowDefinition(BaseModel):
             "provider_id": self.provider_id,
             "capability_id": self.capability_id,
             "parameters": {
-                name: spec.model_dump(mode="json", exclude_none=True)
+                name: spec.model_dump(mode="json", exclude_none=True, exclude={"node", "input"})
                 for name, spec in self.parameters.items()
             },
         }

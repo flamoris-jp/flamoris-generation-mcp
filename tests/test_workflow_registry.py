@@ -29,6 +29,7 @@ def test_discovery_binding_save_and_restart(settings, tmp_path):
     definition = store.list()["definitions"][0]
     assert definition["id"] == "basic-image" and definition["version"] == 1
     assert "graph" not in definition
+    assert "node" not in definition["parameters"]["positive_prompt"]
     assert definition["parameters"]["positive_prompt"]["required"]
     values = {"checkpoint": "base.safetensors", "positive_prompt": "flowers", "cfg": 2.5}
     first = store.build("basic-image", values)
@@ -124,6 +125,7 @@ def test_definition_environment_root_and_malformed_recipe(settings, tmp_path, mo
     data = json.loads(path.read_text())
     data["parameters"]["graph"] = {"unsafe": True}
     path.write_text(json.dumps(data))
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
     with pytest.raises(ValueError, match="Unknown workflow parameter"):
         store.prompt(store.get(key))
 
