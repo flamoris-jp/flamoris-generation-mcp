@@ -139,6 +139,14 @@ def create_server(
         except (ValueError, ProviderError) as exc:
             raise ToolError(str(exc)) from exc
 
+    @server.tool(name="assets.delete")
+    async def delete_asset(asset_id: str) -> dict[str, Any]:
+        """Delete one Hub-managed generated asset (not provider originals)."""
+        try:
+            return await jobs.delete_asset(asset_id)
+        except (ValueError, ProviderError) as exc:
+            raise ToolError(str(exc)) from exc
+
     @server.tool(name="assets.get")
     async def get_asset(asset_id: str) -> Image:
         """Return one generated image asset as MCP-native binary media content."""
