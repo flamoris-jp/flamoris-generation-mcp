@@ -170,7 +170,6 @@ async def test_delete_unmaterialized_asset_and_reject_invalid_paths(stores, fake
         await jobs.delete_asset("../../etc/passwd")
 
 
-
 async def test_delete_rejects_symlink_escape(stores, fake, settings, tmp_path):
     _, jobs, _ = stores
     job_id = await submit(stores)
