@@ -96,8 +96,9 @@ class AssetFiles:
         self._current()
         self.size(name)  # Reject an existing symlink or special file.
         temporary = f".tmp-{uuid.uuid4().hex}"
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=self.fd)
+        fd = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=self.fd
+        )
         try:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(data)
