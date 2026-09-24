@@ -1,0 +1,10 @@
+# An allowlist prevents local configuration and generated media from entering the build context.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!docker-requirements.txt
+!src/
+!src/**
+**/__pycache__/
+**/*.py[cod]
