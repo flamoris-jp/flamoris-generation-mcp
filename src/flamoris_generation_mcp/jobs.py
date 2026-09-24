@@ -291,9 +291,12 @@ class JobStore:
                 job.deleted_outputs.add(index)
             materialized_deleted = path.is_file()
             path.unlink(missing_ok=True)
-            return {"asset_id": asset_id, "deleted": True,
-                    "already_deleted": already_deleted,
-                    "materialized_deleted": materialized_deleted}
+            return {
+                "asset_id": asset_id,
+                "deleted": True,
+                "already_deleted": already_deleted,
+                "materialized_deleted": materialized_deleted,
+            }
 
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
