@@ -22,6 +22,7 @@ TOOL_NAMES = {
     "jobs.cancel",
     "assets.list",
     "assets.get",
+    "assets.delete",
 }
 
 
