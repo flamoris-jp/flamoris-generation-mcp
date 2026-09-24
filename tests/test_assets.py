@@ -1,5 +1,6 @@
 import pytest
 
+from flamoris_generation_mcp.jobs import JobStore
 from flamoris_generation_mcp.workflows import Parameters
 
 
@@ -183,6 +184,57 @@ async def test_delete_rejects_symlink_escape(stores, fake, settings, tmp_path):
     with pytest.raises(ValueError, match="symlink"):
         await jobs.delete_asset(f"{job_id}:000")
     assert outside.read_bytes() == b"private"
+
+
+async def test_archived_asset_can_be_read_and_deleted_after_restart(stores, fake, settings):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    await jobs.result(job_id)
+    archived = JobStore(jobs.workflows, jobs.providers, jobs.capabilities, settings.output_dir)
+    asset_id = f"{job_id}:000"
+    assert (await archived.get_asset(asset_id))[1] == b"image fixture"
+    response = await archived.delete_asset(asset_id)
+    assert response["deleted"] is True and response["materialized_deleted"] is True
+    assert (await archived.delete_asset(asset_id))["already_deleted"] is True
+    with pytest.raises(ValueError, match="Unknown archived asset"):
+        await archived.get_asset(asset_id)
+    assert not (settings.output_dir / job_id / "000.png").exists()
+
+
+async def test_archived_assets_reject_unrecorded_and_symlinks(stores, fake, settings, tmp_path):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    await jobs.result(job_id)
+    archived = JobStore(jobs.workflows, jobs.providers, jobs.capabilities, settings.output_dir)
+    outside = tmp_path / "private.png"
+    outside.write_bytes(b"private")
+    local = settings.output_dir / job_id / "000.png"
+    local.unlink()
+    local.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        await archived.get_asset(f"{job_id}:000")
+    with pytest.raises(ValueError, match="symlink"):
+        await archived.delete_asset(f"{job_id}:000")
+    assert outside.read_bytes() == b"private"
+    with pytest.raises(ValueError, match="Unknown archived asset"):
+        await archived.delete_asset(f"{job_id}:999")
+
+
+async def test_archived_history_has_no_1024_asset_limit(stores, fake, settings):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    await jobs.result(job_id)
+    archived = JobStore(jobs.workflows, jobs.providers, jobs.capabilities, settings.output_dir)
+    first_lock = archived._archived_lock(job_id)
+    for index in range(2048):
+        archived._archived_lock(f"{index:032x}")
+    assert len(archived._archived_locks) == 64
+    assert archived._archived_lock(job_id) is first_lock
+    assert (await archived.get_asset(f"{job_id}:000"))[1] == b"image fixture"
+    assert (await archived.delete_asset(f"{job_id}:000"))["deleted"]
 
 
 @pytest.mark.parametrize("operation", ["read", "write", "delete"])
