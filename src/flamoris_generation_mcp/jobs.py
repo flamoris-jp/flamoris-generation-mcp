@@ -54,6 +54,7 @@ class JobStore:
         self.capabilities = capabilities
         self.output_dir = output_dir
         self._jobs: dict[str, Job] = {}
+        self._archived_locks = tuple(asyncio.Lock() for _ in range(64))
         self._submit_lock = asyncio.Lock()
         self._active_job_id: str | None = None
 
@@ -194,6 +195,101 @@ class JobStore:
             raise ValueError("Asset ID must come from assets.list")
         return match.group(1), int(match.group(2))
 
+    def _archived_lock(self, job_id: str) -> asyncio.Lock:
+        # A fixed number of locks bounds memory without limiting stored job history.
+        return self._archived_locks[int(job_id[:8], 16) % len(self._archived_locks)]
+
+    def _archived_file(
+        self, job_id: str, index: int, files: AssetFiles
+    ) -> tuple[Path | None, bool]:
+        """Resolve only materialized outputs recorded by this Hub, never metadata paths."""
+        manifest = files.read("metadata.json", 1024 * 1024)
+        tombstone = files.read(".deleted-assets.json", 4096)
+        if manifest is None:
+            raise ValueError("Unknown archived asset ID")
+        try:
+            record = json.loads(manifest)
+            deleted = json.loads(tombstone) if tombstone is not None else []
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Invalid archived asset record") from exc
+        if (
+            not isinstance(record, dict)
+            or record.get("job_id") != job_id
+            or record.get("status") != "completed"
+            or not isinstance(record.get("files"), list)
+            or len(record["files"]) > 64
+            or not isinstance(deleted, list)
+            or len(deleted) > 64
+            or any(type(i) is not int or i < 0 or i > 999 for i in deleted)
+        ):
+            raise ValueError("Invalid archived asset record")
+        prefix = f"{index:03d}"
+        paths = []
+        for item in record["files"]:
+            if not isinstance(item, dict) or not isinstance(item.get("file"), str):
+                raise ValueError("Invalid archived asset record")
+            name = Path(item["file"]).name
+            suffix = Path(name).suffix.lower()
+            if name == prefix + suffix and suffix in MEDIA_TYPES:
+                paths.append(self._local_output_path(job_id, index, suffix))
+        if len(paths) > 1:
+            raise ValueError("Ambiguous archived asset")
+        if not paths and index not in deleted:
+            raise ValueError("Unknown archived asset ID")
+        return (paths[0] if paths else None), index in deleted
+
+    async def _archived_get(self, job_id: str, index: int) -> tuple[dict, bytes, str]:
+        async with self._archived_lock(job_id):
+            with AssetFiles(self.output_dir, job_id, create=False) as files:
+                path, deleted = self._archived_file(job_id, index, files)
+                if deleted or path is None:
+                    raise ValueError("Unknown archived asset ID")
+                data = files.read(path.name, MAX_ASSET_BYTES)
+                if data is None:
+                    raise ValueError("Unknown archived asset ID")
+            kind, mime, media_format = MEDIA_TYPES[path.suffix.lower()]
+            size = len(data)
+            asset = {
+                "asset_id": self._asset_id(job_id, index),
+                "job_id": job_id,
+                "filename": path.name,
+                "media_kind": kind,
+                "mime_type": mime,
+                "size_bytes": size,
+                "materialized": True,
+                "output_index": index,
+            }
+            return asset, data, media_format
+
+    async def _archived_delete(self, job_id: str, index: int) -> dict:
+        async with self._archived_lock(job_id):
+            with AssetFiles(self.output_dir, job_id, create=False) as files:
+                path, already_deleted = self._archived_file(job_id, index, files)
+                if path is None and already_deleted:
+                    # An old result call may have rewritten the manifest.
+                    matches = [
+                        self._local_output_path(job_id, index, suffix)
+                        for suffix in MEDIA_TYPES
+                        if files.size(f"{index:03d}{suffix}") is not None
+                    ]
+                    if len(matches) > 1:
+                        raise ValueError("Ambiguous archived asset")
+                    path = matches[0] if matches else None
+                if not already_deleted:
+                    prior_bytes = files.read(".deleted-assets.json", 4096)
+                    prior = json.loads(prior_bytes) if prior_bytes is not None else []
+                    files.write(
+                        ".deleted-assets.json",
+                        json.dumps(sorted(set(prior) | {index})).encode(),
+                    )
+                materialized_deleted = files.delete(path.name) if path is not None else False
+            return {
+                "asset_id": self._asset_id(job_id, index),
+                "deleted": True,
+                "already_deleted": already_deleted,
+                "materialized_deleted": materialized_deleted,
+            }
+
     def _asset_metadata(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
         if index in job.deleted_outputs:
             raise ValueError("Unknown asset ID")
@@ -249,7 +345,9 @@ class JobStore:
 
     async def get_asset(self, asset_id: str) -> tuple[dict, bytes, str]:
         job_id, index = self._parse_asset_id(asset_id)
-        job = self._get(job_id)
+        job = self._jobs.get(job_id)
+        if job is None:
+            return await self._archived_get(job_id, index)
         async with job.lock:
             await self._refresh(job_id, job)
             if job.snapshot.status != "completed":
@@ -266,7 +364,9 @@ class JobStore:
     async def delete_asset(self, asset_id: str) -> dict:
         """Remove one Hub-managed output; provider originals are unaffected."""
         job_id, index = self._parse_asset_id(asset_id)
-        job = self._get(job_id)
+        job = self._jobs.get(job_id)
+        if job is None:
+            return await self._archived_delete(job_id, index)
         async with job.lock:
             await self._refresh(job_id, job)
             if job.snapshot.status != "completed":
