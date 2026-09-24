@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..comfyui import ComfyUIClient
 from ..models import ModelCatalog
-from ..workflows import Recipe, build_prompt
+from ..workflows import ExternalRecipe, Recipe, WorkflowStore, build_prompt
 from .base import (
     GenerationRequest,
     JobSnapshot,
@@ -34,9 +34,12 @@ STATUSES = {
 class ComfyUIProvider:
     provider_id = "comfyui"
 
-    def __init__(self, client: ComfyUIClient, catalog: ModelCatalog):
+    def __init__(
+        self, client: ComfyUIClient, catalog: ModelCatalog, workflows: WorkflowStore | None = None
+    ):
         self.client = client
         self.catalog = catalog
+        self.workflows = workflows
         self._outputs: dict[tuple[str, str], dict] = {}
 
     async def health(self) -> ProviderHealth:
@@ -48,10 +51,17 @@ class ComfyUIProvider:
         )
 
     async def submit(self, request: GenerationRequest, job_id: str) -> ProviderJob:
-        if request.operation != "image.generate" or not isinstance(request.payload, Recipe):
+        if request.operation != "image.generate" or not isinstance(
+            request.payload, (Recipe, ExternalRecipe)
+        ):
             raise ProviderError("ComfyUI does not support the requested operation")
-        prompt = build_prompt(request.payload, self.catalog)
-        prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        if self.workflows is not None:
+            prompt = self.workflows.prompt(request.payload, job_id)
+        elif isinstance(request.payload, Recipe):
+            prompt = build_prompt(request.payload, self.catalog)
+            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        else:
+            raise ProviderError("Workflow definitions are not configured")
         execution_id = await self.client.submit(prompt, job_id)
         return ProviderJob(execution_id=execution_id)
 

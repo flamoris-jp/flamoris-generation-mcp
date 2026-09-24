@@ -39,6 +39,7 @@ class Settings(BaseModel):
     model_root: Path = Path("models")
     model_dirs: dict[ModelKind, list[Path]] = Field(default_factory=dict)
     workflow_dir: Path = Path(".generation/workflows")
+    workflow_definition_dir: Path = Path(".generation/definitions")
     output_dir: Path = Path(".generation/outputs")
     request_timeout: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)
     targeted_interrupt: bool = False
@@ -74,6 +75,7 @@ class Settings(BaseModel):
             "COMFYUI_URL": "comfyui_url",
             "MODEL_ROOT": "model_root",
             "WORKFLOW_DIR": "workflow_dir",
+            "WORKFLOW_DEFINITION_DIR": "workflow_definition_dir",
             "OUTPUT_DIR": "output_dir",
             "REQUEST_TIMEOUT": "request_timeout",
             "TARGETED_INTERRUPT": "targeted_interrupt",

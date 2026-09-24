@@ -4,12 +4,13 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models import ModelCatalog, model_name
+from .workflow_registry import WorkflowRegistry
 
 Template = Literal["text-to-image", "text-to-image-lora"]
 MAX_RECIPE_BYTES = 256 * 1024
@@ -51,6 +52,17 @@ class Recipe(BaseModel):
     schema_version: Literal[1] = 1
     template: Template
     parameters: Parameters
+
+
+class ExternalRecipe(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal[2] = 2
+    template: str
+    definition_version: int
+    parameters: dict[str, Any]
+
+
+AnyRecipe = Recipe | ExternalRecipe
 
 
 def build_prompt(recipe: Recipe, catalog: ModelCatalog) -> dict:
@@ -133,21 +145,36 @@ def atomic_write(path: Path, content: bytes) -> None:
 
 
 class WorkflowStore:
-    def __init__(self, catalog: ModelCatalog, directory: Path):
+    def __init__(self, catalog: ModelCatalog, directory: Path, definition_dir: Path | None = None):
         self.catalog = catalog
         self.directory = directory
-        self._recipes: dict[str, Recipe] = {}
+        self.registry = WorkflowRegistry(definition_dir, catalog) if definition_dir else None
+        self._recipes: dict[str, AnyRecipe] = {}
 
-    def build(self, template: Template, parameters: Parameters) -> dict:
-        recipe = Recipe(template=template, parameters=parameters)
-        prompt = build_prompt(recipe, self.catalog)
+    def build(self, template: str, parameters: Parameters | dict[str, Any]) -> dict:
+        if template in ("text-to-image", "text-to-image-lora"):
+            recipe: AnyRecipe = Recipe(
+                template=template, parameters=Parameters.model_validate(parameters)
+            )
+            prompt = build_prompt(recipe, self.catalog)
+        else:
+            if self.registry is None:
+                raise ValueError("Unknown workflow definition ID")
+            definition = self.registry.get(template)
+            values = parameters.model_dump() if isinstance(parameters, Parameters) else parameters
+            normalized, prompt = self.registry.materialize(
+                definition.id, definition.version, values
+            )
+            recipe = ExternalRecipe(
+                template=template, definition_version=definition.version, parameters=normalized
+            )
         if len(self._recipes) >= 1024:
             raise ValueError("Workflow session is full; save needed workflows and restart")
         workflow_id = uuid4().hex
         self._recipes[workflow_id] = recipe
         return {"workflow_id": workflow_id, **recipe.model_dump(mode="json"), "prompt": prompt}
 
-    def get(self, workflow_id: str) -> Recipe:
+    def get(self, workflow_id: str) -> AnyRecipe:
         checked_id(workflow_id)
         if workflow_id in self._recipes:
             return self._recipes[workflow_id]
@@ -156,7 +183,35 @@ class WorkflowStore:
             raise ValueError("Unknown workflow ID")
         if path.stat().st_size > MAX_RECIPE_BYTES:
             raise ValueError("Saved workflow is too large")
-        return Recipe.model_validate_json(path.read_bytes())
+        content = path.read_bytes()
+        try:
+            data = __import__("json").loads(content)
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError("Invalid saved workflow recipe") from exc
+        if not isinstance(data, dict):
+            raise ValueError("Invalid saved workflow recipe")
+        if data.get("schema_version", 1) == 2:
+            return ExternalRecipe.model_validate(data)
+        return Recipe.model_validate(data)
+
+    def prompt(self, recipe: AnyRecipe, job_id: str | None = None) -> dict:
+        if isinstance(recipe, ExternalRecipe):
+            if self.registry is None:
+                raise ValueError("Workflow definitions are not configured")
+            _, prompt = self.registry.materialize(
+                recipe.template, recipe.definition_version, recipe.parameters, job_id
+            )
+            return prompt
+        prompt = build_prompt(recipe, self.catalog)
+        if job_id is not None:
+            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        return prompt
+
+    def routing(self, recipe: AnyRecipe) -> tuple[str, str]:
+        if isinstance(recipe, ExternalRecipe):
+            definition = self.registry.get(recipe.template, recipe.definition_version)
+            return definition.provider_id, definition.capability_id
+        return "comfyui", "image.generate"
 
     def save(self, workflow_id: str) -> dict:
         recipe = self.get(workflow_id)
@@ -174,6 +229,10 @@ class WorkflowStore:
                 saved.append(path.stem)
         return {
             "templates": TEMPLATES,
+            "definitions": (
+                [item.metadata() for item in self.registry.definitions.values()]
+                if self.registry else []
+            ),
             "built_workflows": list(self._recipes),
             "saved_workflows": saved,
         }
