@@ -37,6 +37,7 @@ class Job:
     provider_execution_id: str
     snapshot: JobSnapshot = field(default_factory=lambda: JobSnapshot(status="queued"))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    deleted_outputs: set[int] = field(default_factory=set)
 
 
 class JobStore:
@@ -172,6 +173,8 @@ class JobStore:
                 provider = self.providers.get(job.provider_id)
                 for index, output in enumerate(job.snapshot.outputs):
                     suffix = Path(output.filename).suffix.lower()
+                    if index in job.deleted_outputs:
+                        continue
                     path = self._local_output_path(job_id, index, suffix)
                     if not path.is_file():
                         atomic_write(
@@ -195,6 +198,8 @@ class JobStore:
         return match.group(1), int(match.group(2))
 
     def _asset_metadata(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
+        if index in job.deleted_outputs:
+            raise ValueError("Unknown asset ID")
         if index >= len(job.snapshot.outputs):
             raise ValueError("Unknown asset ID")
         output = job.snapshot.outputs[index]
@@ -240,6 +245,7 @@ class JobStore:
             assets = [
                 self._asset_metadata(job_id, job, index)[0]
                 for index in range(len(job.snapshot.outputs))
+                if index not in job.deleted_outputs
             ]
             return {"job_id": job_id, "assets": assets}
 
@@ -260,6 +266,34 @@ class JobStore:
             if len(data) > MAX_ASSET_BYTES or len(data) != size:
                 raise ValueError("Generated asset changed while being read")
             return asset, data, media_format
+
+    async def delete_asset(self, asset_id: str) -> dict:
+        """Remove one Hub-managed output; provider originals are unaffected."""
+        job_id, index = self._parse_asset_id(asset_id)
+        job = self._get(job_id)
+        async with job.lock:
+            await self._refresh(job_id, job)
+            if job.snapshot.status != "completed":
+                raise ValueError("Assets are available only for completed jobs")
+            if index >= len(job.snapshot.outputs):
+                raise ValueError("Unknown asset ID")
+            # Check the destination even for retries; never unlink an attacker-supplied path.
+            suffix = Path(job.snapshot.outputs[index].filename).suffix.lower()
+            path = self._local_output_path(job_id, index, suffix)
+            already_deleted = index in job.deleted_outputs
+            tombstone = path.parent / ".deleted-assets.json"
+            if tombstone.is_symlink():
+                raise ValueError("Deletion record must not be a symlink")
+            # Record deletion before unlinking so a failed unlink never makes the
+            # asset readable or rematerializable through this process.
+            if not already_deleted:
+                atomic_write(tombstone, json.dumps(sorted(job.deleted_outputs | {index})).encode())
+                job.deleted_outputs.add(index)
+            materialized_deleted = path.is_file()
+            path.unlink(missing_ok=True)
+            return {"asset_id": asset_id, "deleted": True,
+                    "already_deleted": already_deleted,
+                    "materialized_deleted": materialized_deleted}
 
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
