@@ -183,3 +183,41 @@ async def test_delete_rejects_symlink_escape(stores, fake, settings, tmp_path):
     with pytest.raises(ValueError, match="symlink"):
         await jobs.delete_asset(f"{job_id}:000")
     assert outside.read_bytes() == b"private"
+
+
+@pytest.mark.parametrize("operation", ["read", "write", "delete"])
+def test_directory_swap_during_asset_io_cannot_escape(tmp_path, monkeypatch, operation):
+    from flamoris_generation_mcp.asset_files import AssetFiles
+
+    root = tmp_path / "outputs"
+    job_id = "a" * 32
+    original = root / job_id
+    original.mkdir(parents=True)
+    (original / "000.png").write_bytes(b"managed")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "000.png").write_bytes(b"private")
+    real_current = AssetFiles._current
+    swapped = False
+
+    def swap_after_validation(files):
+        nonlocal swapped
+        real_current(files)
+        if not swapped:
+            swapped = True
+            original.rename(root / "detached")
+            original.symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(AssetFiles, "_current", swap_after_validation)
+    with AssetFiles(root, job_id) as files:
+        try:
+            if operation == "read":
+                assert files.read("000.png", 100) == b"managed"
+            elif operation == "write":
+                files.write("000.png", b"new managed")
+            else:
+                files.delete("000.png")
+        except ValueError as exc:
+            assert "directory changed" in str(exc)
+    assert swapped
+    assert (outside / "000.png").read_bytes() == b"private"
