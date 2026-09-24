@@ -95,7 +95,8 @@ corresponding environment variables below; otherwise defaults apply. With no
 options or transport environment override, the command remains stdio-compatible.
 The MCP path is a literal absolute URL path, such as `/mcp` or `/api/generation`,
 without query parameters, fragments, route placeholders or a trailing slash
-(except `/` itself). The module entrypoint accepts the same options.
+(except `/` itself). `/healthz` is reserved for HTTP liveness and cannot be an
+MCP path. The module entrypoint accepts the same options.
 
 A tunnel/reverse-proxy runtime may target this loopback HTTP endpoint. Install,
 configure and authenticate that runtime separately; the Python package does not

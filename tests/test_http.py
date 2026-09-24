@@ -84,6 +84,7 @@ def test_environment_and_cli_precedence(monkeypatch, clean_transport_env):
         {"mcp_path": "/../mcp"},
         {"mcp_path": "/{route}"},
         {"mcp_path": "/mcp/"},
+        {"mcp_path": "/healthz"},
         {"mcp_path": "/%6dcp"},
     ],
 )
@@ -100,6 +101,17 @@ def test_bad_cli_exits_before_constructing_provider(monkeypatch, capsys, clean_t
     assert exc.value.code == 2
     factory.assert_not_called()
     assert "error:" in capsys.readouterr().err
+
+
+def test_health_path_is_reserved_before_server_start(monkeypatch, capsys, clean_transport_env):
+    factory = Mock()
+    monkeypatch.setattr(server_module, "create_server", factory)
+    monkeypatch.setenv("FLAMORIS_MCP_PATH", "/healthz")
+    with pytest.raises(SystemExit) as exc:
+        main(["--transport", "streamable-http"])
+    assert exc.value.code == 2
+    factory.assert_not_called()
+    assert "/healthz is reserved" in capsys.readouterr().err
 
 
 @asynccontextmanager

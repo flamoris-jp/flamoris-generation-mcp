@@ -15,6 +15,26 @@ chmod 755 "$scratch"
 chmod 777 "$scratch/workflows" "$scratch/outputs"
 printf 'sample' > "$scratch/models/checkpoints/example.safetensors"
 
+# Parse the shipped Compose sample with non-default interpolation values before
+# exercising the image independently; this catches a stale or invalid example.
+MODEL_ROOT="$scratch/models" WORKFLOW_ROOT="$scratch/workflows" \
+  OUTPUT_ROOT="$scratch/outputs" FLAMORIS_HTTP_PORT=9876 \
+  FLAMORIS_MCP_PATH=/review/mcp docker compose -f compose.yaml config --format json |
+  python -c '
+import json
+import sys
+
+service = json.load(sys.stdin)["services"]["generation-mcp"]
+assert str(service["environment"]["FLAMORIS_HTTP_PORT"]) == "9876"
+assert service["environment"]["FLAMORIS_MCP_PATH"] == "/review/mcp"
+assert str(service["ports"][0]["published"]) == "9876"
+assert service["ports"][0]["host_ip"] == "127.0.0.1"
+mounts = {volume["target"]: volume for volume in service["volumes"]}
+assert mounts["/data/models"]["read_only"] is True
+assert mounts["/data/workflows"].get("read_only", False) is False
+assert mounts["/data/outputs"].get("read_only", False) is False
+'
+
 docker build -t "$image" .
 container=$(docker run -d --read-only --tmpfs /tmp:mode=1777 \
   -p 127.0.0.1::8765 \
