@@ -133,3 +133,91 @@ async def test_get_asset_does_not_materialize_unrelated_outputs(stores, fake, se
     assert media_format == "png"
     assert fake.download_count == 1
     assert not (settings.output_dir / job_id / "001.png").exists()
+
+
+async def test_delete_one_of_multiple_assets_does_not_rematerialize(stores, fake, settings):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    fake.history["prompt-1"]["outputs"]["7"]["images"].append(
+        {"filename": "second.png", "subfolder": "flamoris", "type": "output"}
+    )
+    await jobs.result(job_id)
+    first = settings.output_dir / job_id / "000.png"
+    second = settings.output_dir / job_id / "001.png"
+    assert first.is_file() and second.is_file()
+
+    deleted = await jobs.delete_asset(f"{job_id}:000")
+    assert deleted["materialized_deleted"] is True
+    assert not first.exists() and second.exists()
+    assert (await jobs.delete_asset(f"{job_id}:000"))["already_deleted"] is True
+    assert [item["output_index"] for item in (await jobs.list_assets(job_id))["assets"]] == [1]
+    with pytest.raises(ValueError, match="Unknown asset"):
+        await jobs.get_asset(f"{job_id}:000")
+    await jobs.result(job_id)
+    assert not first.exists()
+    assert (await jobs.get_asset(f"{job_id}:001"))[1] == b"image fixture"
+
+
+async def test_delete_unmaterialized_asset_and_reject_invalid_paths(stores, fake, settings):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    assert (await jobs.delete_asset(f"{job_id}:000"))["materialized_deleted"] is False
+    assert (settings.output_dir / job_id / ".deleted-assets.json").read_text() == "[0]"
+    assert (await jobs.list_assets(job_id))["assets"] == []
+    with pytest.raises(ValueError, match="assets.list"):
+        await jobs.delete_asset("../../etc/passwd")
+
+
+async def test_delete_rejects_symlink_escape(stores, fake, settings, tmp_path):
+    _, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    await jobs.result(job_id)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"private")
+    local = settings.output_dir / job_id / "000.png"
+    local.unlink()
+    local.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        await jobs.delete_asset(f"{job_id}:000")
+    assert outside.read_bytes() == b"private"
+
+
+@pytest.mark.parametrize("operation", ["read", "write", "delete"])
+def test_directory_swap_during_asset_io_cannot_escape(tmp_path, monkeypatch, operation):
+    from flamoris_generation_mcp.asset_files import AssetFiles
+
+    root = tmp_path / "outputs"
+    job_id = "a" * 32
+    original = root / job_id
+    original.mkdir(parents=True)
+    (original / "000.png").write_bytes(b"managed")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "000.png").write_bytes(b"private")
+    real_current = AssetFiles._current
+    swapped = False
+
+    def swap_after_validation(files):
+        nonlocal swapped
+        real_current(files)
+        if not swapped:
+            swapped = True
+            original.rename(root / "detached")
+            original.symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(AssetFiles, "_current", swap_after_validation)
+    with AssetFiles(root, job_id) as files:
+        try:
+            if operation == "read":
+                assert files.read("000.png", 100) == b"managed"
+            elif operation == "write":
+                files.write("000.png", b"new managed")
+            else:
+                files.delete("000.png")
+        except ValueError as exc:
+            assert "directory changed" in str(exc)
+    assert swapped
+    assert (outside / "000.png").read_bytes() == b"private"

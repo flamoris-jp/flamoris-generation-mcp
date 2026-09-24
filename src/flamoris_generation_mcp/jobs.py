@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
+from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
-from .workflows import Recipe, WorkflowStore, atomic_write, checked_id
+from .workflows import Recipe, WorkflowStore, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -37,6 +38,7 @@ class Job:
     provider_execution_id: str
     snapshot: JobSnapshot = field(default_factory=lambda: JobSnapshot(status="queued"))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    deleted_outputs: set[int] = field(default_factory=set)
 
 
 class JobStore:
@@ -150,17 +152,7 @@ class JobStore:
         checked_id(job_id)
         if suffix not in MEDIA_TYPES:
             raise ValueError("Unsupported generated media output extension")
-        root = self.output_dir.resolve()
-        directory = self.output_dir / job_id
-        if directory.is_symlink():
-            raise ValueError("Output job directory must not be a symlink")
-        path = directory / f"{index:03d}{suffix}"
-        if path.is_symlink():
-            raise ValueError("Output file must not be a symlink")
-        resolved = path.resolve()
-        if not resolved.is_relative_to(root):
-            raise ValueError("Output file escapes the configured output root")
-        return path
+        return self.output_dir / job_id / f"{index:03d}{suffix}"
 
     async def result(self, job_id: str) -> dict:
         job = self._get(job_id)
@@ -172,15 +164,23 @@ class JobStore:
                 provider = self.providers.get(job.provider_id)
                 for index, output in enumerate(job.snapshot.outputs):
                     suffix = Path(output.filename).suffix.lower()
+                    if index in job.deleted_outputs:
+                        continue
                     path = self._local_output_path(job_id, index, suffix)
-                    if not path.is_file():
-                        atomic_write(
-                            path,
-                            await provider.materialize(job.provider_execution_id, output.output_id),
+                    with AssetFiles(self.output_dir, job_id) as files:
+                        present = files.size(path.name) is not None
+                    if not present:
+                        data = await provider.materialize(
+                            job.provider_execution_id, output.output_id
                         )
-                    result["files"].append({"file": str(path), "size_bytes": path.stat().st_size})
-                directory = self.output_dir / job_id
-                atomic_write(directory / "metadata.json", json.dumps(result, indent=2).encode())
+                        with AssetFiles(self.output_dir, job_id) as files:
+                            files.write(path.name, data)
+                    with AssetFiles(self.output_dir, job_id) as files:
+                        result["files"].append(
+                            {"file": str(path), "size_bytes": files.size(path.name)}
+                        )
+                with AssetFiles(self.output_dir, job_id) as files:
+                    files.write("metadata.json", json.dumps(result, indent=2).encode())
             return result
 
     @staticmethod
@@ -195,6 +195,8 @@ class JobStore:
         return match.group(1), int(match.group(2))
 
     def _asset_metadata(self, job_id: str, job: Job, index: int) -> tuple[dict, Path]:
+        if index in job.deleted_outputs:
+            raise ValueError("Unknown asset ID")
         if index >= len(job.snapshot.outputs):
             raise ValueError("Unknown asset ID")
         output = job.snapshot.outputs[index]
@@ -205,14 +207,16 @@ class JobStore:
         if (output.media_kind, output.mime_type) != (media_kind, mime_type):
             raise ValueError("Provider output metadata does not match its filename")
         path = self._local_output_path(job_id, index, suffix)
-        materialized = path.is_file()
+        with AssetFiles(self.output_dir, job_id) as files:
+            size = files.size(path.name)
+        materialized = size is not None
         asset = {
             "asset_id": self._asset_id(job_id, index),
             "job_id": job_id,
             "filename": path.name,
             "media_kind": media_kind,
             "mime_type": mime_type,
-            "size_bytes": path.stat().st_size if materialized else None,
+            "size_bytes": size,
             "materialized": materialized,
             "output_index": index,
         }
@@ -223,11 +227,10 @@ class JobStore:
         if not asset["materialized"]:
             output = job.snapshot.outputs[index]
             provider = self.providers.get(job.provider_id)
-            atomic_write(
-                path,
-                await provider.materialize(job.provider_execution_id, output.output_id),
-            )
-            asset["size_bytes"] = path.stat().st_size
+            data = await provider.materialize(job.provider_execution_id, output.output_id)
+            with AssetFiles(self.output_dir, job_id) as files:
+                files.write(path.name, data)
+                asset["size_bytes"] = files.size(path.name)
             asset["materialized"] = True
         return asset, path
 
@@ -240,6 +243,7 @@ class JobStore:
             assets = [
                 self._asset_metadata(job_id, job, index)[0]
                 for index in range(len(job.snapshot.outputs))
+                if index not in job.deleted_outputs
             ]
             return {"job_id": job_id, "assets": assets}
 
@@ -253,13 +257,40 @@ class JobStore:
             asset, path = await self._materialize_asset(job_id, job, index)
             suffix = path.suffix.lower()
             _, _, media_format = MEDIA_TYPES[suffix]
-            size = path.stat().st_size
-            if size > MAX_ASSET_BYTES:
-                raise ValueError(f"Asset exceeds the {MAX_ASSET_BYTES} byte retrieval limit")
-            data = path.read_bytes()
-            if len(data) > MAX_ASSET_BYTES or len(data) != size:
+            with AssetFiles(self.output_dir, job_id) as files:
+                data = files.read(path.name, MAX_ASSET_BYTES)
+            if data is None:
                 raise ValueError("Generated asset changed while being read")
             return asset, data, media_format
+
+    async def delete_asset(self, asset_id: str) -> dict:
+        """Remove one Hub-managed output; provider originals are unaffected."""
+        job_id, index = self._parse_asset_id(asset_id)
+        job = self._get(job_id)
+        async with job.lock:
+            await self._refresh(job_id, job)
+            if job.snapshot.status != "completed":
+                raise ValueError("Assets are available only for completed jobs")
+            if index >= len(job.snapshot.outputs):
+                raise ValueError("Unknown asset ID")
+            # Check the destination even for retries; never unlink an attacker-supplied path.
+            suffix = Path(job.snapshot.outputs[index].filename).suffix.lower()
+            path = self._local_output_path(job_id, index, suffix)
+            already_deleted = index in job.deleted_outputs
+            with AssetFiles(self.output_dir, job_id) as files:
+                if not already_deleted:
+                    files.write(
+                        ".deleted-assets.json",
+                        json.dumps(sorted(job.deleted_outputs | {index})).encode(),
+                    )
+                    job.deleted_outputs.add(index)
+                materialized_deleted = files.delete(path.name)
+            return {
+                "asset_id": asset_id,
+                "deleted": True,
+                "already_deleted": already_deleted,
+                "materialized_deleted": materialized_deleted,
+            }
 
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
