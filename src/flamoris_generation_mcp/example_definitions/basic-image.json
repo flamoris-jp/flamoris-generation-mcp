@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "id": "basic-image",
+  "version": 1,
+  "name": "Basic image fixture",
+  "description": "A small API-format checkpoint image graph for registry tests.",
+  "provider_id": "comfyui",
+  "capability_id": "image.generate",
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "example.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "example",
+        "clip": [
+          "1",
+          1
+        ]
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "",
+        "clip": [
+          "1",
+          1
+        ]
+      }
+    },
+    "4": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 512,
+        "height": 512,
+        "batch_size": 1
+      }
+    },
+    "5": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "2",
+          0
+        ],
+        "negative": [
+          "3",
+          0
+        ],
+        "latent_image": [
+          "4",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 7,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 1
+      }
+    },
+    "6": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "5",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "6",
+          0
+        ],
+        "filename_prefix": "flamoris"
+      }
+    }
+  },
+  "output_node": "7",
+  "parameters": {
+    "checkpoint": {
+      "type": "string",
+      "node": "1",
+      "input": "ckpt_name",
+      "model_kind": "checkpoint"
+    },
+    "positive_prompt": {
+      "type": "string",
+      "node": "2",
+      "input": "text",
+      "min_length": 1,
+      "max_length": 20000
+    },
+    "steps": {
+      "type": "integer",
+      "node": "5",
+      "input": "steps",
+      "required": false,
+      "default": 20,
+      "minimum": 1,
+      "maximum": 150
+    },
+    "cfg": {
+      "type": "number",
+      "node": "5",
+      "input": "cfg",
+      "required": false,
+      "default": 7,
+      "minimum": 0,
+      "maximum": 100
+    },
+    "sampler": {
+      "type": "string",
+      "node": "5",
+      "input": "sampler_name",
+      "required": false,
+      "default": "euler",
+      "enum": [
+        "euler",
+        "euler_ancestral"
+      ]
+    }
+  }
+}

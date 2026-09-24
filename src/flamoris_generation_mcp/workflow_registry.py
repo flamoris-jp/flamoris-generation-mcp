@@ -39,11 +39,18 @@ class ParameterSpec(BaseModel):
             raise ValueError("Parameter maximum must be finite")
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
             raise ValueError("Parameter minimum exceeds maximum")
-        if self.min_length is not None and self.max_length is not None and self.min_length > self.max_length:
+        if (
+            self.min_length is not None
+            and self.max_length is not None
+            and self.min_length > self.max_length
+        ):
             raise ValueError("Parameter min_length exceeds max_length")
         if (self.min_length is not None or self.max_length is not None) and self.type != "string":
             raise ValueError("Length constraints require a string parameter")
-        if (self.minimum is not None or self.maximum is not None) and self.type not in ("integer", "number"):
+        if (self.minimum is not None or self.maximum is not None) and self.type not in (
+            "integer",
+            "number",
+        ):
             raise ValueError("Numeric constraints require a numeric parameter")
         if self.model_kind is not None and self.type != "string":
             raise ValueError("Model references require a string parameter")
@@ -71,7 +78,9 @@ class ParameterSpec(BaseModel):
                 raise ValueError("Invalid string length")
             if self.max_length is not None and len(value) > self.max_length:
                 raise ValueError("Invalid string length")
-        if self.enum is not None and not any(type(value) is type(item) and value == item for item in self.enum):
+        if self.enum is not None and not any(
+            type(value) is type(item) and value == item for item in self.enum
+        ):
             raise ValueError("Value is outside declared enum")
         if self.model_kind is not None:
             catalog.require(self.model_kind, value)
@@ -102,12 +111,18 @@ class WorkflowDefinition(BaseModel):
         for node_id, node in self.graph.items():
             if not re.fullmatch(r"[0-9]{1,8}", node_id):
                 raise ValueError("Invalid graph node ID")
-            if set(node) - {"class_type", "inputs", "_meta"} or not isinstance(node.get("class_type"), str) or not isinstance(node.get("inputs"), dict):
+            if (
+                set(node) - {"class_type", "inputs", "_meta"}
+                or not isinstance(node.get("class_type"), str)
+                or not isinstance(node.get("inputs"), dict)
+            ):
                 raise ValueError("Expected ComfyUI API-format graph")
             if len(node["inputs"]) > 64:
                 raise ValueError("Too many node inputs")
         output = self.graph[self.output_node]
-        if output["class_type"] != "SaveImage" or not isinstance(output["inputs"].get("filename_prefix"), str):
+        if output["class_type"] != "SaveImage" or not isinstance(
+            output["inputs"].get("filename_prefix"), str
+        ):
             raise ValueError("Image output must be a SaveImage node with filename_prefix")
         for name, spec in self.parameters.items():
             if not IDENTIFIER.fullmatch(name) or spec.node not in self.graph:
@@ -129,8 +144,11 @@ class WorkflowDefinition(BaseModel):
 
     def metadata(self) -> dict[str, Any]:
         return {
-            "id": self.id, "version": self.version, "name": self.name,
-            "description": self.description, "provider_id": self.provider_id,
+            "id": self.id,
+            "version": self.version,
+            "name": self.name,
+            "description": self.description,
+            "provider_id": self.provider_id,
             "capability_id": self.capability_id,
             "parameters": {
                 name: spec.model_dump(mode="json", exclude_none=True)
@@ -173,7 +191,9 @@ class WorkflowRegistry:
             raise ValueError("Unknown workflow definition ID or version")
         return definition
 
-    def materialize(self, definition_id: str, version: int, parameters: dict, job_id: str | None = None) -> tuple[dict, dict]:
+    def materialize(
+        self, definition_id: str, version: int, parameters: dict, job_id: str | None = None
+    ) -> tuple[dict, dict]:
         definition = self.get(definition_id, version)
         if not isinstance(parameters, dict) or set(parameters) - set(definition.parameters):
             raise ValueError("Unknown workflow parameter")
@@ -182,6 +202,8 @@ class WorkflowRegistry:
         for name, spec in definition.parameters.items():
             if name in parameters:
                 value = parameters[name]
+            elif spec.required:
+                raise ValueError(f"Missing required workflow parameter: {name}")
             elif spec.default is not None:
                 value = spec.default
             else:

@@ -1,5 +1,6 @@
 """Trusted template builders and saved parameter recipes, not a raw node editing API."""
 
+import json
 import os
 import re
 import tempfile
@@ -185,7 +186,7 @@ class WorkflowStore:
             raise ValueError("Saved workflow is too large")
         content = path.read_bytes()
         try:
-            data = __import__("json").loads(content)
+            data = json.loads(content)
         except (ValueError, UnicodeError) as exc:
             raise ValueError("Invalid saved workflow recipe") from exc
         if not isinstance(data, dict):
@@ -231,7 +232,8 @@ class WorkflowStore:
             "templates": TEMPLATES,
             "definitions": (
                 [item.metadata() for item in self.registry.definitions.values()]
-                if self.registry else []
+                if self.registry
+                else []
             ),
             "built_workflows": list(self._recipes),
             "saved_workflows": saved,

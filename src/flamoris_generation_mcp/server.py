@@ -39,7 +39,8 @@ def create_server(
                 provider_id="comfyui",
                 runtime_id="janku",
                 workflow_templates=(
-                    "text-to-image", "text-to-image-lora",
+                    "text-to-image",
+                    "text-to-image-lora",
                     *(workflows.registry.definitions if workflows.registry else ()),
                 ),
             ),

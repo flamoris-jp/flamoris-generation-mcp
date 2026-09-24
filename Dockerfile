@@ -13,6 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FLAMORIS_HTTP_PORT=8765 \
     FLAMORIS_MODEL_ROOT=/data/models \
     FLAMORIS_WORKFLOW_DIR=/data/workflows \
+    FLAMORIS_WORKFLOW_DEFINITION_DIR=/data/definitions \
     FLAMORIS_OUTPUT_DIR=/data/outputs
 
 COPY --from=build /wheels /wheels
