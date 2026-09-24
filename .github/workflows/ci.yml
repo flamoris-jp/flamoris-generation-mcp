@@ -15,7 +15,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,3 +35,5 @@ jobs:
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from flamoris_generation_mcp.server import create_server; assert create_server().name == 'FLAMORIS Generation'"
           "$RUNNER_TEMP/wheel-smoke/bin/python" "$GITHUB_WORKSPACE/tests/smoke_installed.py"
+      - name: Docker smoke (no GPU or ComfyUI)
+        run: bash tests/smoke_docker.sh

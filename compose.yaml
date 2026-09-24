@@ -1,0 +1,32 @@
+services:
+  generation-mcp:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    user: "10001:10001"
+    ports:
+      - "127.0.0.1:${FLAMORIS_HTTP_PORT:-8765}:${FLAMORIS_HTTP_PORT:-8765}"
+    environment:
+      FLAMORIS_HTTP_HOST: 0.0.0.0
+      FLAMORIS_HTTP_PORT: ${FLAMORIS_HTTP_PORT:-8765}
+      FLAMORIS_MCP_PATH: ${FLAMORIS_MCP_PATH:-/mcp}
+      FLAMORIS_COMFYUI_URL: ${FLAMORIS_COMFYUI_URL:-http://host.docker.internal:8188}
+      FLAMORIS_MODEL_ROOT: /data/models
+      FLAMORIS_WORKFLOW_DIR: /data/workflows
+      FLAMORIS_OUTPUT_DIR: /data/outputs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: ${MODEL_ROOT:-./models}
+        target: /data/models
+        read_only: true
+      - type: bind
+        source: ${WORKFLOW_ROOT:-./workflows}
+        target: /data/workflows
+      - type: bind
+        source: ${OUTPUT_ROOT:-./outputs}
+        target: /data/outputs

@@ -13,6 +13,7 @@ from test_mcp import TOOL_NAMES
 
 from flamoris_generation_mcp import server as server_module
 from flamoris_generation_mcp.config import Settings
+from flamoris_generation_mcp.healthcheck import main as probe_liveness
 from flamoris_generation_mcp.server import create_server, main
 
 
@@ -83,6 +84,7 @@ def test_environment_and_cli_precedence(monkeypatch, clean_transport_env):
         {"mcp_path": "/../mcp"},
         {"mcp_path": "/{route}"},
         {"mcp_path": "/mcp/"},
+        {"mcp_path": "/healthz"},
         {"mcp_path": "/%6dcp"},
     ],
 )
@@ -99,6 +101,17 @@ def test_bad_cli_exits_before_constructing_provider(monkeypatch, capsys, clean_t
     assert exc.value.code == 2
     factory.assert_not_called()
     assert "error:" in capsys.readouterr().err
+
+
+def test_health_path_is_reserved_before_server_start(monkeypatch, capsys, clean_transport_env):
+    factory = Mock()
+    monkeypatch.setattr(server_module, "create_server", factory)
+    monkeypatch.setenv("FLAMORIS_MCP_PATH", "/healthz")
+    with pytest.raises(SystemExit) as exc:
+        main(["--transport", "streamable-http"])
+    assert exc.value.code == 2
+    factory.assert_not_called()
+    assert "/healthz is reserved" in capsys.readouterr().err
 
 
 @asynccontextmanager
@@ -150,7 +163,12 @@ async def test_http_tools_validation_and_shared_authority(settings, fake, monkey
     provider_transport = httpx.MockTransport(fake.handle)
     server = create_server(settings, transport=provider_transport)
     async with serve_http(server, settings) as base_url:
+        monkeypatch.setenv("FLAMORIS_HTTP_PORT", str(settings.http_port))
+        await asyncio.to_thread(probe_liveness)
         async with httpx.AsyncClient(trust_env=False) as http:
+            live = await http.get(base_url + "/healthz", timeout=2)
+            assert live.status_code == 200
+            assert live.json() == {"healthy": True}
             assert (await http.post(base_url + "/mcp", json={})).status_code == 404
             response = await http.post(
                 base_url + settings.mcp_path, json={}, headers={"Host": "untrusted.example"}

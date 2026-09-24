@@ -57,6 +57,8 @@ class Settings(BaseModel):
     @field_validator("mcp_path")
     @classmethod
     def validate_path(cls, value: str) -> str:
+        if value == "/healthz":
+            raise ValueError("MCP path /healthz is reserved for the HTTP liveness endpoint")
         if value != "/" and (
             not re.fullmatch(r"/[A-Za-z0-9_.~-]+(?:/[A-Za-z0-9_.~-]+)*", value)
             or any(segment in {".", ".."} for segment in value.split("/"))
