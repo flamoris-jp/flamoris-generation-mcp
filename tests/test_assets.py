@@ -159,7 +159,7 @@ async def test_delete_one_of_multiple_assets_does_not_rematerialize(stores, fake
     assert (await jobs.get_asset(f"{job_id}:001"))[1] == b"image fixture"
 
 
-async def test_delete_unmaterialized_asset_and_reject_invalid_paths(stores, fake, settings, tmp_path):
+async def test_delete_unmaterialized_asset_and_reject_invalid_paths(stores, fake, settings):
     _, jobs, _ = stores
     job_id = await submit(stores)
     fake.finish()
