@@ -177,6 +177,7 @@ and actual node/model compatibility on submission.
 | `jobs.cancel` | `job_id` | Cancellation result or an explicit running-cancellation limitation |
 | `assets.list` | `job_id` | Metadata-only stable asset IDs; never downloads payloads |
 | `assets.get` | `asset_id` | MCP-native binary media content for one generated asset |
+| `assets.delete` | `asset_id` | Remove one Hub-managed output; provider originals are unaffected |
 
 1. Call `system.health` and optionally `capabilities.list`, then `models.list` for
    `checkpoint` and `lora`.
@@ -211,6 +212,8 @@ and actual node/model compatibility on submission.
    `asset_id` to `assets.get`. PNG/JPEG/WebP outputs are returned as MCP image
    content, so remote clients receive the media bytes rather than a host-only
    filesystem path.
+
+`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Job IDs remain process-local and cannot be addressed after a server restart; no cross-restart delete API or provider-original cleanup is provided.
 
 The asset layer is intentionally media-oriented rather than filesystem-oriented.
 Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
