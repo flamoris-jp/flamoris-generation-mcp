@@ -8,6 +8,8 @@ import httpx
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from . import __version__
 from .capabilities import Capability, CapabilityRegistry
@@ -50,6 +52,11 @@ def create_server(
             await providers.close()
 
     server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
+
+    @server.custom_route("/healthz", methods=["GET"])
+    async def live(_request: Request) -> JSONResponse:
+        """Bounded HTTP liveness probe; provider reachability is reported by system.health."""
+        return JSONResponse({"healthy": True})
 
     async def provider_availability() -> tuple[list[dict[str, object]], dict[str, bool]]:
         health = await providers.health()
