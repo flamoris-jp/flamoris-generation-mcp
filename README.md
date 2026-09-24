@@ -113,6 +113,80 @@ jobs or close the provider. Separate processes do not share in-memory state, so
 multiple workers/replicas and simultaneous stdio/HTTP listeners are not provided.
 ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
 
++## Docker deployment
+
+The image runs the installed Python package as a single Streamable HTTP process.
+The package's normal invocation still defaults to stdio. ComfyUI runs separately;
+the image contains no ComfyUI runtime, weights, generated media or credentials.
+
+```sh
+mkdir -p models workflows outputs
+# On Linux, let container UID 10001 write to the two persistent directories.
+sudo chown -R 10001:10001 workflows outputs
+docker compose build
+docker compose up -d
+docker compose ps
+curl --fail --max-time 2 http://127.0.0.1:8765/healthz
+```
+
+The Compose example binds the MCP port to host loopback and starts one process.
+Its MCP endpoint is `http://127.0.0.1:8765/mcp`; external clients need a trusted
+proxy or tunnel with access control. Neither the HTTP server nor `/healthz` has
+application authentication. Override `FLAMORIS_HTTP_PORT` and `FLAMORIS_MCP_PATH`
+in the Compose environment to change the listener and route. `FLAMORIS_HTTP_HOST`
+is `0.0.0.0` **inside** the bridge container so the published loopback port can
+reach it. Do not expose this service directly to untrusted networks.
+
+The same image can run without Compose:
+
+```sh
+docker build -t generation-mcp .
+docker run -d --name generation-mcp --restart unless-stopped \
+  --read-only --tmpfs /tmp:mode=1777 \
+  -p 127.0.0.1:8765:8765 \
+  -e FLAMORIS_COMFYUI_URL=http://host.docker.internal:8188 \
+  --add-host host.docker.internal:host-gateway \
+  --mount type=bind,src="$(pwd)/models",dst=/data/models,readonly \
+  --mount type=bind,src="$(pwd)/workflows",dst=/data/workflows \
+  --mount type=bind,src="$(pwd)/outputs",dst=/data/outputs \
+  generation-mcp
+```
+
+`MODEL_ROOT`, `WORKFLOW_ROOT` and `OUTPUT_ROOT` in Compose select host bind
+directories; defaults are `./models`, `./workflows` and `./outputs`. Create them
+before startup. Mount the model tree read-only and keep workflow/output mounts
+writable by UID 10001 (account for user namespace mapping if enabled). The app
+uses `FLAMORIS_MODEL_ROOT=/data/models`, `FLAMORIS_WORKFLOW_DIR=/data/workflows`
+and `FLAMORIS_OUTPUT_DIR=/data/outputs` inside the container. For other model
+roots, set `FLAMORIS_MODEL_DIRS` to container-visible paths (JSON as described
+below). The image filesystem is read-only in Compose; persistence depends on
+these external mounts. Saved recipes and downloaded results survive a rebuild,
+but unsaved workflows and the in-memory job registry do not survive a restart.
+One process and one replica preserve the single-generation guard.
+
+`FLAMORIS_COMFYUI_URL` selects a separately running ComfyUI API. In the bridge
+sample, `host.docker.internal` resolves to the Linux host gateway; ComfyUI must
+listen on an address reachable from the bridge, not only host `127.0.0.1`.
+Control access to that listener at the host. On a Linux host with ComfyUI bound
+only to loopback, host networking is another option: remove `ports` and
+`extra_hosts`, set `network_mode: host`, set `FLAMORIS_HTTP_HOST=127.0.0.1`, and
+set `FLAMORIS_COMFYUI_URL=http://127.0.0.1:8188`. Host networking uses the host
+network namespace and does not publish a Docker port. The Docker image starts
+HTTP explicitly through `--transport streamable-http`, while its other settings
+use the existing environment variables in the table below. Docker does not
+change the Python package's stdio mode.
+
+`GET /healthz` responds locally and immediately when the HTTP process is serving;
+it does not contact ComfyUI, scan weights or attempt generation. The image's
+healthcheck calls it over container loopback with a two-second request timeout.
+Use the MCP `system.health` tool for separate provider availability. Rebuild and
+recreate with `docker compose build --pull && docker compose up -d`, then check
+`docker compose ps` and `/healthz`. Keep the three bind directories while
+upgrading or rolling back. `docker compose down` stops the process without
+deleting those directories. Dependency versions for the Docker image are pinned
+in `docker-requirements.txt`; update that file deliberately when upgrading.
+The base Python image and wheel build backend are not digest pinned.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |
