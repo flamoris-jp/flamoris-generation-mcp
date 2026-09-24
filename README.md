@@ -95,8 +95,7 @@ corresponding environment variables below; otherwise defaults apply. With no
 options or transport environment override, the command remains stdio-compatible.
 The MCP path is a literal absolute URL path, such as `/mcp` or `/api/generation`,
 without query parameters, fragments, route placeholders or a trailing slash
-(except `/` itself). `/healthz` is reserved for HTTP liveness and cannot be an
-MCP path. The module entrypoint accepts the same options.
+(except `/` itself). The module entrypoint accepts the same options.
 
 A tunnel/reverse-proxy runtime may target this loopback HTTP endpoint. Install,
 configure and authenticate that runtime separately; the Python package does not
@@ -113,80 +112,6 @@ client sessions share that process's state; disconnecting a client does not eras
 jobs or close the provider. Separate processes do not share in-memory state, so
 multiple workers/replicas and simultaneous stdio/HTTP listeners are not provided.
 ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
-
-+## Docker deployment
-
-The image runs the installed Python package as a single Streamable HTTP process.
-The package's normal invocation still defaults to stdio. ComfyUI runs separately;
-the image contains no ComfyUI runtime, weights, generated media or credentials.
-
-```sh
-mkdir -p models workflows outputs
-# On Linux, let container UID 10001 write to the two persistent directories.
-sudo chown -R 10001:10001 workflows outputs
-docker compose build
-docker compose up -d
-docker compose ps
-curl --fail --max-time 2 http://127.0.0.1:8765/healthz
-```
-
-The Compose example binds the MCP port to host loopback and starts one process.
-Its MCP endpoint is `http://127.0.0.1:8765/mcp`; external clients need a trusted
-proxy or tunnel with access control. Neither the HTTP server nor `/healthz` has
-application authentication. Override `FLAMORIS_HTTP_PORT` and `FLAMORIS_MCP_PATH`
-in the Compose environment to change the listener and route. `FLAMORIS_HTTP_HOST`
-is `0.0.0.0` **inside** the bridge container so the published loopback port can
-reach it. Do not expose this service directly to untrusted networks.
-
-The same image can run without Compose:
-
-```sh
-docker build -t generation-mcp .
-docker run -d --name generation-mcp --restart unless-stopped \
-  --read-only --tmpfs /tmp:mode=1777 \
-  -p 127.0.0.1:8765:8765 \
-  -e FLAMORIS_COMFYUI_URL=http://host.docker.internal:8188 \
-  --add-host host.docker.internal:host-gateway \
-  --mount type=bind,src="$(pwd)/models",dst=/data/models,readonly \
-  --mount type=bind,src="$(pwd)/workflows",dst=/data/workflows \
-  --mount type=bind,src="$(pwd)/outputs",dst=/data/outputs \
-  generation-mcp
-```
-
-`MODEL_ROOT`, `WORKFLOW_ROOT` and `OUTPUT_ROOT` in Compose select host bind
-directories; defaults are `./models`, `./workflows` and `./outputs`. Create them
-before startup. Mount the model tree read-only and keep workflow/output mounts
-writable by UID 10001 (account for user namespace mapping if enabled). The app
-uses `FLAMORIS_MODEL_ROOT=/data/models`, `FLAMORIS_WORKFLOW_DIR=/data/workflows`
-and `FLAMORIS_OUTPUT_DIR=/data/outputs` inside the container. For other model
-roots, set `FLAMORIS_MODEL_DIRS` to container-visible paths (JSON as described
-below). The image filesystem is read-only in Compose; persistence depends on
-these external mounts. Saved recipes and downloaded results survive a rebuild,
-but unsaved workflows and the in-memory job registry do not survive a restart.
-One process and one replica preserve the single-generation guard.
-
-`FLAMORIS_COMFYUI_URL` selects a separately running ComfyUI API. In the bridge
-sample, `host.docker.internal` resolves to the Linux host gateway; ComfyUI must
-listen on an address reachable from the bridge, not only host `127.0.0.1`.
-Control access to that listener at the host. On a Linux host with ComfyUI bound
-only to loopback, host networking is another option: remove `ports` and
-`extra_hosts`, set `network_mode: host`, set `FLAMORIS_HTTP_HOST=127.0.0.1`, and
-set `FLAMORIS_COMFYUI_URL=http://127.0.0.1:8188`. Host networking uses the host
-network namespace and does not publish a Docker port. The Docker image starts
-HTTP explicitly through `--transport streamable-http`, while its other settings
-use the existing environment variables in the table below. Docker does not
-change the Python package's stdio mode.
-
-`GET /healthz` responds locally and immediately when the HTTP process is serving;
-it does not contact ComfyUI, scan weights or attempt generation. The image's
-healthcheck calls it over container loopback with a two-second request timeout.
-Use the MCP `system.health` tool for separate provider availability. Rebuild and
-recreate with `docker compose build --pull && docker compose up -d`, then check
-`docker compose ps` and `/healthz`. Keep the three bind directories while
-upgrading or rolling back. `docker compose down` stops the process without
-deleting those directories. Dependency versions for the Docker image are pinned
-in `docker-requirements.txt`; update that file deliberately when upgrading.
-The base Python image and wheel build backend are not digest pinned.
 
 ## Configuration
 
@@ -288,7 +213,7 @@ and actual node/model compatibility on submission.
    content, so remote clients receive the media bytes rather than a host-only
    filesystem path.
 
-`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Job IDs remain process-local and cannot be addressed after a server restart; no cross-restart delete API or provider-original cleanup is provided.
+`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Completed outputs already materialized by `jobs.result` can be read and deleted by asset ID after a restart using a bounded, validated manifest under the configured output directory. Unmaterialized outputs cannot be reconstructed after restart. Active job status, workflows and provider submissions remain process-local. Provider-original cleanup is not provided.
 
 The asset layer is intentionally media-oriented rather than filesystem-oriented.
 Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
@@ -323,7 +248,8 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
   returning provider tracebacks. Transient HTTP failures are MCP tool errors and
   do not overwrite a job's execution state.
 - Jobs and unsaved workflows belong to one server process; there is no persistent
-  job queue or recovery after restart. Each session holds up to 1024 of each.
+  job queue or active-job recovery after restart. Previously materialized completed assets
+  can be retrieved and deleted from their validated output manifests. Active jobs and unsaved workflows retain their process-local 1024-entry limits; archived asset access uses a fixed lock pool and has no session count limit.
   Save recipes before restart; retain completed result files/metadata. Process
   shutdown does not cancel already submitted ComfyUI work.
 - Submission is not idempotent. HTTP POST is never retried automatically. After

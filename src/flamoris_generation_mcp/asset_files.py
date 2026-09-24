@@ -12,22 +12,32 @@ from pathlib import Path
 
 
 class AssetFiles:
-    def __init__(self, root: Path, job_id: str):
+    def __init__(self, root: Path, job_id: str, *, create: bool = True):
         self.root = root
         self.job_id = job_id
+        self.create = create
 
     def __enter__(self):
-        self.root.mkdir(parents=True, exist_ok=True)
+        if self.create:
+            self.root.mkdir(parents=True, exist_ok=True)
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        self.root_fd = os.open(self.root, flags)
         try:
-            try:
-                os.mkdir(self.job_id, mode=0o700, dir_fd=self.root_fd)
-            except FileExistsError:
-                pass
+            self.root_fd = os.open(self.root, flags)
+        except FileNotFoundError as exc:
+            if not self.create:
+                raise ValueError("Unknown archived asset ID") from exc
+            raise
+        try:
+            if self.create:
+                try:
+                    os.mkdir(self.job_id, mode=0o700, dir_fd=self.root_fd)
+                except FileExistsError:
+                    pass
             try:
                 self.fd = os.open(self.job_id, flags, dir_fd=self.root_fd)
             except OSError as exc:
+                if exc.errno == errno.ENOENT and not self.create:
+                    raise ValueError("Unknown archived asset ID") from exc
                 if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                     raise ValueError("Output job directory must not be a symlink") from exc
                 raise
