@@ -146,10 +146,14 @@ class ComfyUIClient:
                     subfolder = image.get("subfolder", "")
                     if subfolder:
                         model_name(subfolder)
-                    outputs.append({
-                        "node_id": node_id, "filename": filename,
-                        "subfolder": subfolder, "type": "output",
-                    })
+                    outputs.append(
+                        {
+                            "node_id": node_id,
+                            "filename": filename,
+                            "subfolder": subfolder,
+                            "type": "output",
+                        }
+                    )
             if len(outputs) > 64 or (state == "completed" and not outputs):
                 raise ValueError
             return {"status": state, "error": error, "outputs": outputs}

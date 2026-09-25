@@ -193,7 +193,9 @@ def test_file_input_binding_fails_closed(settings, tmp_path):
         "inputs": {"image": "sample.png"},
     }
     data["parameters"]["source"] = {
-        "type": "string", "node": "8", "input": "image",
+        "type": "string",
+        "node": "8",
+        "input": "image",
     }
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="Malformed workflow definition"):
@@ -217,10 +219,13 @@ async def test_only_declared_history_node_becomes_asset(settings, tmp_path, fake
     settings, _ = configured(settings, tmp_path)
     server = create_server(settings, transport=httpx.MockTransport(fake.handle))
     async with Client(server) as client:
-        built = await client.call_tool("workflows.build", {
-            "template": "basic-image",
-            "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "flowers"},
-        })
+        built = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "basic-image",
+                "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "flowers"},
+            },
+        )
         submitted = await client.call_tool(
             "jobs.submit", {"workflow_id": built.structured_content["workflow_id"]}
         )
