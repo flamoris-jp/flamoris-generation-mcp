@@ -68,6 +68,7 @@ Example MCP client configuration (adapt the outer format to your client):
         "FLAMORIS_COMFYUI_URL": "http://localhost:8188",
         "FLAMORIS_MODEL_ROOT": "./models",
         "FLAMORIS_WORKFLOW_DIR": "./.generation/workflows",
+        "FLAMORIS_WORKFLOW_DEFINITION_DIR": "./.generation/definitions",
         "FLAMORIS_OUTPUT_DIR": "./.generation/outputs"
       }
     }
@@ -125,6 +126,7 @@ ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
 | `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
 | `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
 | `FLAMORIS_WORKFLOW_DIR` | `.generation/workflows` | Saved parameter recipes |
+| `FLAMORIS_WORKFLOW_DEFINITION_DIR` | `.generation/definitions` | Trusted API-format ComfyUI workflow definitions, read at startup |
 | `FLAMORIS_OUTPUT_DIR` | `.generation/outputs` | Downloaded outputs and metadata, grouped by job ID |
 | `FLAMORIS_REQUEST_TIMEOUT` | `30` | HTTP timeout in seconds (greater than 0, at most 300) |
 | `FLAMORIS_TARGETED_INTERRUPT` | `false` | Enable running cancellation only for a provider with prompt-ID-scoped `/interrupt` |
@@ -233,6 +235,46 @@ guarantee sufficient provider VRAM.
 Returned raw prompts are inspectable exports, **not mutable submission inputs**.
 `jobs.submit` accepts only a workflow ID and rebuilds the known template from its
 recipe, rechecking installed models. Saved files contain only versioned recipes.
+
+### Trusted external workflows
+
+Place reviewed `<id>.json` definition files under
+`FLAMORIS_WORKFLOW_DEFINITION_DIR` and restart the process. The directory is
+separate from `FLAMORIS_WORKFLOW_DIR`, which holds saved invocation recipes.
+`workflows.list` includes a `definitions` array with IDs, versions, descriptions,
+provider/capability and public parameter rules. It does not return raw graphs.
+Build by passing the definition ID as `template` and public values as `parameters`;
+then save/submit the returned workflow ID in the usual way. Missing required,
+unknown and invalid parameters fail before submission. Saved recipes pin the
+definition version and fail closed if that version is no longer installed.
+
+An example API-format graph and its parameter bindings are shipped at
+`src/flamoris_generation_mcp/example_definitions/basic-image.json`. It is a
+test fixture, not a production model preset. For a real definition, author and
+test the graph in ComfyUI, export its **API format**, verify the node IDs and
+installed model names, then add explicit bindings to existing literal node
+inputs. Give it a stable lowercase ID, increment its version when changing the
+graph, and review it in version control. Each definition currently declares
+one `SaveImage` output node with a `filename_prefix` input. The server sets
+that output prefix per job; clients cannot override it. Additional Save/Preview
+nodes are rejected, and only images reported under the declared node become
+Hub assets. Review custom nodes for other filesystem side effects.
+
+Free-form string parameters are currently allowed only on the audited
+`CLIPTextEncode.text` input. Model selectors are checked against the installed
+model catalog; other string selectors require a definition-owned enum.
+File/asset inputs such as `LoadImage.image` are rejected until a managed asset
+reference and ComfyUI upload resolver are implemented. Supplying a raw provider
+filename through MCP is never supported. The definition metadata uses separate
+provider and capability IDs, while the current executor supports only
+`comfyui` / `image.generate` and `SaveImage` outputs; adding video or other
+media requires a reviewed adapter extension.
+
+For Docker Compose, create `./definitions` (or set `DEFINITION_ROOT`) before
+starting the service. It is mounted read-only at `/data/definitions`. Keep
+`./workflows` writable for saved recipes; the two paths have distinct roles.
+Deploy the changed Hub workflow tool schema together with the Generation MCP
+upgrade: Hub verifies schema equality before routing any tool.
 
 ## Job behavior and limits
 

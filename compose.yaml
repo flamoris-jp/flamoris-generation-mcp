@@ -16,6 +16,7 @@ services:
       FLAMORIS_COMFYUI_URL: ${FLAMORIS_COMFYUI_URL:-http://host.docker.internal:8188}
       FLAMORIS_MODEL_ROOT: /data/models
       FLAMORIS_WORKFLOW_DIR: /data/workflows
+      FLAMORIS_WORKFLOW_DEFINITION_DIR: /data/definitions
       FLAMORIS_OUTPUT_DIR: /data/outputs
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -27,6 +28,10 @@ services:
       - type: bind
         source: ${WORKFLOW_ROOT:-./workflows}
         target: /data/workflows
+      - type: bind
+        source: ${DEFINITION_ROOT:-./definitions}
+        target: /data/definitions
+        read_only: true
       - type: bind
         source: ${OUTPUT_ROOT:-./outputs}
         target: /data/outputs

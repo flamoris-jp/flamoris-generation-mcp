@@ -19,7 +19,7 @@ from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
-from .workflows import Parameters, Template, WorkflowStore
+from .workflows import WorkflowStore
 
 
 def create_server(
@@ -29,16 +29,20 @@ def create_server(
 ) -> MCPServer:
     settings = settings or Settings.from_env()
     catalog = ModelCatalog(settings)
-    workflows = WorkflowStore(catalog, settings.workflow_dir)
+    workflows = WorkflowStore(catalog, settings.workflow_dir, settings.workflow_definition_dir)
     client = ComfyUIClient(settings, transport)
-    providers = ProviderRegistry((ComfyUIProvider(client, catalog),))
+    providers = ProviderRegistry((ComfyUIProvider(client, catalog, workflows),))
     capabilities = CapabilityRegistry(
         (
             Capability(
                 capability_id="image.generate",
                 provider_id="comfyui",
                 runtime_id="janku",
-                workflow_templates=("text-to-image", "text-to-image-lora"),
+                workflow_templates=(
+                    "text-to-image",
+                    "text-to-image-lora",
+                    *(workflows.registry.definitions if workflows.registry else ()),
+                ),
             ),
         )
     )
@@ -106,7 +110,7 @@ def create_server(
         return workflows.list()
 
     @server.tool(name="workflows.build")
-    def build_workflow(template: Template, parameters: Parameters) -> dict[str, Any]:
+    def build_workflow(template: str, parameters: dict[str, Any]) -> dict[str, Any]:
         """Build a known template with validated parameters; returns a workflow_id."""
         return workflows.build(template, parameters)
 
@@ -120,7 +124,7 @@ def create_server(
         """Submit one workflow when this process has no active generation."""
         try:
             return await jobs.submit(workflow_id)
-        except GenerationBusyError as exc:
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
 
     @server.tool(name="jobs.status")

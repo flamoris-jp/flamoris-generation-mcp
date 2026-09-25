@@ -10,7 +10,7 @@ from uuid import uuid4
 from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
-from .workflows import Recipe, WorkflowStore, checked_id
+from .workflows import AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -33,7 +33,7 @@ class Job:
     job_id: str
     workflow_id: str
     operation: str
-    recipe: Recipe
+    recipe: AnyRecipe
     provider_id: str
     provider_execution_id: str
     snapshot: JobSnapshot = field(default_factory=lambda: JobSnapshot(status="queued"))
@@ -74,6 +74,13 @@ class JobStore:
     async def submit(self, workflow_id: str) -> dict:
         recipe = self.workflows.get(workflow_id)
         capability = self.capabilities.resolve_workflow(recipe.template)
+        if isinstance(recipe, ExternalRecipe):
+            routed_provider, routed_operation = self.workflows.routing(recipe)
+            if (capability.provider_id, capability.capability_id) != (
+                routed_provider,
+                routed_operation,
+            ):
+                raise ValueError("Workflow provider/capability registration mismatch")
         operation = capability.capability_id
         provider_id = capability.provider_id
         provider = self.providers.get(provider_id)

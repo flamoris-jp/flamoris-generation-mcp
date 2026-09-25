@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..comfyui import ComfyUIClient
 from ..models import ModelCatalog
-from ..workflows import Recipe, build_prompt
+from ..workflows import ExternalRecipe, Recipe, WorkflowStore, build_prompt
 from .base import (
     GenerationRequest,
     JobSnapshot,
@@ -34,10 +34,14 @@ STATUSES = {
 class ComfyUIProvider:
     provider_id = "comfyui"
 
-    def __init__(self, client: ComfyUIClient, catalog: ModelCatalog):
+    def __init__(
+        self, client: ComfyUIClient, catalog: ModelCatalog, workflows: WorkflowStore | None = None
+    ):
         self.client = client
         self.catalog = catalog
+        self.workflows = workflows
         self._outputs: dict[tuple[str, str], dict] = {}
+        self._output_nodes: dict[str, str] = {}
 
     async def health(self) -> ProviderHealth:
         raw = await self.client.health()
@@ -48,11 +52,24 @@ class ComfyUIProvider:
         )
 
     async def submit(self, request: GenerationRequest, job_id: str) -> ProviderJob:
-        if request.operation != "image.generate" or not isinstance(request.payload, Recipe):
+        if request.operation != "image.generate" or not isinstance(
+            request.payload, (Recipe, ExternalRecipe)
+        ):
             raise ProviderError("ComfyUI does not support the requested operation")
-        prompt = build_prompt(request.payload, self.catalog)
-        prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        if self.workflows is not None:
+            prompt = self.workflows.prompt(request.payload, job_id)
+        elif isinstance(request.payload, Recipe):
+            prompt = build_prompt(request.payload, self.catalog)
+            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        else:
+            raise ProviderError("Workflow definitions are not configured")
         execution_id = await self.client.submit(prompt, job_id)
+        if isinstance(request.payload, ExternalRecipe):
+            self._output_nodes[execution_id] = self.workflows.registry.get(
+                request.payload.template, request.payload.definition_version
+            ).output_node
+        else:
+            self._output_nodes[execution_id] = "7"
         return ProviderJob(execution_id=execution_id)
 
     def _normalize(self, execution_id: str, raw: dict) -> JobSnapshot:
@@ -61,7 +78,13 @@ class ComfyUIProvider:
             raise ProviderError("ComfyUI returned an invalid normalized execution state")
 
         outputs = []
-        for index, item in enumerate(raw.get("outputs", [])):
+        declared_node = self._output_nodes.get(execution_id)
+        if declared_node is None:
+            raise ProviderError("Unknown ComfyUI execution; inspect only submitted jobs")
+        selected = [item for item in raw.get("outputs", []) if item.get("node_id") == declared_node]
+        if status == "completed" and not selected:
+            raise ProviderError("ComfyUI returned no declared workflow output")
+        for index, item in enumerate(selected):
             try:
                 filename = item["filename"]
                 suffix = Path(filename).suffix.lower()
