@@ -6,9 +6,7 @@ FLAMORIS Generation MCP is a small, MCP-native media-generation server. Please k
 
 ## Before contributing
 
-For small fixes, feel free to open a pull request directly.
-
-For larger changes, new providers, new public MCP tools, transport changes, or architecture changes, please open an issue first so the intended boundary can be discussed before implementation.
+Issues are welcome from everyone. Pull requests are accepted only from repository collaborators. If you would like to propose a fix, new provider, public MCP tool, transport change, or architecture change, please open an Issue so the intended boundary can be discussed before implementation.
 
 Keep provider-specific behavior behind adapters and avoid speculative abstractions for media types or providers that are not yet implemented.
 
@@ -49,9 +47,7 @@ FLAMORIS Generation MCPは、MCPネイティブなメディア生成サーバー
 
 ## 変更を始める前に
 
-小さな修正は、そのままPull Requestを送っていただいて構いません。
-
-大きな変更、新しいprovider、新しい公開MCP tool、transport変更、アーキテクチャ変更は、実装前にIssueで意図や境界を相談してください。
+Issueはどなたでも歓迎します。Pull Requestはリポジトリのcollaboratorのみ受け付けています。修正、新しいprovider、新しい公開MCP tool、transport変更、アーキテクチャ変更の提案は、Issueからお願いします。
 
 provider固有の処理はadapterの後ろに置き、まだ実装していないmedia typeやproviderのための先回りした抽象化は避けます。
 
