@@ -184,7 +184,15 @@ async def test_external_provider_rejection_releases_reservation(settings, tmp_pa
         assert not success.is_error
 
 
-def test_file_input_binding_fails_closed(settings, tmp_path):
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"type": "string"},
+        {"type": "string", "model_kind": "checkpoint"},
+        {"type": "integer"},
+    ],
+)
+def test_file_input_binding_fails_closed(settings, tmp_path, spec):
     settings, root = configured(settings, tmp_path)
     path = root / "basic-image.json"
     data = json.loads(path.read_text())
@@ -192,11 +200,7 @@ def test_file_input_binding_fails_closed(settings, tmp_path):
         "class_type": "LoadImage",
         "inputs": {"image": "sample.png"},
     }
-    data["parameters"]["source"] = {
-        "type": "string",
-        "node": "8",
-        "input": "image",
-    }
+    data["parameters"]["source"] = {"node": "8", "input": "image", **spec}
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="Malformed workflow definition"):
         WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)

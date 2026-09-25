@@ -151,10 +151,10 @@ class WorkflowDefinition(BaseModel):
             binding = (spec.node, spec.input)
             if binding in bindings or binding == (self.output_node, "filename_prefix"):
                 raise ValueError("Duplicate or reserved parameter binding")
+            node_type = self.graph[spec.node]["class_type"]
+            if FILE_INPUT.search(spec.input) or FILE_INPUT.search(node_type):
+                raise ValueError("File/asset input requires a managed asset resolver")
             if spec.type == "string" and spec.model_kind is None:
-                node_type = self.graph[spec.node]["class_type"]
-                if FILE_INPUT.search(spec.input) or FILE_INPUT.search(node_type):
-                    raise ValueError("File/asset input requires a managed asset resolver")
                 if spec.enum is None and (node_type, spec.input) not in FREE_TEXT_INPUTS:
                     raise ValueError("Free-form string binding requires an audited text input")
             bindings.add(binding)
