@@ -41,6 +41,7 @@ class ComfyUIProvider:
         self.catalog = catalog
         self.workflows = workflows
         self._outputs: dict[tuple[str, str], dict] = {}
+        self._output_nodes: dict[str, str] = {}
 
     async def health(self) -> ProviderHealth:
         raw = await self.client.health()
@@ -63,6 +64,12 @@ class ComfyUIProvider:
         else:
             raise ProviderError("Workflow definitions are not configured")
         execution_id = await self.client.submit(prompt, job_id)
+        if isinstance(request.payload, ExternalRecipe):
+            self._output_nodes[execution_id] = self.workflows.registry.get(
+                request.payload.template, request.payload.definition_version
+            ).output_node
+        else:
+            self._output_nodes[execution_id] = "7"
         return ProviderJob(execution_id=execution_id)
 
     def _normalize(self, execution_id: str, raw: dict) -> JobSnapshot:
@@ -71,7 +78,13 @@ class ComfyUIProvider:
             raise ProviderError("ComfyUI returned an invalid normalized execution state")
 
         outputs = []
-        for index, item in enumerate(raw.get("outputs", [])):
+        declared_node = self._output_nodes.get(execution_id)
+        if declared_node is None:
+            raise ProviderError("Unknown ComfyUI execution; inspect only submitted jobs")
+        selected = [item for item in raw.get("outputs", []) if item.get("node_id") == declared_node]
+        if status == "completed" and not selected:
+            raise ProviderError("ComfyUI returned no declared workflow output")
+        for index, item in enumerate(selected):
             try:
                 filename = item["filename"]
                 suffix = Path(filename).suffix.lower()

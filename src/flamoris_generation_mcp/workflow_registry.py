@@ -14,6 +14,11 @@ from .models import ModelCatalog
 
 MAX_DEFINITION_BYTES = 256 * 1024
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{0,63}")
+# Free-form strings are only safe on known text inputs. Model selectors are
+# checked against the model catalog; other selectors need a definition-owned enum.
+# Provider-side file selectors need a managed asset resolver in a later phase.
+FREE_TEXT_INPUTS = {("CLIPTextEncode", "text")}
+FILE_INPUT = re.compile(r"(?:file|path|filename|image|video|audio|asset)", re.I)
 
 
 class ParameterSpec(BaseModel):
@@ -95,8 +100,8 @@ class WorkflowDefinition(BaseModel):
     version: int = Field(ge=1, le=100000)
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(max_length=500)
-    provider_id: Literal["comfyui"]
-    capability_id: Literal["image.generate"]
+    provider_id: str
+    capability_id: str
     graph: dict[str, dict[str, Any]]
     parameters: dict[str, ParameterSpec] = Field(max_length=64)
     output_node: str
@@ -105,6 +110,10 @@ class WorkflowDefinition(BaseModel):
     def validate_graph(self):
         if not IDENTIFIER.fullmatch(self.id) or not 1 <= len(self.graph) <= 128:
             raise ValueError("Invalid workflow ID or graph size")
+        if not IDENTIFIER.fullmatch(self.provider_id) or not re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}\.[a-z][a-z0-9_-]{0,63}", self.capability_id
+        ):
+            raise ValueError("Invalid provider or capability ID")
         if self.output_node not in self.graph:
             raise ValueError("Unknown output node")
         bindings = set()
@@ -120,10 +129,19 @@ class WorkflowDefinition(BaseModel):
             if len(node["inputs"]) > 64:
                 raise ValueError("Too many node inputs")
         output = self.graph[self.output_node]
+        # The current ComfyUI adapter can safely scope and retrieve SaveImage
+        # outputs. Other media outputs require an explicit adapter extension.
+        if (self.provider_id, self.capability_id) != ("comfyui", "image.generate"):
+            raise ValueError("Unsupported workflow provider or capability")
         if output["class_type"] != "SaveImage" or not isinstance(
             output["inputs"].get("filename_prefix"), str
         ):
             raise ValueError("Image output must be a SaveImage node with filename_prefix")
+        if any(
+            node_id != self.output_node and node["class_type"].startswith(("Save", "Preview"))
+            for node_id, node in self.graph.items()
+        ):
+            raise ValueError("Undeclared output node")
         for name, spec in self.parameters.items():
             if not IDENTIFIER.fullmatch(name) or spec.node not in self.graph:
                 raise ValueError("Invalid parameter binding")
@@ -133,6 +151,12 @@ class WorkflowDefinition(BaseModel):
             binding = (spec.node, spec.input)
             if binding in bindings or binding == (self.output_node, "filename_prefix"):
                 raise ValueError("Duplicate or reserved parameter binding")
+            if spec.type == "string" and spec.model_kind is None:
+                node_type = self.graph[spec.node]["class_type"]
+                if FILE_INPUT.search(spec.input) or FILE_INPUT.search(node_type):
+                    raise ValueError("File/asset input requires a managed asset resolver")
+                if spec.enum is None and (node_type, spec.input) not in FREE_TEXT_INPUTS:
+                    raise ValueError("Free-form string binding requires an audited text input")
             bindings.add(binding)
             # Check defaults and enum values for declared types without requiring installed models.
             if spec.default is not None:

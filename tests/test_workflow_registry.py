@@ -182,3 +182,53 @@ async def test_external_provider_rejection_releases_reservation(settings, tmp_pa
         rejected = False
         success = await client.call_tool("jobs.submit", {"workflow_id": key})
         assert not success.is_error
+
+
+def test_file_input_binding_fails_closed(settings, tmp_path):
+    settings, root = configured(settings, tmp_path)
+    path = root / "basic-image.json"
+    data = json.loads(path.read_text())
+    data["graph"]["8"] = {
+        "class_type": "LoadImage",
+        "inputs": {"image": "sample.png"},
+    }
+    data["parameters"]["source"] = {
+        "type": "string", "node": "8", "input": "image",
+    }
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="Malformed workflow definition"):
+        WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+
+
+def test_undeclared_save_node_fails_closed(settings, tmp_path):
+    settings, root = configured(settings, tmp_path)
+    path = root / "basic-image.json"
+    data = json.loads(path.read_text())
+    data["graph"]["8"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["6", 0], "filename_prefix": "unscoped"},
+    }
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="Malformed workflow definition"):
+        WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+
+
+async def test_only_declared_history_node_becomes_asset(settings, tmp_path, fake):
+    settings, _ = configured(settings, tmp_path)
+    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    async with Client(server) as client:
+        built = await client.call_tool("workflows.build", {
+            "template": "basic-image",
+            "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "flowers"},
+        })
+        submitted = await client.call_tool(
+            "jobs.submit", {"workflow_id": built.structured_content["workflow_id"]}
+        )
+        job_id = submitted.structured_content["job_id"]
+        fake.finish()
+        fake.history["prompt-1"]["outputs"]["999"] = {
+            "images": [{"filename": "unexpected.png", "subfolder": "", "type": "output"}]
+        }
+        assets = await client.call_tool("assets.list", {"job_id": job_id})
+        assert [asset["output_index"] for asset in assets.structured_content["assets"]] == [0]
+        assert assets.structured_content["assets"][0]["filename"] == "000.png"

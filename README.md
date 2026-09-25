@@ -256,8 +256,19 @@ installed model names, then add explicit bindings to existing literal node
 inputs. Give it a stable lowercase ID, increment its version when changing the
 graph, and review it in version control. Each definition currently declares
 one `SaveImage` output node with a `filename_prefix` input. The server sets
-that output prefix per job; clients cannot override it. Only image generation
-with the existing ComfyUI provider is supported in this phase.
+that output prefix per job; clients cannot override it. Additional Save/Preview
+nodes are rejected, and only images reported under the declared node become
+Hub assets. Review custom nodes for other filesystem side effects.
+
+Free-form string parameters are currently allowed only on the audited
+`CLIPTextEncode.text` input. Model selectors are checked against the installed
+model catalog; other string selectors require a definition-owned enum.
+File/asset inputs such as `LoadImage.image` are rejected until a managed asset
+reference and ComfyUI upload resolver are implemented. Supplying a raw provider
+filename through MCP is never supported. The definition metadata uses separate
+provider and capability IDs, while the current executor supports only
+`comfyui` / `image.generate` and `SaveImage` outputs; adding video or other
+media requires a reviewed adapter extension.
 
 For Docker Compose, create `./definitions` (or set `DEFINITION_ROOT`) before
 starting the service. It is mounted read-only at `/data/definitions`. Keep

@@ -136,7 +136,9 @@ class ComfyUIClient:
             else:
                 state, error = "unknown", None
             outputs = []
-            for node in item.get("outputs", {}).values():
+            for node_id, node in item.get("outputs", {}).items():
+                if not isinstance(node_id, str) or not isinstance(node, dict):
+                    raise ValueError
                 for image in node.get("images", []):
                     filename = model_name(image["filename"])
                     if "/" in filename or image.get("type") != "output":
@@ -144,7 +146,10 @@ class ComfyUIClient:
                     subfolder = image.get("subfolder", "")
                     if subfolder:
                         model_name(subfolder)
-                    outputs.append({"filename": filename, "subfolder": subfolder, "type": "output"})
+                    outputs.append({
+                        "node_id": node_id, "filename": filename,
+                        "subfolder": subfolder, "type": "output",
+                    })
             if len(outputs) > 64 or (state == "completed" and not outputs):
                 raise ValueError
             return {"status": state, "error": error, "outputs": outputs}
