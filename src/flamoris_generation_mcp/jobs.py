@@ -149,6 +149,24 @@ class JobStore:
             provider = self.providers.get(job.provider_id)
             job.snapshot = await provider.inspect(job.provider_execution_id)
         await self._release_if_terminal(job_id, job)
+        if job.snapshot.status == "completed":
+            self._archive_metadata(job)
+
+    def _archive_metadata(self, job: Job) -> None:
+        """Persist identities without downloading media or restoring execution authority."""
+        record = self._metadata(job)
+        record["files"] = []
+        for index in range(len(job.snapshot.outputs)):
+            if index in job.deleted_outputs:
+                continue
+            _, path = self._asset_metadata(job.job_id, job, index)
+            with AssetFiles(self.output_dir, job.job_id) as files:
+                record["files"].append({"file": str(path), "size_bytes": files.size(path.name)})
+        payload = json.dumps(record, indent=2).encode()
+        if len(payload) > 1024 * 1024:
+            raise ValueError("Asset metadata exceeds archive limit")
+        with AssetFiles(self.output_dir, job.job_id) as files:
+            files.write("metadata.json", payload)
 
     async def status(self, job_id: str) -> dict:
         job = self._get(job_id)
@@ -338,7 +356,10 @@ class JobStore:
         return asset, path
 
     async def list_assets(self, job_id: str) -> dict:
-        job = self._get(job_id)
+        checked_id(job_id)
+        job = self._jobs.get(job_id)
+        if job is None:
+            return await self._archived_list(job_id)
         async with job.lock:
             await self._refresh(job_id, job)
             if job.snapshot.status != "completed":
@@ -348,6 +369,38 @@ class JobStore:
                 for index in range(len(job.snapshot.outputs))
                 if index not in job.deleted_outputs
             ]
+            return {"job_id": job_id, "assets": assets}
+
+    async def _archived_list(self, job_id: str) -> dict:
+        async with self._archived_lock(job_id):
+            assets = []
+            with AssetFiles(self.output_dir, job_id, create=False) as files:
+                raw = files.read("metadata.json", 1024 * 1024)
+                try:
+                    record = json.loads(raw) if raw is not None else None
+                    outputs = record["outputs"]
+                    if not isinstance(outputs, list) or not 1 <= len(outputs) <= 64:
+                        raise ValueError
+                except (ValueError, KeyError, TypeError):
+                    raise ValueError("Invalid archived asset record") from None
+                for index in range(len(outputs)):
+                    path, deleted = self._archived_file(job_id, index, files)
+                    if deleted or path is None:
+                        continue
+                    kind, mime, _ = MEDIA_TYPES[path.suffix.lower()]
+                    size = files.size(path.name)
+                    assets.append(
+                        {
+                            "asset_id": self._asset_id(job_id, index),
+                            "job_id": job_id,
+                            "filename": path.name,
+                            "media_kind": kind,
+                            "mime_type": mime,
+                            "size_bytes": size,
+                            "materialized": size is not None,
+                            "output_index": index,
+                        }
+                    )
             return {"job_id": job_id, "assets": assets}
 
     async def get_asset(self, asset_id: str) -> tuple[dict, bytes, str]:

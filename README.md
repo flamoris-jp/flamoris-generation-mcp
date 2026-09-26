@@ -406,3 +406,19 @@ FLAMORISのソフトウェアは現状のまま提供され、個別サポート
 もしお役に立てたり、面白いと思っていただけたなら、開発費用をご支援いただけるとうれしいです。  
 FLAMORISは元気になって育ちます。🌱  
 <sub>主にGPU代とか。</sub>
+
+### Durable metadata and explicit content retrieval
+
+Completed status/asset listing persists the bounded output manifest without
+fetching image bytes. `assets.list` can read this manifest after restart, including
+unmaterialized outputs and deletion tombstones. Retrieving an individual asset
+with `assets.get` no longer requires a preceding `jobs.result` call for its
+materialized copy to remain readable/deletable after restart.
+
+`jobs.result` retains its compatibility behavior of materializing all remaining
+outputs. Metadata-oriented clients should use `jobs.status` and `assets.list`,
+then retrieve only the selected content. The 64 MiB binary bound is unchanged.
+A listed but unmaterialized output cannot be fetched after restart because live
+provider execution mappings are not reconstructed; listing it does not claim the
+binary is available. Such an output can still be removed from the managed catalog.
+This does not restore active jobs or introduce another provider job authority.
