@@ -73,7 +73,7 @@ async def test_assets_reject_unknown_unfinished_and_unknown_asset(stores, fake):
 
     with pytest.raises(ValueError, match="completed"):
         await jobs.list_assets(job_id)
-    with pytest.raises(ValueError, match="Unknown job"):
+    with pytest.raises(ValueError, match="Unknown"):
         await jobs.list_assets("0" * 32)
 
     fake.finish()
@@ -273,3 +273,52 @@ def test_directory_swap_during_asset_io_cannot_escape(tmp_path, monkeypatch, ope
             assert "directory changed" in str(exc)
     assert swapped
     assert (outside / "000.png").read_bytes() == b"private"
+
+
+async def test_metadata_catalog_and_selected_get_survive_restart_without_result(
+    stores, fake, settings
+):
+    workflows, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    fake.history["prompt-1"]["outputs"]["7"]["images"].append(
+        {"filename": "second.png", "subfolder": "flamoris", "type": "output"}
+    )
+    listed = await jobs.list_assets(job_id)
+    assert fake.download_count == 0
+    restarted = JobStore(workflows, jobs.providers, jobs.capabilities, settings.output_dir)
+    assert await restarted.list_assets(job_id) == listed
+    with pytest.raises(ValueError, match="Unknown archived"):
+        await restarted.get_asset(f"{job_id}:001")
+    await jobs.get_asset(f"{job_id}:000")
+    assert fake.download_count == 1
+    assert (await restarted.get_asset(f"{job_id}:000"))[1] == b"image fixture"
+    again = await restarted.list_assets(job_id)
+    assert [a["materialized"] for a in again["assets"]] == [True, False]
+    await restarted.delete_asset(f"{job_id}:001")
+    assert [a["asset_id"] for a in (await restarted.list_assets(job_id))["assets"]] == [
+        f"{job_id}:000"
+    ]
+    assert fake.download_count == 1
+
+
+async def test_catalog_archive_rejects_malformed_and_symlink(stores, fake, settings, tmp_path):
+    import json
+
+    workflows, jobs, _ = stores
+    job_id = await submit(stores)
+    fake.finish()
+    await jobs.list_assets(job_id)
+    manifest = settings.output_dir / job_id / "metadata.json"
+    record = json.loads(manifest.read_text())
+    record["job_id"] = "b" * 32
+    manifest.write_text(json.dumps(record))
+    restarted = JobStore(workflows, jobs.providers, jobs.capabilities, settings.output_dir)
+    with pytest.raises(ValueError, match="Invalid archived"):
+        await restarted.list_assets(job_id)
+    manifest.unlink()
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(record))
+    manifest.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        await restarted.list_assets(job_id)
