@@ -41,6 +41,9 @@ class Settings(BaseModel):
     workflow_dir: Path = Path(".generation/workflows")
     workflow_definition_dir: Path = Path(".generation/definitions")
     output_dir: Path = Path(".generation/outputs")
+    comfyui_output_root: Path | None = None
+    provider_cleanup_enabled: bool = False
+    provider_retention_days: int = Field(default=30, ge=0, le=36500)
     request_timeout: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)
     targeted_interrupt: bool = False
     mcp_transport: Literal["stdio", "streamable-http"] = "stdio"
@@ -77,6 +80,9 @@ class Settings(BaseModel):
             "WORKFLOW_DIR": "workflow_dir",
             "WORKFLOW_DEFINITION_DIR": "workflow_definition_dir",
             "OUTPUT_DIR": "output_dir",
+            "COMFYUI_OUTPUT_ROOT": "comfyui_output_root",
+            "PROVIDER_CLEANUP_ENABLED": "provider_cleanup_enabled",
+            "PROVIDER_RETENTION_DAYS": "provider_retention_days",
             "REQUEST_TIMEOUT": "request_timeout",
             "TARGETED_INTERRUPT": "targeted_interrupt",
             "MCP_TRANSPORT": "mcp_transport",

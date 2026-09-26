@@ -13,6 +13,7 @@ from .base import (
     ProviderJob,
     ProviderOutput,
 )
+from .comfyui_retention import ComfyUIRetention
 
 MEDIA_TYPES = {
     ".png": ("image", "image/png"),
@@ -42,6 +43,10 @@ class ComfyUIProvider:
         self.workflows = workflows
         self._outputs: dict[tuple[str, str], dict] = {}
         self._output_nodes: dict[str, str] = {}
+
+    def retention(self) -> ComfyUIRetention | None:
+        root = self.client.settings.comfyui_output_root
+        return ComfyUIRetention(root, self._outputs) if root is not None else None
 
     async def health(self) -> ProviderHealth:
         raw = await self.client.health()
