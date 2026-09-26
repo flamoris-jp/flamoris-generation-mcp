@@ -74,6 +74,7 @@ def create_server(
         return {
             "healthy": True,
             "version": __version__,
+            "deployment": {"reservation_scope": "process", "single_instance_required": True},
             **jobs.activity(),
             "providers": provider_health,
             "provider": "comfyui",
