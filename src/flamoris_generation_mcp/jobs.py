@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,7 @@ from uuid import uuid4
 from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
+from .retention import RetentionStore
 from .workflows import AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -48,11 +50,13 @@ class JobStore:
         providers: ProviderRegistry,
         capabilities: CapabilityRegistry,
         output_dir: Path,
+        retention: RetentionStore | None = None,
     ):
         self.workflows = workflows
         self.providers = providers
         self.capabilities = capabilities
         self.output_dir = output_dir
+        self.retention = retention
         self._jobs: dict[str, Job] = {}
         self._archived_locks = tuple(asyncio.Lock() for _ in range(64))
         self._submit_lock = asyncio.Lock()
@@ -151,6 +155,12 @@ class JobStore:
         await self._release_if_terminal(job_id, job)
         if job.snapshot.status == "completed":
             self._archive_metadata(job)
+            if self.retention is not None:
+                try:
+                    self.retention.record(job.provider_id, job.provider_execution_id, job_id)
+                except (ValueError, OSError, TypeError, KeyError):
+                    # Maintenance receipts must not turn successful generation into failure.
+                    logging.getLogger(__name__).warning("Retention capture skipped job=%s", job_id)
 
     def _archive_metadata(self, job: Job) -> None:
         """Persist identities without downloading media or restoring execution authority."""

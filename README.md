@@ -422,3 +422,63 @@ A listed but unmaterialized output cannot be fetched after restart because live
 provider execution mappings are not reconstructed; listing it does not claim the
 binary is available. Such an output can still be removed from the managed catalog.
 This does not restore active jobs or introduce another provider job authority.
+
+### Provider-output retention (explicit maintenance)
+
+`assets.delete` still deletes only the managed copy/catalog entry. Provider
+originals are a separate lifecycle. Optional ComfyUI cleanup records identities
+only for declared outputs of jobs submitted by this process, under its fixed
+`flamoris/<job-id>_<counter>_.<image-extension>` namespace. Unrelated files,
+inputs, models, temporary outputs and unrecorded historical files are excluded.
+
+Operator configuration (environment only):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FLAMORIS_COMFYUI_OUTPUT_ROOT` | unset | Optional absolute local view of the ComfyUI output directory; all path components must be real directories, not symlinks |
+| `FLAMORIS_PROVIDER_RETENTION_DAYS` | `30` | Minimum age since the original identity was first recorded (0–36500) |
+| `FLAMORIS_PROVIDER_CLEANUP_ENABLED` | `false` | Permit the maintenance command's explicit `--execute` mode |
+
+The MCP process must see the same provider files to record receipts on completed
+status/list/result calls. A remote ComfyUI HTTP endpoint alone does not grant
+filesystem cleanup access. Container deployments need an explicit operator-owned
+mount and environment override; the supplied Compose file intentionally does not
+mount provider originals writable or enable deletion. Do not point this root at
+model/input storage. Run maintenance on the same filesystem view as capture;
+changed mount/device/inode identities fail closed.
+
+Preview first using the same environment as the Generation process:
+
+```sh
+python -m flamoris_generation_mcp.retention --deleted-only --max-jobs 100
+# Only after reviewing the preview, and explicitly enabling cleanup:
+python -m flamoris_generation_mcp.retention --deleted-only --max-jobs 100 --execute
+```
+
+Without `--deleted-only`, all proven outputs older than the configured age are
+eligible, even if their managed catalog reference remains. If the managed binary
+was never materialized, removing its original makes it unrecoverable. Use
+`--deleted-only` for conservative gallery-driven cleanup. No background scheduler
+or automatic deletion is installed.
+
+Each invocation examines at most 100 directory entries by default (maximum 1000),
+and at most 64 recorded outputs per selected job. `scan_limit_reached` means the
+scan was incomplete; do not interpret it as a complete inventory. For larger
+catalogs, use repeated `--job-id <known-job-id>` selections (bounded by `--max-jobs`)
+to target remaining batches. Directory order is not a pagination contract.
+
+The JSON summary reports eligible/deleted/missing files, reclaimed bytes,
+failures and scan completeness. Actions log only job/output identities and safe
+outcomes, never private filenames or credentials. Missing originals are idempotent
+successes. Changed files, symlinks, hardlinks and mismatched job prefixes are
+refused. Failed outputs do not prevent other eligible outputs from being handled.
+Deletion pins the candidate under a random `.cleanup-*` name and checks identity
+again before unlinking. A concurrently changed file is restored without replacing
+a new original; a crash or failed restoration can leave that quarantine file for
+manual inspection. The command never recursively sweeps such files.
+
+Receipts are deliberately not backfilled from arbitrary directory contents. An
+old output without a recorded ownership/identity receipt must be reviewed
+manually. Deploy this feature before relying on automatic eligibility of newly
+completed jobs. The maintenance command does not start/stop a provider or alter
+LIME Manager authority.

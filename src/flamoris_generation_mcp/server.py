@@ -19,6 +19,7 @@ from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
+from .retention import RetentionStore
 from .workflows import WorkflowStore
 
 
@@ -31,7 +32,8 @@ def create_server(
     catalog = ModelCatalog(settings)
     workflows = WorkflowStore(catalog, settings.workflow_dir, settings.workflow_definition_dir)
     client = ComfyUIClient(settings, transport)
-    providers = ProviderRegistry((ComfyUIProvider(client, catalog, workflows),))
+    comfyui = ComfyUIProvider(client, catalog, workflows)
+    providers = ProviderRegistry((comfyui,))
     capabilities = CapabilityRegistry(
         (
             Capability(
@@ -46,7 +48,16 @@ def create_server(
             ),
         )
     )
-    jobs = JobStore(workflows, providers, capabilities, settings.output_dir)
+    retention = None
+    maintenance = comfyui.retention()
+    if maintenance is not None:
+        retention = RetentionStore(
+            settings.output_dir,
+            {
+                "comfyui": maintenance,
+            },
+        )
+    jobs = JobStore(workflows, providers, capabilities, settings.output_dir, retention)
 
     @asynccontextmanager
     async def lifespan(server):
