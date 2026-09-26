@@ -36,7 +36,7 @@ new route for large outputs and retain ordinary output retention policy.
 Stream into an exclusive no-follow temporary file under the pinned job directory;
 count actual bytes, hash incrementally, fsync, and atomically rename. Failure or
 cancellation removes the partial file. Crash leftovers remain charged to the disk
-budget and are removed on the next prepare for that job (at most 64 entries).
+budget and are removed on the next prepare for that job (a bounded 256-entry job directory scan).
 This is a single-process/single-instance contract, not a distributed disk quota.
 Only the service may write its managed output root.
 
