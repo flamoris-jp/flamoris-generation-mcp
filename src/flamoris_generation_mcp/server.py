@@ -20,6 +20,7 @@ from .models import ModelCatalog
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
 from .retention import RetentionStore
+from .transfers import CHUNK_BYTES, AssetTransfers
 from .workflows import WorkflowStore
 
 
@@ -58,6 +59,10 @@ def create_server(
             },
         )
     jobs = JobStore(workflows, providers, capabilities, settings.output_dir, retention)
+
+    transfers = AssetTransfers(
+        jobs, max_bytes=settings.transfer_max_bytes, disk_bytes=settings.transfer_disk_bytes
+    )
 
     @asynccontextmanager
     async def lifespan(server):
@@ -178,6 +183,32 @@ def create_server(
             return Image(data=data, format=media_format)
         except (ValueError, ProviderError) as exc:
             raise ToolError(str(exc)) from exc
+
+    @server.tool(name="assets.prepare")
+    async def prepare_asset(asset_id: str) -> dict[str, Any]:
+        """Materialize one asset for bounded transfer; return immutable content digest."""
+        try:
+            return await transfers.prepare(asset_id)
+        except (ValueError, ProviderError, OSError, TimeoutError) as exc:
+            raise ToolError(
+                str(exc)
+                if isinstance(exc, (ValueError, ProviderError))
+                else "Asset preparation failed; retry safely"
+            ) from None
+
+    @server.tool(name="assets.read")
+    async def read_asset(
+        asset_id: str, sha256: str, offset: int, length: int = CHUNK_BYTES
+    ) -> dict[str, Any]:
+        """Read at most 256 KiB from a prepared asset at a retryable byte offset."""
+        try:
+            return await transfers.read(asset_id, sha256, offset, length)
+        except (ValueError, ProviderError, OSError, TimeoutError) as exc:
+            raise ToolError(
+                str(exc)
+                if isinstance(exc, (ValueError, ProviderError))
+                else "Asset read failed; prepare again"
+            ) from None
 
     return server
 

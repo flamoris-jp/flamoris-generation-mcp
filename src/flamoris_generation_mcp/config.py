@@ -45,6 +45,8 @@ class Settings(BaseModel):
     provider_cleanup_enabled: bool = False
     provider_retention_days: int = Field(default=30, ge=0, le=36500)
     request_timeout: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)
+    transfer_max_bytes: int = Field(default=1024**3, ge=1, le=4 * 1024**3)
+    transfer_disk_bytes: int = Field(default=8 * 1024**3, ge=1, le=64 * 1024**3)
     targeted_interrupt: bool = False
     mcp_transport: Literal["stdio", "streamable-http"] = "stdio"
     http_host: str = Field(default="127.0.0.1", min_length=1, max_length=253)
@@ -84,6 +86,8 @@ class Settings(BaseModel):
             "PROVIDER_CLEANUP_ENABLED": "provider_cleanup_enabled",
             "PROVIDER_RETENTION_DAYS": "provider_retention_days",
             "REQUEST_TIMEOUT": "request_timeout",
+            "TRANSFER_MAX_BYTES": "transfer_max_bytes",
+            "TRANSFER_DISK_BYTES": "transfer_disk_bytes",
             "TARGETED_INTERRUPT": "targeted_interrupt",
             "MCP_TRANSPORT": "mcp_transport",
             "HTTP_HOST": "http_host",

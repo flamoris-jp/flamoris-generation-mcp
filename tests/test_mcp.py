@@ -23,6 +23,8 @@ TOOL_NAMES = {
     "assets.list",
     "assets.get",
     "assets.delete",
+    "assets.prepare",
+    "assets.read",
 }
 
 

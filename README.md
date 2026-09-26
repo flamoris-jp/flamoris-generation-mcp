@@ -482,3 +482,23 @@ old output without a recorded ownership/identity receipt must be reviewed
 manually. Deploy this feature before relying on automatic eligibility of newly
 completed jobs. The maintenance command does not start/stop a provider or alter
 LIME Manager authority.
+
+### Bounded large-asset delivery
+
+Use `assets.prepare(asset_id)` followed by `assets.read(asset_id, sha256, offset,
+length)` for bounded downloads (maximum 256 KiB per chunk). Retry a chunk at the
+same offset and verify its digest and the final SHA-256. Multiple outputs remain
+individually selected through `assets.list`; no bulk binary bundle is created.
+`assets.get` remains the native-image route with its existing 64 MiB bound.
+
+`FLAMORIS_TRANSFER_MAX_BYTES` defaults to 1 GiB (maximum 4 GiB), and
+`FLAMORIS_TRANSFER_DISK_BYTES` to 8 GiB (maximum 64 GiB). One prepare runs at a time;
+its total deadline is 300 seconds and each provider read has a 30-second deadline.
+Unmaterialized assets cannot be downloaded after loss of provider mappings on
+restart. Completed local assets can be prepared and read again. Deletion ends
+future reads, including retries. Only the service may write its managed output
+root; the new path checks its bounded disk budget before materialization.
+
+See [the transfer contract](docs/ASSET_TRANSFER.md) for restart, integrity,
+confinement and downstream adoption. Hub schema registration and Studio ownership
+checks/download integration are separate review gates; this adds no public URL.
