@@ -502,3 +502,24 @@ root; the new path checks its bounded disk budget before materialization.
 See [the transfer contract](docs/ASSET_TRANSFER.md) for restart, integrity,
 confinement and downstream adoption. Hub schema registration and Studio ownership
 checks/download integration are separate review gates; this adds no public URL.
+
+### Managed input snapshots
+
+`inputs.create(asset_id)` copies an existing generated PNG/JPEG/WebP/WAV into an
+immutable input, returning `input_id`, source identity, SHA-256 and expiry.
+`inputs.get(input_id)` returns metadata; `inputs.delete(input_id)` refuses inputs
+currently leased by a provider adapter. Source deletion after publication does
+not change the snapshot. No upload, URL, caller path or provider filename is
+accepted. File signatures must agree with the source MIME type.
+
+Inputs expire after 24 hours. Limits are 64 MiB each, 128 retained records and
+512 MiB total under the configured output directory's `managed-inputs` child.
+Create prunes expired and incomplete records. Adapter staging is limited to four
+inputs / 128 MiB and requires the existing active job reservation. The internal
+reader API never exposes a caller-selected path.
+
+See [the managed-input contract](docs/MANAGED_INPUTS.md). Studio must authorize
+source ownership and persist its own input-owner mapping before exposing these
+tools to users. Production workflow file bindings remain fail-closed until a
+provider's staging integration and real-runtime smoke are verified. This change
+does not advertise new ComfyUI, transcription, TTS or video-input capabilities.
