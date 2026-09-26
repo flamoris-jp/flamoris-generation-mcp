@@ -15,6 +15,7 @@ from . import __version__
 from .capabilities import Capability, CapabilityRegistry
 from .comfyui import ComfyUIClient
 from .config import ModelKind, Settings
+from .inputs import ManagedInputs
 from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
 from .providers import ProviderError, ProviderRegistry
@@ -63,6 +64,8 @@ def create_server(
     transfers = AssetTransfers(
         jobs, max_bytes=settings.transfer_max_bytes, disk_bytes=settings.transfer_disk_bytes
     )
+
+    inputs = ManagedInputs(transfers, settings.output_dir / "managed-inputs")
 
     @asynccontextmanager
     async def lifespan(server):
@@ -208,6 +211,38 @@ def create_server(
                 str(exc)
                 if isinstance(exc, (ValueError, ProviderError))
                 else "Asset read failed; prepare again"
+            ) from None
+
+    @server.tool(name="inputs.create")
+    async def create_input(asset_id: str) -> dict[str, Any]:
+        """Snapshot a generated image/audio asset as an immutable expiring input."""
+        try:
+            return await inputs.create(asset_id)
+        except (ValueError, ProviderError, OSError, TimeoutError) as exc:
+            raise ToolError(
+                str(exc)
+                if isinstance(exc, (ValueError, ProviderError))
+                else "Input creation failed"
+            ) from None
+
+    @server.tool(name="inputs.get")
+    async def get_input(input_id: str) -> dict[str, Any]:
+        """Inspect managed input metadata; an ID is not a Studio ownership grant."""
+        try:
+            return inputs.get(input_id)
+        except (ValueError, OSError) as exc:
+            raise ToolError(
+                str(exc) if isinstance(exc, ValueError) else "Input retrieval failed"
+            ) from None
+
+    @server.tool(name="inputs.delete")
+    async def delete_input(input_id: str) -> dict[str, Any]:
+        """Delete a managed snapshot unless a provider adapter is using it."""
+        try:
+            return inputs.delete(input_id)
+        except (ValueError, OSError) as exc:
+            raise ToolError(
+                str(exc) if isinstance(exc, ValueError) else "Input deletion failed"
             ) from None
 
     return server
