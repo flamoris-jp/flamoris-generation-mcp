@@ -7,11 +7,11 @@ import zlib
 
 import httpx
 import pytest
-from flamoris_generation_mcp.jobs import JobStore
-from flamoris_generation_mcp.server import create_server
 from mcp import Client
 
 from flamoris_generation_mcp.inputs import ManagedInputs
+from flamoris_generation_mcp.jobs import JobStore
+from flamoris_generation_mcp.server import create_server
 from flamoris_generation_mcp.transfers import CHUNK_BYTES, AssetTransfers
 
 
