@@ -135,3 +135,13 @@ class ComfyUIProvider:
 
     async def close(self) -> None:
         await self.client.close()
+
+    async def stream_output(self, execution_id: str, output_id: str):
+        from contextlib import aclosing
+
+        output = self._outputs.get((execution_id, output_id))
+        if output is None:
+            raise ProviderError("Unknown ComfyUI output; inspect before retrieval")
+        async with aclosing(self.client.stream_output(output)) as stream:
+            async for chunk in stream:
+                yield chunk

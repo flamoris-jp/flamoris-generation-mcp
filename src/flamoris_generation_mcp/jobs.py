@@ -23,6 +23,12 @@ class GenerationBusyError(ValueError):
 
 MAX_ASSET_BYTES = 64 * 1024 * 1024
 MEDIA_TYPES = {
+    ".wav": ("audio", "audio/wav", "wav"),
+    ".mp3": ("audio", "audio/mpeg", "mp3"),
+    ".mp4": ("video", "video/mp4", "mp4"),
+    ".mid": ("midi", "audio/midi", "midi"),
+    ".json": ("metadata", "application/json", "json"),
+    ".psd": ("image", "image/vnd.adobe.photoshop", "psd"),
     ".png": ("image", "image/png", "png"),
     ".jpg": ("image", "image/jpeg", "jpeg"),
     ".jpeg": ("image", "image/jpeg", "jpeg"),
@@ -279,6 +285,8 @@ class JobStore:
                 path, deleted = self._archived_file(job_id, index, files)
                 if deleted or path is None:
                     raise ValueError("Unknown archived asset ID")
+                if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                    raise ValueError("Use assets.prepare/assets.read for this media type")
                 data = files.read(path.name, MAX_ASSET_BYTES)
                 if data is None:
                     raise ValueError("Unknown archived asset ID")
@@ -426,6 +434,8 @@ class JobStore:
             suffix = path.suffix.lower()
             _, _, media_format = MEDIA_TYPES[suffix]
             with AssetFiles(self.output_dir, job_id) as files:
+                if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                    raise ValueError("Use assets.prepare/assets.read for this media type")
                 data = files.read(path.name, MAX_ASSET_BYTES)
             if data is None:
                 raise ValueError("Generated asset changed while being read")

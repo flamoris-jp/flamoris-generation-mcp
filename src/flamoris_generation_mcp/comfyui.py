@@ -196,3 +196,19 @@ class ComfyUIClient:
             ) from None
         except httpx.RequestError:
             raise ProviderError("ComfyUI output download failed; retry jobs.result") from None
+
+    async def stream_output(self, output: dict):
+        """Identity-encoded bounded stream; outer transfer owns total bytes/deadline."""
+        from .transfers import CHUNK_BYTES
+
+        try:
+            async with self.http.stream(
+                "GET", "view", params=output, headers={"Accept-Encoding": "identity"}
+            ) as response:
+                response.raise_for_status()
+                if response.headers.get("content-encoding", "identity") != "identity":
+                    raise ProviderError("Encoded provider output is unsupported")
+                async for chunk in response.aiter_bytes(chunk_size=CHUNK_BYTES):
+                    yield chunk
+        except httpx.HTTPError:
+            raise ProviderError("ComfyUI output stream failed; retry assets.prepare") from None
