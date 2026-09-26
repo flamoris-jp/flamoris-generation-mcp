@@ -481,7 +481,7 @@ Receipts are deliberately not backfilled from arbitrary directory contents. An
 old output without a recorded ownership/identity receipt must be reviewed
 manually. Deploy this feature before relying on automatic eligibility of newly
 completed jobs. The maintenance command does not start/stop a provider or alter
-LIME Manager authority.
+GPU Node Manager authority.
 
 ### Bounded large-asset delivery
 
