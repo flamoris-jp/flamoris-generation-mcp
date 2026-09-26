@@ -39,6 +39,35 @@ without automatically selecting a provider.
 
 ## Setup
 
+### Single-instance deployment contract
+
+Run **exactly one active Generation MCP process per shared provider/resource
+pool**. Horizontal replicas, multiple ASGI workers, overlapping rolling updates,
+and separate stdio servers targeting the same GPU/provider are unsupported.
+For multiple clients, use independent sessions against one Streamable HTTP
+process. Do not start an additional stdio process alongside it.
+
+The single-generation reservation, submission lock, active job state and provider
+execution mappings are **process-local**, not host-wide or distributed. Sharing
+workflow/output directories does not share the reservation. LIME Manager owns
+runtime transitions; it does not turn these process-local job locks into a
+distributed generation lock. Direct submissions to ComfyUI also bypass this
+reservation.
+
+The supplied CLI starts one process and offers no worker/replica option. It cannot
+reliably discover another process/container using the same resource pool, so no
+startup check claims to enforce cross-process exclusivity. Deployment supervisors
+must enforce a singleton. `system.health` advertises this requirement explicitly;
+it is a contract declaration, not proof that no second instance exists.
+
+Before restarting/upgrading, stop accepting submissions, finish or explicitly
+cancel active work, and verify provider completion/release. Use stop-then-start
+deployment, not overlapping replacements. After an unexpected restart, inspect
+the provider before resuming submissions: an empty in-memory reservation does not
+prove that previously submitted provider work has stopped. Archived materialized
+assets do not restore active jobs. Multi-instance support would require a separate
+coordination design; it is not enabled by scaling Compose.
+
 Requires Python 3.11+ and an independently installed ComfyUI instance. No GPU or
 ComfyUI installation is needed on the MCP host, but the host must be able to scan
 the configured model directories. Model weights are neither downloaded nor loaded

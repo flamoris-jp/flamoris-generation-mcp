@@ -33,6 +33,10 @@ async def test_mcp_protocol_validation_and_generation(settings, fake):
         assert {tool.name for tool in tools.tools} == TOOL_NAMES
         health = (await client.call_tool("system.health")).structured_content
         assert health["healthy"] and health["providers"][0]["id"] == "comfyui"
+        assert health["deployment"] == {
+            "reservation_scope": "process",
+            "single_instance_required": True,
+        }
         capabilities = await client.call_tool("capabilities.list")
         capability = capabilities.structured_content["capabilities"][0]
         assert capability == {
