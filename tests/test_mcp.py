@@ -25,6 +25,9 @@ TOOL_NAMES = {
     "assets.delete",
     "assets.prepare",
     "assets.read",
+    "inputs.create",
+    "inputs.get",
+    "inputs.delete",
 }
 
 
