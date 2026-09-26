@@ -49,9 +49,9 @@ process. Do not start an additional stdio process alongside it.
 
 The single-generation reservation, submission lock, active job state and provider
 execution mappings are **process-local**, not host-wide or distributed. Sharing
-workflow/output directories does not share the reservation. LIME Manager owns
-runtime transitions; it does not turn these process-local job locks into a
-distributed generation lock. Direct submissions to ComfyUI also bypass this
+workflow/output directories does not share the reservation. FLAMORIS GPU Node
+Manager owns local GPU/runtime transitions; it does not turn these process-local
+job locks into a distributed generation lock. Direct submissions to ComfyUI also bypass this
 reservation.
 
 The supplied CLI starts one process and offers no worker/replica option. It cannot
@@ -481,7 +481,7 @@ Receipts are deliberately not backfilled from arbitrary directory contents. An
 old output without a recorded ownership/identity receipt must be reviewed
 manually. Deploy this feature before relying on automatic eligibility of newly
 completed jobs. The maintenance command does not start/stop a provider or alter
-LIME Manager authority.
+GPU Node Manager authority.
 
 ### Bounded large-asset delivery
 
