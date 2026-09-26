@@ -112,7 +112,13 @@ class AssetTransfers:
     def receipt_name(index):
         return f".integrity-{index:03d}.json"
 
-    async def prepare(self, asset_id):
+    async def prepare(self, asset_id, *, max_bytes=None, allowed_types=None):
+        # Private limits allow managed-input callers to fail before provider I/O.
+        if max_bytes is not None and (
+            type(max_bytes) is not int or not 0 < max_bytes <= self.max_bytes
+        ):
+            raise ValueError("Invalid asset preparation byte limit")
+        limit = min(self.max_bytes, max_bytes) if max_bytes is not None else self.max_bytes
         if self._preparing.locked():
             raise ValueError("Asset preparation busy; retry later")
         async with self._preparing, asyncio.timeout(self.deadline), self.lock(asset_id):
@@ -121,6 +127,13 @@ class AssetTransfers:
                 self.jobs.output_dir, job_id, create=job_id in self.jobs._jobs
             ) as files:
                 asset, path, job = await self.resolve(asset_id, files)
+                if allowed_types is not None and (
+                    asset["mime_type"] not in allowed_types
+                    or asset["media_kind"] != asset["mime_type"].split("/")[0]
+                ):
+                    raise ValueError("Input media type is unsupported")
+                if asset.get("size_bytes") is not None and asset["size_bytes"] > limit:
+                    raise ValueError("Asset exceeds preparation size limit")
                 # Only this helper's names, under the same job lock, are recoverable.
                 with os.scandir(files.fd) as entries:
                     leftovers = []
@@ -134,16 +147,16 @@ class AssetTransfers:
                 if files.size(path.name) is None:
                     if job is None:
                         raise ValueError("Asset unavailable after restart; provider mapping lost")
-                    await self._materialize(files, path.name, job, index)
+                    await self._materialize(files, path.name, job, index, limit)
                 with open_asset(files, path.name) as fd:
                     before = identity(os.fstat(fd))
-                    if not 0 < before[2] <= self.max_bytes:
+                    if not 0 < before[2] <= limit:
                         raise ValueError("Asset exceeds transfer size limit or is empty")
                     digest = hashlib.sha256()
                     total = 0
                     while chunk := os.read(fd, CHUNK_BYTES):
                         total += len(chunk)
-                        if total > self.max_bytes:
+                        if total > limit:
                             raise ValueError("Asset exceeds transfer size limit")
                         digest.update(chunk)
                         await asyncio.sleep(0)
@@ -160,13 +173,13 @@ class AssetTransfers:
                     "transfer_version": 1,
                 }
 
-    async def _materialize(self, files, name, job, index):
+    async def _materialize(self, files, name, job, index, max_bytes):
         provider = self.jobs.providers.get(job.provider_id)
         stream_output = getattr(provider, "stream_output", None)
         if stream_output is None:
             raise ValueError("Provider does not support bounded asset streaming")
         remaining = self.disk_bytes - disk_usage(self.jobs.output_dir)
-        limit = min(self.max_bytes, remaining - 1024 * 1024)
+        limit = min(max_bytes, remaining - 1024 * 1024)
         if limit <= 0:
             raise ValueError("Managed output disk budget exhausted")
         temporary = f".transfer-{uuid4().hex}"
