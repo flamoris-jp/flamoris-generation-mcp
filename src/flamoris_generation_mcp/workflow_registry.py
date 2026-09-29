@@ -274,6 +274,7 @@ class WorkflowRegistry:
                 with os.fdopen(descriptor, "wb") as stream:
                     stream.write(content)
                     stream.flush()
+                    os.fchmod(stream.fileno(), 0o644)
                     os.fsync(stream.fileno())
                 os.replace(temporary_path, path)
                 directory_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
