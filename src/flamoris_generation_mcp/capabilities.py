@@ -1,6 +1,7 @@
 """Provider-independent capability discovery for the Generation Hub."""
 
 import re
+import threading
 from dataclasses import dataclass
 
 
@@ -23,12 +24,17 @@ class Capability:
 
 class CapabilityRegistry:
     def __init__(self, capabilities: tuple[Capability, ...] = ()):
+        self._lock = threading.RLock()
         self._capabilities: dict[str, Capability] = {}
         self._workflow_capabilities: dict[str, Capability] = {}
         for capability in capabilities:
             self.register(capability)
 
     def register(self, capability: Capability) -> None:
+        with self._lock:
+            self._register_unlocked(capability)
+
+    def _register_unlocked(self, capability: Capability) -> None:
         if not re.fullmatch(r"[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+", capability.capability_id):
             raise ValueError("Capability ID must be a stable dotted lowercase identifier")
         if capability.capability_id in self._capabilities:
@@ -48,21 +54,28 @@ class CapabilityRegistry:
             self._workflow_capabilities[template] = capability
 
     def assign_workflow(self, capability_id: str, provider_id: str, template: str) -> None:
-        self.validate_workflow(capability_id, provider_id, template)
-        capability = self._capabilities[capability_id]
-        if template in self._workflow_capabilities:
-            return
-        updated = Capability(
-            capability_id=capability.capability_id,
-            provider_id=capability.provider_id,
-            runtime_id=capability.runtime_id,
-            workflow_templates=(*capability.workflow_templates, template),
-        )
-        self._capabilities[capability_id] = updated
-        for workflow in updated.workflow_templates:
-            self._workflow_capabilities[workflow] = updated
+        with self._lock:
+            self._validate_workflow_unlocked(capability_id, provider_id, template)
+            capability = self._capabilities[capability_id]
+            if template in self._workflow_capabilities:
+                return
+            updated = Capability(
+                capability_id=capability.capability_id,
+                provider_id=capability.provider_id,
+                runtime_id=capability.runtime_id,
+                workflow_templates=(*capability.workflow_templates, template),
+            )
+            self._capabilities[capability_id] = updated
+            for workflow in updated.workflow_templates:
+                self._workflow_capabilities[workflow] = updated
 
     def validate_workflow(self, capability_id: str, provider_id: str, template: str) -> None:
+        with self._lock:
+            self._validate_workflow_unlocked(capability_id, provider_id, template)
+
+    def _validate_workflow_unlocked(
+        self, capability_id: str, provider_id: str, template: str
+    ) -> None:
         try:
             capability = self._capabilities[capability_id]
         except KeyError:
@@ -75,22 +88,25 @@ class CapabilityRegistry:
                 raise ValueError("Workflow template is already assigned to another capability")
 
     def list(self, availability: dict[str, bool]) -> list[dict[str, object]]:
-        return [
-            capability.as_dict(available=availability.get(capability.provider_id, False))
-            for capability in self._capabilities.values()
-        ]
+        with self._lock:
+            return [
+                capability.as_dict(available=availability.get(capability.provider_id, False))
+                for capability in self._capabilities.values()
+            ]
 
     def get(self, capability_id: str, availability: dict[str, bool]) -> dict[str, object]:
-        try:
-            capability = self._capabilities[capability_id]
-        except KeyError:
-            raise ValueError(f"Unknown capability ID: {capability_id}") from None
-        return capability.as_dict(available=availability.get(capability.provider_id, False))
+        with self._lock:
+            try:
+                capability = self._capabilities[capability_id]
+            except KeyError:
+                raise ValueError(f"Unknown capability ID: {capability_id}") from None
+            return capability.as_dict(available=availability.get(capability.provider_id, False))
 
     def resolve_workflow(self, workflow_template: str) -> Capability:
-        try:
-            return self._workflow_capabilities[workflow_template]
-        except KeyError:
-            raise ValueError(
-                f"No capability is registered for workflow template: {workflow_template}"
-            ) from None
+        with self._lock:
+            try:
+                return self._workflow_capabilities[workflow_template]
+            except KeyError:
+                raise ValueError(
+                    f"No capability is registered for workflow template: {workflow_template}"
+                ) from None
