@@ -96,9 +96,7 @@ def test_fail_closed_definition_loading(settings, tmp_path, tamper):
         WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
 
 
-async def test_runtime_registration_is_immediate_persistent_and_versioned(
-    settings, tmp_path, fake
-):
+async def test_runtime_registration_is_immediate_persistent_and_versioned(settings, tmp_path, fake):
     root = tmp_path / "definitions"
     root.mkdir()
     settings = settings.model_copy(update={"workflow_definition_dir": root})
