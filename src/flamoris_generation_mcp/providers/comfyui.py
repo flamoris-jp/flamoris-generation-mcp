@@ -66,6 +66,7 @@ class ComfyUIProvider:
             request.payload, (Recipe, ExternalRecipe)
         ):
             raise ProviderError("ComfyUI does not support the requested operation")
+        managed_inputs = {}
         if self.workflows is not None:
             bindings = self.workflows.managed_input_bindings(request.payload)
             if bindings:
@@ -99,6 +100,16 @@ class ComfyUIProvider:
                             mime_type,
                             f"flamoris-{job_id}-{index:02d}{extension}",
                         )
+                        managed_inputs[name] = {
+                            key: reader.metadata[key]
+                            for key in (
+                                "input_id",
+                                "source_asset_id",
+                                "sha256",
+                                "mime_type",
+                                "size_bytes",
+                            )
+                        }
                     prompt = self.workflows.prompt(
                         request.payload, job_id, provider_inputs=provider_inputs
                     )
@@ -118,7 +129,7 @@ class ComfyUIProvider:
             ).output_node
         else:
             self._output_nodes[execution_id] = "7"
-        return ProviderJob(execution_id=execution_id)
+        return ProviderJob(execution_id=execution_id, managed_inputs=managed_inputs)
 
     def _normalize(self, execution_id: str, raw: dict) -> JobSnapshot:
         status = raw.get("status")

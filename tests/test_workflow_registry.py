@@ -273,6 +273,22 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
         assert len(uploads) == 1
         assert fake.prompts[-1]["prompt"]["8"]["inputs"]["image"] == "managed-reference.png"
         assert managed.structured_content["input_id"].encode() not in uploads[0]
+        job_id = submitted.structured_content["job_id"]
+        expected = {
+            key: managed.structured_content[key]
+            for key in ("input_id", "source_asset_id", "sha256", "mime_type", "size_bytes")
+        }
+        for tool in ("jobs.status", "jobs.result"):
+            response = await client.call_tool(tool, {"job_id": job_id})
+            assert not response.is_error
+            assert response.structured_content["managed_inputs"] == {"source": expected}
+            assert "managed-reference.png" not in json.dumps(response.structured_content)
+        fake.finish()
+        result = await client.call_tool("jobs.result", {"job_id": job_id})
+        assert result.structured_content["status"] == "completed"
+        assert result.structured_content["managed_inputs"] == {"source": expected}
+        archived = json.loads((settings.output_dir / job_id / "metadata.json").read_text())
+        assert archived["managed_inputs"] == {"source": expected}
 
 
 def test_undeclared_save_node_fails_closed(settings, tmp_path):
