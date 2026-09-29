@@ -165,7 +165,9 @@ def test_runtime_registration_failure_keeps_previous_definition(settings, tmp_pa
     definition = json.loads(EXAMPLE.read_text())
     definition["id"] = "runtime-image"
     assert store.register_definition(definition)["version"] == 1
-    before = (root / "runtime-image.json").read_bytes()
+    path = root / "runtime-image.json"
+    assert path.stat().st_mode & 0o777 == 0o644
+    before = path.read_bytes()
 
     definition["version"] = 2
 
