@@ -159,7 +159,6 @@ async def test_runtime_registration_is_immediate_persistent_and_versioned(settin
         assert metadata["version"] == 2
 
 
-
 async def test_parallel_runtime_registration_keeps_both_capabilities(settings, tmp_path, fake):
     root = tmp_path / "definitions"
     root.mkdir()
