@@ -91,9 +91,7 @@ class ComfyUIClient:
         except ProviderError as exc:
             return {"available": False, "error": str(exc)}
 
-    async def upload_input(
-        self, data: bytes, mime_type: str, filename: str
-    ) -> str:
+    async def upload_input(self, data: bytes, mime_type: str, filename: str) -> str:
         """Upload one bounded provider input and return only ComfyUI's safe input name."""
         suffix = INPUT_MIME_EXTENSIONS.get(mime_type)
         if (
