@@ -245,9 +245,7 @@ class WorkflowRegistry:
             raise ValueError("Unknown workflow definition ID or version")
         return definition
 
-    def managed_input_bindings(
-        self, definition_id: str, version: int
-    ) -> dict[str, ParameterSpec]:
+    def managed_input_bindings(self, definition_id: str, version: int) -> dict[str, ParameterSpec]:
         definition = self.get(definition_id, version)
         return {
             name: spec
