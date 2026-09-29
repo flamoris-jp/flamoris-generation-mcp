@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import pytest
 
 from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
@@ -74,3 +77,33 @@ def test_workflow_template_cannot_route_to_multiple_capabilities():
                 ),
             )
         )
+
+
+def test_parallel_workflow_assignment_preserves_every_template():
+    registry = CapabilityRegistry(
+        (
+            Capability(
+                capability_id="image.generate",
+                provider_id="comfyui",
+                runtime_id="janku",
+                workflow_templates=("text-to-image",),
+            ),
+        )
+    )
+    count = 24
+    start = Barrier(count)
+
+    def assign(index):
+        start.wait()
+        template = f"runtime-{index}"
+        registry.assign_workflow("image.generate", "comfyui", template)
+        return template
+
+    with ThreadPoolExecutor(max_workers=count) as pool:
+        templates = set(pool.map(assign, range(count)))
+
+    expected = {"text-to-image", *templates}
+    assert set(registry.get("image.generate", {})["workflow_templates"]) == expected
+    assert set(registry.list({})[0]["workflow_templates"]) == expected
+    for template in templates:
+        assert registry.resolve_workflow(template).capability_id == "image.generate"

@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -94,6 +96,195 @@ def test_fail_closed_definition_loading(settings, tmp_path, tamper):
         path.write_text(json.dumps(data))
     with pytest.raises(ValueError):
         WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+
+
+async def test_runtime_registration_is_immediate_persistent_and_versioned(settings, tmp_path, fake):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    settings = settings.model_copy(update={"workflow_definition_dir": root})
+    definition = json.loads(EXAMPLE.read_text())
+    definition["id"] = "runtime-image"
+    definition["name"] = "Runtime image"
+
+    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    async with Client(server) as client:
+        registered = await client.call_tool("workflows.register", {"definition": definition})
+        assert not registered.is_error
+        assert registered.structured_content["id"] == "runtime-image"
+        assert registered.structured_content["version"] == 1
+        assert (root / "runtime-image.json").is_file()
+
+        listed = await client.call_tool("workflows.list")
+        metadata = next(
+            item
+            for item in listed.structured_content["definitions"]
+            if item["id"] == "runtime-image"
+        )
+        assert metadata["version"] == 1
+
+        capabilities = await client.call_tool(
+            "capabilities.get", {"capability_id": "image.generate"}
+        )
+        assert "runtime-image" in capabilities.structured_content["workflow_templates"]
+
+        built = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "runtime-image",
+                "parameters": {
+                    "checkpoint": "base.safetensors",
+                    "positive_prompt": "registered now",
+                },
+            },
+        )
+        assert not built.is_error
+
+        stale = await client.call_tool("workflows.register", {"definition": definition})
+        assert stale.is_error
+
+        definition["version"] = 2
+        definition["description"] = "Updated without restart."
+        updated = await client.call_tool("workflows.register", {"definition": definition})
+        assert not updated.is_error
+        assert updated.structured_content["version"] == 2
+
+    restarted = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    async with Client(restarted) as client:
+        listed = await client.call_tool("workflows.list")
+        metadata = next(
+            item
+            for item in listed.structured_content["definitions"]
+            if item["id"] == "runtime-image"
+        )
+        assert metadata["version"] == 2
+
+
+async def test_parallel_runtime_registration_keeps_both_capabilities(settings, tmp_path, fake):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    settings = settings.model_copy(update={"workflow_definition_dir": root})
+    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    definitions = []
+    for name in ("runtime-first", "runtime-second"):
+        definition = json.loads(EXAMPLE.read_text())
+        definition["id"] = name
+        definitions.append(definition)
+
+    async with Client(server) as client:
+        registered = await asyncio.gather(
+            *(
+                client.call_tool("workflows.register", {"definition": definition})
+                for definition in definitions
+            )
+        )
+        assert all(not response.is_error for response in registered)
+        listed = await client.call_tool("workflows.list")
+        assert {definition["id"] for definition in listed.structured_content["definitions"]} == {
+            "runtime-first",
+            "runtime-second",
+        }
+        capability = await client.call_tool("capabilities.get", {"capability_id": "image.generate"})
+        assert {"runtime-first", "runtime-second"} <= set(
+            capability.structured_content["workflow_templates"]
+        )
+
+
+def test_runtime_registration_failure_keeps_previous_definition(settings, tmp_path, monkeypatch):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    settings = settings.model_copy(update={"workflow_definition_dir": root})
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+    definition = json.loads(EXAMPLE.read_text())
+    definition["id"] = "runtime-image"
+    assert store.register_definition(definition)["version"] == 1
+    path = root / "runtime-image.json"
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o644
+    before = path.read_bytes()
+
+    definition["version"] = 2
+
+    def fail_replace(*_args, **_kwargs):
+        raise OSError("simulated publication failure")
+
+    monkeypatch.setattr("flamoris_generation_mcp.workflow_registry.os.replace", fail_replace)
+    with pytest.raises(OSError, match="publication"):
+        store.register_definition(definition)
+
+    assert store.registry.get("runtime-image").version == 1
+    assert (root / "runtime-image.json").read_bytes() == before
+    assert not list(root.glob(".definition-*.tmp"))
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_post_replace_sync_failure_restores_disk_and_live(
+    settings, tmp_path, monkeypatch, existing
+):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+    definition = json.loads(EXAMPLE.read_text())
+    definition["id"] = "runtime-image"
+    path = root / "runtime-image.json"
+    if existing:
+        store.register_definition(definition)
+        before = path.read_bytes()
+        definition["version"] = 2
+
+    from flamoris_generation_mcp import workflow_registry
+
+    original_sync = workflow_registry._sync_directory
+    sync_calls = 0
+
+    def fail_first_sync(directory):
+        nonlocal sync_calls
+        sync_calls += 1
+        if sync_calls == 1:
+            raise OSError("simulated post-replace sync failure")
+        original_sync(directory)
+
+    monkeypatch.setattr(workflow_registry, "_sync_directory", fail_first_sync)
+    with pytest.raises(OSError, match="post-replace"):
+        store.register_definition(definition)
+
+    assert sync_calls == 2
+    assert (path.read_bytes() if path.exists() else None) == (before if existing else None)
+    if existing:
+        assert store.registry.get("runtime-image").version == 1
+    else:
+        assert store.list()["definitions"] == []
+    assert not list(root.glob(".definition-*.tmp"))
+    assert store.register_definition(definition)["version"] == (2 if existing else 1)
+
+
+def test_runtime_registration_without_posix_only_file_apis(settings, tmp_path, monkeypatch):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+    definition = json.loads(EXAMPLE.read_text())
+    definition["id"] = "runtime-image"
+
+    monkeypatch.delattr("flamoris_generation_mcp.workflow_registry.os.fchmod", raising=False)
+    monkeypatch.delattr("flamoris_generation_mcp.workflow_registry.os.O_DIRECTORY", raising=False)
+    assert store.register_definition(definition)["version"] == 1
+
+
+def test_runtime_registration_rejects_unsafe_definition_without_mutation(settings, tmp_path):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    settings = settings.model_copy(update={"workflow_definition_dir": root})
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
+    definition = json.loads(EXAMPLE.read_text())
+    definition["id"] = "runtime-image"
+    definition["graph"]["8"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["6", 0], "filename_prefix": "unexpected"},
+    }
+
+    with pytest.raises(ValueError, match="Invalid workflow definition"):
+        store.register_definition(definition)
+    assert "runtime-image" not in store.registry.definitions
+    assert not (root / "runtime-image.json").exists()
 
 
 def test_definition_version_pins_saved_recipe(settings, tmp_path):

@@ -21,7 +21,7 @@ COPY docker-requirements.txt /tmp/docker-requirements.txt
 RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels \
       -r /tmp/docker-requirements.txt /wheels/flamoris_generation_mcp-*.whl \
     && rm -rf /wheels /tmp/docker-requirements.txt \
-    && mkdir -p /data/models /data/workflows /data/outputs \
+    && mkdir -p /data/models /data/workflows /data/definitions /data/outputs \
     && chown -R 10001:10001 /data
 
 USER 10001:10001

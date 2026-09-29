@@ -32,7 +32,6 @@ services:
       - type: bind
         source: ${DEFINITION_ROOT:-./definitions}
         target: /data/definitions
-        read_only: true
       - type: bind
         source: ${OUTPUT_ROOT:-./outputs}
         target: /data/outputs

@@ -3,7 +3,11 @@
 import copy
 import json
 import math
+import os
 import re
+import stat
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Literal
 
@@ -216,10 +220,24 @@ class _NoModels:
         return None
 
 
+def _sync_directory(path: Path) -> None:
+    # Windows does not provide a portable way to fsync a directory handle.
+    # The file itself is synced on every platform before it is published.
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 class WorkflowRegistry:
     def __init__(self, root: Path, catalog: ModelCatalog):
+        self.root = root
         self.catalog = catalog
         self.definitions: dict[str, WorkflowDefinition] = {}
+        self._register_lock = threading.Lock()
         if not root.exists():
             return
         if not root.is_dir() or root.is_symlink():
@@ -238,6 +256,93 @@ class WorkflowRegistry:
             if path.name != f"{definition.id}.json" or definition.id in self.definitions:
                 raise ValueError("Workflow definition filename/ID mismatch or duplicate")
             self.definitions[definition.id] = definition
+
+    def register(self, raw: dict[str, Any]) -> dict[str, Any]:
+        """Validate, durably publish, and immediately activate one trusted definition."""
+        try:
+            definition = WorkflowDefinition.model_validate(raw)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid workflow definition") from exc
+        content = definition.model_dump_json(indent=2).encode("utf-8")
+        if len(content) > MAX_DEFINITION_BYTES:
+            raise ValueError("Workflow definition exceeds size limit")
+
+        with self._register_lock:
+            current = self.definitions.get(definition.id)
+            if current is not None and definition.version <= current.version:
+                raise ValueError("Workflow definition version must increase")
+
+            self.root.mkdir(parents=True, exist_ok=True)
+            if not self.root.is_dir() or self.root.is_symlink():
+                raise ValueError("Workflow definition root must be a real directory")
+            path = self.root / f"{definition.id}.json"
+            if path.is_symlink():
+                raise ValueError("Unsafe workflow definition path")
+            if path.exists() and not path.is_file():
+                raise ValueError("Unsafe workflow definition path")
+
+            # Keep a synced copy of the previous file so a failure after the
+            # publication rename can restore both disk and the live registry.
+            previous_path = None
+            if path.exists():
+                previous = path.read_bytes()
+                if len(previous) > MAX_DEFINITION_BYTES:
+                    raise ValueError("Workflow definition exceeds size limit")
+                previous_fd, previous_name = tempfile.mkstemp(
+                    dir=self.root, prefix=".definition-previous-", suffix=".tmp"
+                )
+                previous_path = Path(previous_name)
+                try:
+                    with os.fdopen(previous_fd, "wb") as stream:
+                        stream.write(previous)
+                        stream.flush()
+                        os.chmod(previous_path, stat.S_IMODE(path.stat().st_mode))
+                        os.fsync(stream.fileno())
+                except BaseException:
+                    previous_path.unlink(missing_ok=True)
+                    raise
+
+            try:
+                descriptor, temporary = tempfile.mkstemp(
+                    dir=self.root, prefix=".definition-", suffix=".tmp"
+                )
+                temporary_path = Path(temporary)
+                try:
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(content)
+                        stream.flush()
+                        os.chmod(temporary_path, 0o644)
+                        os.fsync(stream.fileno())
+                    published = False
+                    try:
+                        os.replace(temporary_path, path)
+                        published = True
+                        _sync_directory(self.root)
+                    except OSError:
+                        if published:
+                            try:
+                                if previous_path is None:
+                                    path.unlink()
+                                else:
+                                    os.replace(previous_path, path)
+                                _sync_directory(self.root)
+                            except OSError as rollback_error:
+                                # A failed rollback is ambiguous: keep the live
+                                # registry aligned with the actual disk version.
+                                if path.exists() and path.read_bytes() == content:
+                                    self.definitions[definition.id] = definition
+                                raise RuntimeError(
+                                    "Workflow definition publication and rollback failed"
+                                ) from rollback_error
+                        raise
+                finally:
+                    temporary_path.unlink(missing_ok=True)
+            finally:
+                if previous_path is not None:
+                    previous_path.unlink(missing_ok=True)
+
+            self.definitions[definition.id] = definition
+            return {"registered": True, **definition.metadata()}
 
     def get(self, definition_id: str, version: int | None = None) -> WorkflowDefinition:
         definition = self.definitions.get(definition_id)
