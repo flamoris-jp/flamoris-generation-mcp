@@ -1,5 +1,6 @@
 services:
   generation-mcp:
+    container_name: flamoris-generation-mcp
     build: .
     restart: unless-stopped
     init: true
