@@ -72,6 +72,7 @@ with urlopen(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=2) as response:
 PY
 
 docker exec -i "$container" python - <<'PY'
+import json
 from pathlib import Path
 
 models = Path('/data/models/checkpoints/example.safetensors')
@@ -91,11 +92,21 @@ else:
     raise AssertionError('model mount is writable')
 Path('/data/workflows/smoke').write_text('workflow')
 Path('/data/outputs/smoke').write_text('output')
-Path('/data/definitions/runtime-smoke.json').write_text('{}')
+definition = json.loads(Path('/data/definitions/basic-image.json').read_text())
+definition['id'] = 'runtime-smoke'
+definition['name'] = 'Runtime smoke'
+registered = store.register_definition(definition)
+assert registered['id'] == 'runtime-smoke'
+assert registered['version'] == 1
 PY
 test "$(cat "$scratch/models/checkpoints/example.safetensors")" = sample
 test "$(cat "$scratch/workflows/smoke")" = workflow
 test "$(cat "$scratch/outputs/smoke")" = output
-test "$(cat "$scratch/definitions/runtime-smoke.json")" = '{}'
+python - "$scratch/definitions/runtime-smoke.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    assert json.load(stream)["id"] == "runtime-smoke"
+PY
 test "$(docker inspect -f '{{.State.Running}}' "$container")" = true
 echo 'Docker Streamable HTTP, liveness, non-root and mounts PASS'
