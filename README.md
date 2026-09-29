@@ -199,7 +199,8 @@ and actual node/model compatibility on submission.
 | `capabilities.get` | `capability_id` | One capability, runtime/provider identity and workflow templates |
 | `models.list` | optional `kind` | Installed file metadata; no weight deserialization |
 | `models.get` | `model_id` | One installed model |
-| `workflows.list` | none | Templates and built/saved workflow IDs |
+| `workflows.list` | none | Templates, registered definitions, and built/saved workflow IDs |
+| `workflows.register` | `definition` | Validate, atomically persist, and immediately activate a trusted definition |
 | `workflows.build` | `template`, `parameters` | Workflow ID, normalized recipe and executable prompt |
 | `workflows.save` | `workflow_id` | Persist a recipe, preserving its ID |
 | `jobs.submit` | `workflow_id` | New job ID, or a busy error while another generation is active |
