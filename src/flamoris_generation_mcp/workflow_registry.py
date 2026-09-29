@@ -24,9 +24,12 @@ FILE_INPUT = re.compile(r"(?:file|path|filename|image|video|audio|asset)", re.I)
 class ParameterSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    type: Literal["string", "integer", "number", "boolean"]
+    type: Literal["string", "integer", "number", "boolean", "managed_input"]
     node: str
     input: str
+    media_types: list[Literal["image/png", "image/jpeg", "image/webp"]] | None = Field(
+        default=None, min_length=1, max_length=3
+    )
     required: bool = True
     default: str | int | float | bool | None = None
     minimum: float | None = None
@@ -59,11 +62,34 @@ class ParameterSpec(BaseModel):
             raise ValueError("Numeric constraints require a numeric parameter")
         if self.model_kind is not None and self.type != "string":
             raise ValueError("Model references require a string parameter")
+        if self.type == "managed_input":
+            if self.media_types is None:
+                raise ValueError("Managed input parameters require media_types")
+            if self.default is not None or not self.required:
+                raise ValueError("Managed input parameters must be required without defaults")
+            if any(
+                value is not None
+                for value in (
+                    self.minimum,
+                    self.maximum,
+                    self.min_length,
+                    self.max_length,
+                    self.enum,
+                    self.model_kind,
+                )
+            ):
+                raise ValueError("Managed input parameters do not accept scalar constraints")
+        elif self.media_types is not None:
+            raise ValueError("media_types requires a managed_input parameter")
         if not self.required and self.default is None:
             raise ValueError("Optional parameters require a default")
         return self
 
     def validate_value(self, value: Any, catalog: ModelCatalog) -> Any:
+        if self.type == "managed_input":
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{32}", value):
+                raise ValueError("Managed input must be an input ID")
+            return value
         kinds = {"string": str, "integer": int, "number": (int, float), "boolean": bool}
         if self.type == "number":
             valid = type(value) in (int, float)
@@ -152,7 +178,11 @@ class WorkflowDefinition(BaseModel):
             if binding in bindings or binding == (self.output_node, "filename_prefix"):
                 raise ValueError("Duplicate or reserved parameter binding")
             node_type = self.graph[spec.node]["class_type"]
-            if FILE_INPUT.search(spec.input) or FILE_INPUT.search(node_type):
+            file_binding = bool(FILE_INPUT.search(spec.input) or FILE_INPUT.search(node_type))
+            if spec.type == "managed_input":
+                if (node_type, spec.input) != ("LoadImage", "image"):
+                    raise ValueError("Managed image input must bind LoadImage.image")
+            elif file_binding:
                 raise ValueError("File/asset input requires a managed asset resolver")
             if spec.type == "string" and spec.model_kind is None:
                 if spec.enum is None and (node_type, spec.input) not in FREE_TEXT_INPUTS:
@@ -215,8 +245,21 @@ class WorkflowRegistry:
             raise ValueError("Unknown workflow definition ID or version")
         return definition
 
+    def managed_input_bindings(
+        self, definition_id: str, version: int
+    ) -> dict[str, ParameterSpec]:
+        definition = self.get(definition_id, version)
+        return {
+            name: spec for name, spec in definition.parameters.items() if spec.type == "managed_input"
+        }
+
     def materialize(
-        self, definition_id: str, version: int, parameters: dict, job_id: str | None = None
+        self,
+        definition_id: str,
+        version: int,
+        parameters: dict,
+        job_id: str | None = None,
+        provider_inputs: dict[str, str] | None = None,
     ) -> tuple[dict, dict]:
         definition = self.get(definition_id, version)
         if not isinstance(parameters, dict) or set(parameters) - set(definition.parameters):
@@ -236,7 +279,15 @@ class WorkflowRegistry:
                 normalized[name] = spec.validate_value(value, self.catalog)
             except ValueError as exc:
                 raise ValueError(f"Invalid workflow parameter {name}: {exc}") from exc
-            graph[spec.node]["inputs"][spec.input] = normalized[name]
+            if spec.type == "managed_input":
+                if provider_inputs is not None:
+                    if name not in provider_inputs:
+                        raise ValueError(f"Missing resolved managed input: {name}")
+                    graph[spec.node]["inputs"][spec.input] = provider_inputs[name]
+            else:
+                graph[spec.node]["inputs"][spec.input] = normalized[name]
+        if provider_inputs is not None and set(provider_inputs) != set(self.managed_input_bindings(definition_id, version)):
+            raise ValueError("Resolved managed inputs do not match workflow definition")
         if job_id is not None:
             graph[definition.output_node]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
         return normalized, graph
