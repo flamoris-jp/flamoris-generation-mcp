@@ -184,9 +184,7 @@ async def test_parallel_runtime_registration_keeps_both_capabilities(settings, t
             "runtime-first",
             "runtime-second",
         }
-        capability = await client.call_tool(
-            "capabilities.get", {"capability_id": "image.generate"}
-        )
+        capability = await client.call_tool("capabilities.get", {"capability_id": "image.generate"})
         assert {"runtime-first", "runtime-second"} <= set(
             capability.structured_content["workflow_templates"]
         )
