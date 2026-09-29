@@ -266,7 +266,9 @@ class WorkflowRegistry:
             if path.is_symlink():
                 raise ValueError("Unsafe workflow definition path")
 
-            descriptor, temporary = tempfile.mkstemp(dir=self.root, prefix=".definition-", suffix=".tmp")
+            descriptor, temporary = tempfile.mkstemp(
+                dir=self.root, prefix=".definition-", suffix=".tmp"
+            )
             temporary_path = Path(temporary)
             try:
                 with os.fdopen(descriptor, "wb") as stream:
