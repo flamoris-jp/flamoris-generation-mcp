@@ -66,6 +66,9 @@ def create_server(
     )
 
     inputs = ManagedInputs(transfers, settings.output_dir / "managed-inputs")
+    # Provider construction precedes JobStore/ManagedInputs because the input lease
+    # validates the shared Hub reservation. Wire the adapter only after both exist.
+    comfyui.managed_inputs = inputs
 
     @asynccontextmanager
     async def lifespan(server):
