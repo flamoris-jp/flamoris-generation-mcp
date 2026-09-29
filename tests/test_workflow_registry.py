@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import shutil
@@ -156,6 +157,39 @@ async def test_runtime_registration_is_immediate_persistent_and_versioned(settin
             if item["id"] == "runtime-image"
         )
         assert metadata["version"] == 2
+
+
+
+async def test_parallel_runtime_registration_keeps_both_capabilities(settings, tmp_path, fake):
+    root = tmp_path / "definitions"
+    root.mkdir()
+    settings = settings.model_copy(update={"workflow_definition_dir": root})
+    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    definitions = []
+    for name in ("runtime-first", "runtime-second"):
+        definition = json.loads(EXAMPLE.read_text())
+        definition["id"] = name
+        definitions.append(definition)
+
+    async with Client(server) as client:
+        registered = await asyncio.gather(
+            *(
+                client.call_tool("workflows.register", {"definition": definition})
+                for definition in definitions
+            )
+        )
+        assert all(not response.is_error for response in registered)
+        listed = await client.call_tool("workflows.list")
+        assert {definition["id"] for definition in listed.structured_content["definitions"]} == {
+            "runtime-first",
+            "runtime-second",
+        }
+        capability = await client.call_tool(
+            "capabilities.get", {"capability_id": "image.generate"}
+        )
+        assert {"runtime-first", "runtime-second"} <= set(
+            capability.structured_content["workflow_templates"]
+        )
 
 
 def test_runtime_registration_failure_keeps_previous_definition(settings, tmp_path, monkeypatch):
