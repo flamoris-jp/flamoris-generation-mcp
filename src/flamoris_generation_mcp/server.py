@@ -136,9 +136,7 @@ def create_server(
     def register_workflow(definition: dict[str, Any]) -> dict[str, Any]:
         """Validate, persist, and activate one trusted workflow definition immediately."""
         result = workflows.register_definition(definition)
-        capabilities.assign_workflow(
-            result["capability_id"], result["provider_id"], result["id"]
-        )
+        capabilities.assign_workflow(result["capability_id"], result["provider_id"], result["id"])
         return result
 
     @server.tool(name="workflows.build")
