@@ -206,6 +206,182 @@ def test_file_input_binding_fails_closed(settings, tmp_path, spec):
         WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
 
 
+async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
+    settings, tmp_path, fake
+):
+    settings, root = configured(settings, tmp_path)
+    path = root / "basic-image.json"
+    data = json.loads(path.read_text())
+    data["graph"]["8"] = {"class_type": "LoadImage", "inputs": {"image": ""}}
+    data["parameters"]["source"] = {
+        "type": "managed_input",
+        "node": "8",
+        "input": "image",
+        "media_types": ["image/png"],
+    }
+    path.write_text(json.dumps(data))
+
+    uploads = []
+
+    def handler(request):
+        if request.url.path == "/view":
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nfixture")
+        if request.url.path == "/upload/image":
+            uploads.append(request.content)
+            return httpx.Response(
+                200,
+                json={"name": "managed-reference.png", "subfolder": "", "type": "input"},
+            )
+        return fake.handle(request)
+
+    server = create_server(settings, transport=httpx.MockTransport(handler))
+    async with Client(server) as client:
+        source = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "text-to-image",
+                "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "source"},
+            },
+        )
+        source_job = await client.call_tool(
+            "jobs.submit", {"workflow_id": source.structured_content["workflow_id"]}
+        )
+        fake.finish()
+        managed = await client.call_tool(
+            "inputs.create", {"asset_id": source_job.structured_content["job_id"] + ":000"}
+        )
+        assert not managed.is_error
+
+        built = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "basic-image",
+                "parameters": {
+                    "checkpoint": "base.safetensors",
+                    "positive_prompt": "reference portrait",
+                    "source": managed.structured_content["input_id"],
+                },
+            },
+        )
+        assert not built.is_error
+        assert built.structured_content["prompt"]["8"]["inputs"]["image"] == ""
+
+        submitted = await client.call_tool(
+            "jobs.submit", {"workflow_id": built.structured_content["workflow_id"]}
+        )
+        assert not submitted.is_error
+        assert len(uploads) == 1
+        assert fake.prompts[-1]["prompt"]["8"]["inputs"]["image"] == "managed-reference.png"
+        assert managed.structured_content["input_id"].encode() not in uploads[0]
+        job_id = submitted.structured_content["job_id"]
+        expected = {
+            key: managed.structured_content[key]
+            for key in ("input_id", "source_asset_id", "sha256", "mime_type", "size_bytes")
+        }
+        for tool in ("jobs.status", "jobs.result"):
+            response = await client.call_tool(tool, {"job_id": job_id})
+            assert not response.is_error
+            assert response.structured_content["managed_inputs"] == {"source": expected}
+            assert "managed-reference.png" not in json.dumps(response.structured_content)
+        fake.finish("prompt-2")
+        result = await client.call_tool("jobs.result", {"job_id": job_id})
+        assert result.structured_content["status"] == "completed"
+        assert result.structured_content["managed_inputs"] == {"source": expected}
+        archived = json.loads((settings.output_dir / job_id / "metadata.json").read_text())
+        assert archived["managed_inputs"] == {"source": expected}
+
+
+@pytest.mark.parametrize("failure", ["wrong_media", "unknown", "deleted", "expired", "upload"])
+async def test_managed_image_submit_failures_release_lease_and_reservation(
+    settings, tmp_path, fake, monkeypatch, failure
+):
+    settings, root = configured(settings, tmp_path)
+    path = root / "basic-image.json"
+    data = json.loads(path.read_text())
+    data["graph"]["8"] = {"class_type": "LoadImage", "inputs": {"image": ""}}
+    data["parameters"]["source"] = {
+        "type": "managed_input",
+        "node": "8",
+        "input": "image",
+        "media_types": ["image/jpeg"] if failure == "wrong_media" else ["image/png"],
+    }
+    path.write_text(json.dumps(data))
+
+    uploads = []
+    reject_upload = failure == "upload"
+
+    def handler(request):
+        if request.url.path == "/view":
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nfixture")
+        if request.url.path == "/upload/image":
+            uploads.append(request.content)
+            if reject_upload:
+                return httpx.Response(503, json={"error": "unavailable"})
+            return httpx.Response(
+                200, json={"name": "managed-reference.png", "subfolder": "", "type": "input"}
+            )
+        return fake.handle(request)
+
+    server = create_server(settings, transport=httpx.MockTransport(handler))
+    async with Client(server) as client:
+        source = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "text-to-image",
+                "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "source"},
+            },
+        )
+        source_job = await client.call_tool(
+            "jobs.submit", {"workflow_id": source.structured_content["workflow_id"]}
+        )
+        fake.finish()
+        asset_id = source_job.structured_content["job_id"] + ":000"
+        managed = await client.call_tool("inputs.create", {"asset_id": asset_id})
+        assert not managed.is_error
+        input_id = managed.structured_content["input_id"]
+        failing_id = "f" * 32 if failure == "unknown" else input_id
+        if failure == "deleted":
+            assert not (await client.call_tool("inputs.delete", {"input_id": input_id})).is_error
+        if failure == "expired":
+            monkeypatch.setattr(
+                "flamoris_generation_mcp.inputs.time.time",
+                lambda: managed.structured_content["expires_at"] + 1,
+            )
+
+        built = await client.call_tool(
+            "workflows.build",
+            {
+                "template": "basic-image",
+                "parameters": {
+                    "checkpoint": "base.safetensors",
+                    "positive_prompt": "reference portrait",
+                    "source": failing_id,
+                },
+            },
+        )
+        assert not built.is_error
+        workflow_id = built.structured_content["workflow_id"]
+        failed = await client.call_tool("jobs.submit", {"workflow_id": workflow_id})
+        assert failed.is_error
+        assert len(uploads) == (1 if failure == "upload" else 0)
+        assert len(fake.prompts) == 1  # No prompt was submitted for the failed reference job.
+
+        # A failed upload must close the lease; deletion would fail with "in use" otherwise.
+        if failure == "upload":
+            deleted = await client.call_tool("inputs.delete", {"input_id": input_id})
+            assert not deleted.is_error
+            reject_upload = False
+        elif failure == "expired":
+            monkeypatch.undo()
+
+        # The same server must accept another job: the Hub reservation was released.
+        retry = await client.call_tool(
+            "jobs.submit", {"workflow_id": source.structured_content["workflow_id"]}
+        )
+        assert not retry.is_error
+        assert len(fake.prompts) == 2
+
+
 def test_undeclared_save_node_fails_closed(settings, tmp_path):
     settings, root = configured(settings, tmp_path)
     path = root / "basic-image.json"

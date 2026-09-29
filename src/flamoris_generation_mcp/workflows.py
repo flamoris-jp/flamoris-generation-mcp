@@ -195,12 +195,28 @@ class WorkflowStore:
             return ExternalRecipe.model_validate(data)
         return Recipe.model_validate(data)
 
-    def prompt(self, recipe: AnyRecipe, job_id: str | None = None) -> dict:
+    def managed_input_bindings(self, recipe: AnyRecipe) -> dict[str, object]:
+        if not isinstance(recipe, ExternalRecipe):
+            return {}
+        if self.registry is None:
+            raise ValueError("Workflow definitions are not configured")
+        return self.registry.managed_input_bindings(recipe.template, recipe.definition_version)
+
+    def prompt(
+        self,
+        recipe: AnyRecipe,
+        job_id: str | None = None,
+        provider_inputs: dict[str, str] | None = None,
+    ) -> dict:
         if isinstance(recipe, ExternalRecipe):
             if self.registry is None:
                 raise ValueError("Workflow definitions are not configured")
             _, prompt = self.registry.materialize(
-                recipe.template, recipe.definition_version, recipe.parameters, job_id
+                recipe.template,
+                recipe.definition_version,
+                recipe.parameters,
+                job_id,
+                provider_inputs,
             )
             return prompt
         prompt = build_prompt(recipe, self.catalog)

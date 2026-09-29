@@ -41,6 +41,7 @@ class GenerationRequest:
 @dataclass(frozen=True)
 class ProviderJob:
     execution_id: str
+    managed_inputs: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

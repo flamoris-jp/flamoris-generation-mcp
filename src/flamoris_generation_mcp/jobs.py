@@ -44,6 +44,7 @@ class Job:
     recipe: AnyRecipe
     provider_id: str
     provider_execution_id: str
+    managed_inputs: dict[str, dict] = field(default_factory=dict)
     snapshot: JobSnapshot = field(default_factory=lambda: JobSnapshot(status="queued"))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     deleted_outputs: set[int] = field(default_factory=set)
@@ -132,6 +133,9 @@ class JobStore:
             recipe=recipe,
             provider_id=provider_id,
             provider_execution_id=provider_job.execution_id,
+            managed_inputs={
+                name: dict(metadata) for name, metadata in provider_job.managed_inputs.items()
+            },
         )
         return self._metadata(self._jobs[job_id])
 
@@ -151,6 +155,9 @@ class JobStore:
             "provider_id": job.provider_id,
             "provider_execution_id": job.provider_execution_id,
             "workflow_id": job.workflow_id,
+            "managed_inputs": {
+                name: dict(metadata) for name, metadata in job.managed_inputs.items()
+            },
             **job.recipe.model_dump(mode="json"),
         }
 

@@ -292,10 +292,14 @@ Hub assets. Review custom nodes for other filesystem side effects.
 Free-form string parameters are currently allowed only on the audited
 `CLIPTextEncode.text` input. Model selectors are checked against the installed
 model catalog; other string selectors require a definition-owned enum.
-File/asset inputs such as `LoadImage.image` are rejected until a managed asset
-reference and ComfyUI upload resolver are implemented. Supplying a raw provider
-filename through MCP is never supported. The definition metadata uses separate
-provider and capability IDs, while the current executor supports only
+Trusted image inputs may bind a required `managed_input` parameter only to
+`LoadImage.image`, with an explicit PNG/JPEG/WebP media allowlist. The value must
+be a Generation-managed `input_id`; the ComfyUI adapter stages that immutable
+snapshot under the active Hub reservation, uploads it with a generated provider
+filename, and rewrites only the declared binding before submission. Raw provider
+filenames, caller filesystem paths and URLs are never accepted. Other file/audio/
+video bindings remain fail-closed. The definition metadata uses separate provider
+and capability IDs, while the current executor supports only
 `comfyui` / `image.generate` and `SaveImage` outputs; adding video or other
 media requires a reviewed adapter extension.
 
@@ -520,6 +524,7 @@ reader API never exposes a caller-selected path.
 
 See [the managed-input contract](docs/MANAGED_INPUTS.md). Studio must authorize
 source ownership and persist its own input-owner mapping before exposing these
-tools to users. Production workflow file bindings remain fail-closed until a
-provider's staging integration and real-runtime smoke are verified. This change
-does not advertise new ComfyUI, transcription, TTS or video-input capabilities.
+tools to users. Production workflow file bindings remain fail-closed except for the reviewed
+ComfyUI `LoadImage.image` managed-image binding described above. A real-runtime
+smoke is still required before enabling a production Reference Image workflow.
+This does not advertise transcription, TTS, video-input, or arbitrary file capabilities.
