@@ -267,9 +267,14 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
 
 ### Trusted external workflows
 
-Place reviewed `<id>.json` definition files under
-`FLAMORIS_WORKFLOW_DEFINITION_DIR` and restart the process. The directory is
-separate from `FLAMORIS_WORKFLOW_DIR`, which holds saved invocation recipes.
+Trusted MCP clients can register a complete definition at runtime with
+`workflows.register(definition)`. The server validates the same strict
+`WorkflowDefinition` contract, atomically persists `<id>.json` under
+`FLAMORIS_WORKFLOW_DEFINITION_DIR`, and activates it immediately without a
+service restart. Updating an existing ID requires a strictly greater version.
+Definitions already present in that directory are still loaded at startup, so
+runtime registrations survive restarts. The directory remains separate from
+`FLAMORIS_WORKFLOW_DIR`, which holds saved invocation recipes.
 `workflows.list` includes a `definitions` array with IDs, versions, descriptions,
 provider/capability and public parameter rules. It does not return raw graphs.
 Build by passing the definition ID as `template` and public values as `parameters`;
@@ -280,10 +285,11 @@ definition version and fail closed if that version is no longer installed.
 An example API-format graph and its parameter bindings are shipped at
 `src/flamoris_generation_mcp/example_definitions/basic-image.json`. It is a
 test fixture, not a production model preset. For a real definition, author and
-test the graph in ComfyUI, export its **API format**, verify the node IDs and
+test the graph against the target ComfyUI API format, verify the node IDs and
 installed model names, then add explicit bindings to existing literal node
-inputs. Give it a stable lowercase ID, increment its version when changing the
-graph, and review it in version control. Each definition currently declares
+inputs. Give it a stable lowercase ID and increment its version when changing
+the graph. A trusted MCP client may register the validated definition directly;
+Git/file deployment is not required for each workflow. Each definition currently declares
 one `SaveImage` output node with a `filename_prefix` input. The server sets
 that output prefix per job; clients cannot override it. Additional Save/Preview
 nodes are rejected, and only images reported under the declared node become
@@ -304,10 +310,13 @@ and capability IDs, while the current executor supports only
 media requires a reviewed adapter extension.
 
 For Docker Compose, create `./definitions` (or set `DEFINITION_ROOT`) before
-starting the service. It is mounted read-only at `/data/definitions`. Keep
-`./workflows` writable for saved recipes; the two paths have distinct roles.
-Deploy the changed Hub workflow tool schema together with the Generation MCP
-upgrade: Hub verifies schema equality before routing any tool.
+starting the service and make it writable by the container service UID. It is
+mounted read/write at `/data/definitions` so validated runtime registrations can
+be persisted atomically. Keep `./workflows` writable for saved recipes; the two
+paths have distinct roles. The Generation MCP and Hub schema change for
+`workflows.register` is a one-time deployment. After that, registering or
+updating workflow definitions requires no container rebuild, file release, or
+service restart.
 
 ## Job behavior and limits
 
