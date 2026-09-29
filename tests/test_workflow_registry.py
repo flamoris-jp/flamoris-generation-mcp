@@ -283,7 +283,7 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
             assert not response.is_error
             assert response.structured_content["managed_inputs"] == {"source": expected}
             assert "managed-reference.png" not in json.dumps(response.structured_content)
-        fake.finish()
+        fake.finish("prompt-2")
         result = await client.call_tool("jobs.result", {"job_id": job_id})
         assert result.structured_content["status"] == "completed"
         assert result.structured_content["managed_inputs"] == {"source": expected}
