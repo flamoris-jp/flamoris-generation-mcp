@@ -135,6 +135,12 @@ def create_server(
     @server.tool(name="workflows.register")
     def register_workflow(definition: dict[str, Any]) -> dict[str, Any]:
         """Validate, persist, and activate one trusted workflow definition immediately."""
+        # Reject routing conflicts before the definition is published to disk.
+        # The registry still validates the entire definition before writing it.
+        if isinstance(definition, dict):
+            capabilities.validate_workflow(
+                definition.get("capability_id"), definition.get("provider_id"), definition.get("id")
+            )
         result = workflows.register_definition(definition)
         capabilities.assign_workflow(result["capability_id"], result["provider_id"], result["id"])
         return result

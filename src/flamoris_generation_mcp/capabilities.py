@@ -48,16 +48,9 @@ class CapabilityRegistry:
             self._workflow_capabilities[template] = capability
 
     def assign_workflow(self, capability_id: str, provider_id: str, template: str) -> None:
-        try:
-            capability = self._capabilities[capability_id]
-        except KeyError:
-            raise ValueError(f"Unknown capability ID: {capability_id}") from None
-        if capability.provider_id != provider_id:
-            raise ValueError("Workflow provider does not match capability provider")
-        existing = self._workflow_capabilities.get(template)
-        if existing is not None:
-            if existing.capability_id != capability_id:
-                raise ValueError("Workflow template is already assigned to another capability")
+        self.validate_workflow(capability_id, provider_id, template)
+        capability = self._capabilities[capability_id]
+        if template in self._workflow_capabilities:
             return
         updated = Capability(
             capability_id=capability.capability_id,
@@ -68,6 +61,18 @@ class CapabilityRegistry:
         self._capabilities[capability_id] = updated
         for workflow in updated.workflow_templates:
             self._workflow_capabilities[workflow] = updated
+
+    def validate_workflow(self, capability_id: str, provider_id: str, template: str) -> None:
+        try:
+            capability = self._capabilities[capability_id]
+        except KeyError:
+            raise ValueError(f"Unknown capability ID: {capability_id}") from None
+        if capability.provider_id != provider_id:
+            raise ValueError("Workflow provider does not match capability provider")
+        existing = self._workflow_capabilities.get(template)
+        if existing is not None:
+            if existing.capability_id != capability_id:
+                raise ValueError("Workflow template is already assigned to another capability")
 
     def list(self, availability: dict[str, bool]) -> list[dict[str, object]]:
         return [
