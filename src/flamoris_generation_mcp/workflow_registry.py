@@ -3,7 +3,10 @@
 import copy
 import json
 import math
+import os
 import re
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Literal
 
@@ -218,8 +221,10 @@ class _NoModels:
 
 class WorkflowRegistry:
     def __init__(self, root: Path, catalog: ModelCatalog):
+        self.root = root
         self.catalog = catalog
         self.definitions: dict[str, WorkflowDefinition] = {}
+        self._register_lock = threading.Lock()
         if not root.exists():
             return
         if not root.is_dir() or root.is_symlink():
@@ -238,6 +243,47 @@ class WorkflowRegistry:
             if path.name != f"{definition.id}.json" or definition.id in self.definitions:
                 raise ValueError("Workflow definition filename/ID mismatch or duplicate")
             self.definitions[definition.id] = definition
+
+    def register(self, raw: dict[str, Any]) -> dict[str, Any]:
+        """Validate, durably publish, and immediately activate one trusted definition."""
+        try:
+            definition = WorkflowDefinition.model_validate(raw)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid workflow definition") from exc
+        content = definition.model_dump_json(indent=2).encode("utf-8")
+        if len(content) > MAX_DEFINITION_BYTES:
+            raise ValueError("Workflow definition exceeds size limit")
+
+        with self._register_lock:
+            current = self.definitions.get(definition.id)
+            if current is not None and definition.version <= current.version:
+                raise ValueError("Workflow definition version must increase")
+
+            self.root.mkdir(parents=True, exist_ok=True)
+            if not self.root.is_dir() or self.root.is_symlink():
+                raise ValueError("Workflow definition root must be a real directory")
+            path = self.root / f"{definition.id}.json"
+            if path.is_symlink():
+                raise ValueError("Unsafe workflow definition path")
+
+            descriptor, temporary = tempfile.mkstemp(dir=self.root, prefix=".definition-", suffix=".tmp")
+            temporary_path = Path(temporary)
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary_path, path)
+                directory_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            finally:
+                temporary_path.unlink(missing_ok=True)
+
+            self.definitions[definition.id] = definition
+            return {"registered": True, **definition.metadata()}
 
     def get(self, definition_id: str, version: int | None = None) -> WorkflowDefinition:
         definition = self.definitions.get(definition_id)
