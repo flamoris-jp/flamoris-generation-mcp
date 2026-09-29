@@ -37,16 +37,3 @@ jobs:
           "$RUNNER_TEMP/wheel-smoke/bin/python" "$GITHUB_WORKSPACE/tests/smoke_installed.py"
       - name: Docker smoke (no GPU or ComfyUI)
         run: bash tests/smoke_docker.sh
-
-  windows-registration:
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest tests/test_workflow_registry.py tests/test_capabilities.py -k "runtime_registration or post_replace_sync_failure"

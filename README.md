@@ -268,6 +268,10 @@ recipe, rechecking installed models. Saved files contain only versioned recipes.
 
 ### Trusted external workflows
 
+The Generation MCP server currently targets Linux. Its asset and provider
+filesystem boundaries use Linux/POSIX directory file descriptors; a Windows
+server runtime is not supported yet.
+
 Trusted MCP clients can register a complete definition at runtime with
 `workflows.register(definition)`. The server validates the same strict
 `WorkflowDefinition` contract, atomically persists `<id>.json` under
