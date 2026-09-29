@@ -250,7 +250,9 @@ class WorkflowRegistry:
     ) -> dict[str, ParameterSpec]:
         definition = self.get(definition_id, version)
         return {
-            name: spec for name, spec in definition.parameters.items() if spec.type == "managed_input"
+            name: spec
+            for name, spec in definition.parameters.items()
+            if spec.type == "managed_input"
         }
 
     def materialize(
@@ -286,7 +288,8 @@ class WorkflowRegistry:
                     graph[spec.node]["inputs"][spec.input] = provider_inputs[name]
             else:
                 graph[spec.node]["inputs"][spec.input] = normalized[name]
-        if provider_inputs is not None and set(provider_inputs) != set(self.managed_input_bindings(definition_id, version)):
+        expected_inputs = set(self.managed_input_bindings(definition_id, version))
+        if provider_inputs is not None and set(provider_inputs) != expected_inputs:
             raise ValueError("Resolved managed inputs do not match workflow definition")
         if job_id is not None:
             graph[definition.output_node]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
