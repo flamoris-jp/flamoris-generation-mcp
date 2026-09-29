@@ -33,7 +33,7 @@ assert str(service["ports"][0]["published"]) == "9876"
 assert service["ports"][0]["host_ip"] == "127.0.0.1"
 mounts = {volume["target"]: volume for volume in service["volumes"]}
 assert mounts["/data/models"]["read_only"] is True
-assert mounts["/data/definitions"]["read_only"] is True
+assert mounts["/data/definitions"].get("read_only", False) is False
 assert service["environment"]["FLAMORIS_WORKFLOW_DEFINITION_DIR"] == "/data/definitions"
 assert mounts["/data/workflows"].get("read_only", False) is False
 assert mounts["/data/outputs"].get("read_only", False) is False
@@ -44,7 +44,7 @@ container=$(docker run -d --read-only --tmpfs /tmp:mode=1777 \
   -p 127.0.0.1::8765 \
   -e FLAMORIS_COMFYUI_URL=http://127.0.0.1:1 \
   -v "$scratch/models:/data/models:ro" \
-  -v "$scratch/definitions:/data/definitions:ro" \
+  -v "$scratch/definitions:/data/definitions" \
   -v "$scratch/workflows:/data/workflows" \
   -v "$scratch/outputs:/data/outputs" "$image")
 
@@ -91,15 +91,11 @@ else:
     raise AssertionError('model mount is writable')
 Path('/data/workflows/smoke').write_text('workflow')
 Path('/data/outputs/smoke').write_text('output')
-try:
-    Path('/data/definitions/basic-image.json').write_text('changed')
-except OSError:
-    pass
-else:
-    raise AssertionError('definition mount is writable')
+Path('/data/definitions/runtime-smoke.json').write_text('{}')
 PY
 test "$(cat "$scratch/models/checkpoints/example.safetensors")" = sample
 test "$(cat "$scratch/workflows/smoke")" = workflow
 test "$(cat "$scratch/outputs/smoke")" = output
+test "$(cat "$scratch/definitions/runtime-smoke.json")" = '{}'
 test "$(docker inspect -f '{{.State.Running}}' "$container")" = true
 echo 'Docker Streamable HTTP, liveness, non-root and mounts PASS'
