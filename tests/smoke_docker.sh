@@ -12,7 +12,7 @@ trap cleanup EXIT
 
 mkdir -p "$scratch/models/checkpoints" "$scratch/workflows" "$scratch/outputs" "$scratch/definitions"
 chmod 755 "$scratch"
-chmod 777 "$scratch/workflows" "$scratch/outputs"
+chmod 777 "$scratch/workflows" "$scratch/outputs" "$scratch/definitions"
 printf 'sample' > "$scratch/models/checkpoints/example.safetensors"
 cp src/flamoris_generation_mcp/example_definitions/basic-image.json "$scratch/definitions/"
 
