@@ -155,6 +155,8 @@ class WorkflowStore:
     def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
         if self.registry is None:
             raise ValueError("Workflow definitions are not configured")
+        if definition.get("id") in {"text-to-image", "text-to-image-lora"}:
+            raise ValueError("Built-in workflow template IDs are reserved")
         return self.registry.register(definition)
 
     def build(self, template: str, parameters: Parameters | dict[str, Any]) -> dict:
