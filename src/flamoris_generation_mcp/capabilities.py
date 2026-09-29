@@ -47,6 +47,28 @@ class CapabilityRegistry:
         for template in capability.workflow_templates:
             self._workflow_capabilities[template] = capability
 
+    def assign_workflow(self, capability_id: str, provider_id: str, template: str) -> None:
+        try:
+            capability = self._capabilities[capability_id]
+        except KeyError:
+            raise ValueError(f"Unknown capability ID: {capability_id}") from None
+        if capability.provider_id != provider_id:
+            raise ValueError("Workflow provider does not match capability provider")
+        existing = self._workflow_capabilities.get(template)
+        if existing is not None:
+            if existing.capability_id != capability_id:
+                raise ValueError("Workflow template is already assigned to another capability")
+            return
+        updated = Capability(
+            capability_id=capability.capability_id,
+            provider_id=capability.provider_id,
+            runtime_id=capability.runtime_id,
+            workflow_templates=(*capability.workflow_templates, template),
+        )
+        self._capabilities[capability_id] = updated
+        for workflow in updated.workflow_templates:
+            self._workflow_capabilities[workflow] = updated
+
     def list(self, availability: dict[str, bool]) -> list[dict[str, object]]:
         return [
             capability.as_dict(available=availability.get(capability.provider_id, False))
