@@ -122,7 +122,9 @@ async def test_runtime_registration_is_immediate_persistent_and_versioned(
         )
         assert metadata["version"] == 1
 
-        capabilities = await client.call_tool("capabilities.get", {"capability_id": "image.generate"})
+        capabilities = await client.call_tool(
+            "capabilities.get", {"capability_id": "image.generate"}
+        )
         assert "runtime-image" in capabilities.structured_content["workflow_templates"]
 
         built = await client.call_tool(
