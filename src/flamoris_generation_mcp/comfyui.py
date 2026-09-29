@@ -9,6 +9,11 @@ from .models import model_name
 from .providers.base import ProviderError
 
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+INPUT_MIME_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
 
 
 def rejection_detail(response: httpx.Response) -> str:
@@ -85,6 +90,42 @@ class ComfyUIClient:
             return {"available": True, "running": len(running), "queued": len(pending)}
         except ProviderError as exc:
             return {"available": False, "error": str(exc)}
+
+    async def upload_input(
+        self, data: bytes, mime_type: str, filename: str
+    ) -> str:
+        """Upload one bounded provider input and return only ComfyUI's safe input name."""
+        suffix = INPUT_MIME_EXTENSIONS.get(mime_type)
+        if (
+            suffix is None
+            or not isinstance(data, bytes)
+            or not data
+            or len(data) > MAX_OUTPUT_BYTES
+            or not filename.endswith(suffix)
+            or "/" in filename
+            or "\\" in filename
+        ):
+            raise ProviderError("Invalid ComfyUI managed image upload")
+        response = await self._request(
+            "POST",
+            "upload/image",
+            files={"image": (filename, data, mime_type)},
+            data={"type": "input", "overwrite": "false"},
+        )
+        name = response.get("name")
+        subfolder = response.get("subfolder", "")
+        kind = response.get("type")
+        if (
+            not isinstance(name, str)
+            or not name
+            or "/" in name
+            or "\\" in name
+            or subfolder not in ("", None)
+            or kind != "input"
+        ):
+            raise ProviderError("ComfyUI returned an invalid managed input upload")
+        model_name(name)
+        return name
 
     async def submit(self, prompt: dict, client_id: str) -> str:
         # Never retry POST: a timeout can happen after ComfyUI has already accepted the work.
