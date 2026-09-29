@@ -152,6 +152,11 @@ class WorkflowStore:
         self.registry = WorkflowRegistry(definition_dir, catalog) if definition_dir else None
         self._recipes: dict[str, AnyRecipe] = {}
 
+    def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
+        if self.registry is None:
+            raise ValueError("Workflow definitions are not configured")
+        return self.registry.register(definition)
+
     def build(self, template: str, parameters: Parameters | dict[str, Any]) -> dict:
         if template in ("text-to-image", "text-to-image-lora"):
             recipe: AnyRecipe = Recipe(
