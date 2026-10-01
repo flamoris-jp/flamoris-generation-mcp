@@ -1,0 +1,143 @@
+import copy
+import json
+from pathlib import Path
+
+import pytest
+
+from flamoris_generation_mcp.models import ModelCatalog
+from flamoris_generation_mcp.workflow_registry import ParameterSpec, WorkflowDefinition
+from flamoris_generation_mcp.workflows import WorkflowStore
+
+
+def definition(mode="txt2img"):
+    data = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "src/flamoris_generation_mcp/example_definitions/basic-image.json"
+        ).read_text()
+    )
+    data.update(
+        schema_version=2,
+        id="image-v2",
+        image={
+            "profile": "image-v1",
+            "mode": mode,
+            "dimensions": {"mode": "parameters"},
+        },
+    )
+    for key, spec in data["parameters"].items():
+        spec["role"] = key
+    for role in ("width", "height"):
+        data["parameters"][role] = {
+            "type": "integer",
+            "role": role,
+            "node": "4",
+            "input": role,
+            "required": False,
+            "default": 512,
+            "minimum": 64,
+            "maximum": 4096,
+            "multiple_of": 8,
+        }
+    data["parameters"]["seed"] = {
+        "type": "integer",
+        "role": "seed",
+        "node": "5",
+        "input": "seed",
+        "required": False,
+        "default": 0,
+        "minimum": 0,
+        "maximum": 4294967295,
+    }
+    if mode == "img2img":
+        data["image"].update(
+            reference_semantics="initial_image", resize_policy="center-crop-resize"
+        )
+        data["graph"]["4"] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": ["8", 0],
+                "width": 512,
+                "height": 512,
+                "upscale_method": "lanczos",
+                "crop": "center",
+            },
+        }
+        data["graph"]["8"] = {"class_type": "LoadImage", "inputs": {"image": ""}}
+        data["graph"]["9"] = {
+            "class_type": "VAEEncode",
+            "inputs": {"pixels": ["4", 0], "vae": ["1", 2]},
+        }
+        data["graph"]["5"]["inputs"]["latent_image"] = ["9", 0]
+        data["parameters"]["source"] = {
+            "type": "managed_input",
+            "role": "initial_image",
+            "node": "8",
+            "input": "image",
+            "media_types": ["image/png", "image/jpeg", "image/webp"],
+        }
+        data["parameters"]["denoise"] = {
+            "type": "number",
+            "role": "denoise",
+            "node": "5",
+            "input": "denoise",
+            "required": False,
+            "default": 0.6,
+            "minimum": 0,
+            "maximum": 1,
+        }
+    return data
+
+
+def test_v2_graph_free_metadata_and_canonical_digest():
+    raw = definition()
+    item = WorkflowDefinition.model_validate(raw)
+    other = WorkflowDefinition.model_validate(json.loads(json.dumps(raw, sort_keys=True)))
+    assert item.digest == other.digest
+    metadata = item.metadata()
+    assert "graph" not in metadata
+    assert all("node" not in p and "input" not in p for p in metadata["parameters"].values())
+    assert metadata["image"]["mode"] == "txt2img"
+    changed = copy.deepcopy(raw)
+    changed["graph"]["5"]["inputs"]["steps"] = 11
+    assert WorkflowDefinition.model_validate(changed).digest != item.digest
+
+
+@pytest.mark.parametrize("value", [True, 0, -8, 0.5, "8", 8.0])
+def test_multiple_of_strict_positive_integer(value):
+    with pytest.raises(ValueError):
+        ParameterSpec(type="integer", node="1", input="seed", multiple_of=value)
+
+
+def test_multiple_of_rejects_number_defaults_enums_and_values(settings):
+    with pytest.raises(ValueError):
+        ParameterSpec(type="number", node="1", input="cfg", multiple_of=8)
+    data = definition()
+    data["parameters"]["width"]["default"] = 513
+    with pytest.raises(ValueError):
+        WorkflowDefinition.model_validate(data)
+    data["parameters"]["width"]["default"] = 512
+    data["parameters"]["width"]["enum"] = [512, 513]
+    with pytest.raises(ValueError):
+        WorkflowDefinition.model_validate(data)
+    spec = ParameterSpec(type="integer", node="1", input="seed", multiple_of=8)
+    with pytest.raises(ValueError, match="multiple_of"):
+        spec.validate_value(3, ModelCatalog(settings))
+
+
+@pytest.mark.parametrize("field", ["production_ready", "readiness", "attestation"])
+def test_definition_cannot_self_attest(field):
+    data = definition()
+    data[field] = True
+    with pytest.raises(ValueError):
+        WorkflowDefinition.model_validate(data)
+
+
+def test_builtin_descriptor_preserves_ordered_lora_contract(settings):
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
+    descriptors = store.list()["descriptors"]
+    assert descriptors[0]["readiness"]["basis"] == "builtin_compatibility"
+    assert descriptors[0]["parameters"]["loras"]["max_items"] == 0
+    assert descriptors[1]["parameters"]["loras"]["min_items"] == 1
+    assert descriptors[1]["parameters"]["loras"]["max_items"] == 16
+    assert descriptors[1]["parameters"]["width"]["multiple_of"] == 8

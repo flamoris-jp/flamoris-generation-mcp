@@ -1,6 +1,7 @@
 """Trusted, versioned ComfyUI API graphs with explicit public input bindings."""
 
 import copy
+import hashlib
 import json
 import math
 import os
@@ -23,6 +24,54 @@ IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 # Provider-side file selectors need a managed asset resolver in a later phase.
 FREE_TEXT_INPUTS = {("CLIPTextEncode", "text")}
 FILE_INPUT = re.compile(r"(?:file|path|filename|image|video|audio|asset)", re.I)
+ImageRole = Literal[
+    "checkpoint",
+    "positive_prompt",
+    "negative_prompt",
+    "width",
+    "height",
+    "seed",
+    "steps",
+    "cfg",
+    "sampler",
+    "scheduler",
+    "denoise",
+    "initial_image",
+]
+
+
+class ImageDimensions(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    mode: Literal["parameters", "fixed"]
+    width: int | None = Field(default=None, ge=64, le=4096, multiple_of=8)
+    height: int | None = Field(default=None, ge=64, le=4096, multiple_of=8)
+
+    @model_validator(mode="after")
+    def dimensions(self):
+        fixed = self.mode == "fixed"
+        if fixed != (self.width is not None and self.height is not None):
+            raise ValueError("Fixed dimensions require both width and height")
+        if not fixed and (self.width is not None or self.height is not None):
+            raise ValueError("Parameter dimensions cannot declare fixed size")
+        return self
+
+
+class ImageSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    profile: Literal["image-v1"]
+    mode: Literal["txt2img", "img2img"]
+    dimensions: ImageDimensions
+    reference_semantics: Literal["initial_image"] | None = None
+    resize_policy: Literal["center-crop-resize"] | None = None
+
+    @model_validator(mode="after")
+    def semantics(self):
+        if self.mode == "img2img":
+            if self.reference_semantics != "initial_image" or self.resize_policy is None:
+                raise ValueError("img2img requires initial_image and center-crop-resize")
+        elif self.reference_semantics is not None or self.resize_policy is not None:
+            raise ValueError("txt2img cannot declare reference semantics")
+        return self
 
 
 class ParameterSpec(BaseModel):
@@ -42,9 +91,13 @@ class ParameterSpec(BaseModel):
     max_length: int | None = Field(default=None, ge=0, le=20000)
     enum: list[str | int | float | bool] | None = Field(default=None, min_length=1, max_length=64)
     model_kind: ModelKind | None = None
+    role: ImageRole | None = None
+    multiple_of: int | None = Field(default=None, gt=0, strict=True)
 
     @model_validator(mode="after")
     def constraints(self):
+        if self.multiple_of is not None and self.type != "integer":
+            raise ValueError("multiple_of requires an integer parameter")
         if self.minimum is not None and not math.isfinite(self.minimum):
             raise ValueError("Parameter minimum must be finite")
         if self.maximum is not None and not math.isfinite(self.maximum):
@@ -108,6 +161,8 @@ class ParameterSpec(BaseModel):
                 raise ValueError("Below minimum")
             if self.maximum is not None and value > self.maximum:
                 raise ValueError("Above maximum")
+            if self.multiple_of is not None and value % self.multiple_of != 0:
+                raise ValueError("Value must be a multiple_of the declared integer")
         if isinstance(value, str):
             if len(value) > 20000 or (self.min_length is not None and len(value) < self.min_length):
                 raise ValueError("Invalid string length")
@@ -125,7 +180,7 @@ class ParameterSpec(BaseModel):
 class WorkflowDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     id: str
     version: int = Field(ge=1, le=100000)
     name: str = Field(min_length=1, max_length=120)
@@ -135,9 +190,64 @@ class WorkflowDefinition(BaseModel):
     graph: dict[str, dict[str, Any]]
     parameters: dict[str, ParameterSpec] = Field(max_length=64)
     output_node: str
+    image: ImageSpec | None = None
 
     @model_validator(mode="after")
     def validate_graph(self):
+        if self.schema_version == 1 and (
+            self.image is not None
+            or any(
+                p.role is not None or p.multiple_of is not None for p in self.parameters.values()
+            )
+        ):
+            raise ValueError("Image metadata and roles require definition schema v2")
+        if self.schema_version == 2:
+            if self.image is None:
+                raise ValueError("Definition schema v2 requires Image metadata")
+            roles = [p.role for p in self.parameters.values() if p.role is not None]
+            if len(roles) != len(set(roles)):
+                raise ValueError("Duplicate Image role")
+            required = {"checkpoint", "positive_prompt"}
+            if self.image.mode == "img2img":
+                required |= {"initial_image", "denoise"}
+            elif "initial_image" in roles:
+                raise ValueError("txt2img cannot declare an initial_image role")
+            if self.image.dimensions.mode == "parameters":
+                required |= {"width", "height"}
+            elif {"width", "height"} & set(roles):
+                raise ValueError("Fixed dimensions cannot advertise size roles")
+            if not required <= set(roles):
+                raise ValueError("Missing required Image role")
+            for spec in self.parameters.values():
+                role = spec.role
+                expected = (
+                    "managed_input"
+                    if role == "initial_image"
+                    else "integer"
+                    if role in {"width", "height", "seed", "steps"}
+                    else "number"
+                    if role in {"cfg", "denoise"}
+                    else "string"
+                )
+                if role and spec.type != expected:
+                    raise ValueError("Image role has incompatible parameter type")
+                if role == "checkpoint" and spec.model_kind != "checkpoint":
+                    raise ValueError("checkpoint role requires checkpoint model_kind")
+                if role in {"width", "height"} and (
+                    spec.multiple_of != 8
+                    or spec.minimum is None
+                    or spec.minimum < 64
+                    or spec.maximum is None
+                    or spec.maximum > 4096
+                ):
+                    raise ValueError("Dimension roles require bounded multiples of 8")
+                if role == "denoise" and (
+                    spec.minimum is None
+                    or spec.minimum < 0
+                    or spec.maximum is None
+                    or spec.maximum > 1
+                ):
+                    raise ValueError("denoise role requires bounds within 0..1")
         if not IDENTIFIER.fullmatch(self.id) or not 1 <= len(self.graph) <= 128:
             raise ValueError("Invalid workflow ID or graph size")
         if not IDENTIFIER.fullmatch(self.provider_id) or not re.fullmatch(
@@ -186,7 +296,17 @@ class WorkflowDefinition(BaseModel):
             if spec.type == "managed_input":
                 if (node_type, spec.input) != ("LoadImage", "image"):
                     raise ValueError("Managed image input must bind LoadImage.image")
-            elif file_binding:
+            elif file_binding and not (
+                self.schema_version == 2
+                and spec.type == "integer"
+                and (node_type, spec.input)
+                in {
+                    ("EmptyLatentImage", "width"),
+                    ("EmptyLatentImage", "height"),
+                    ("ImageScale", "width"),
+                    ("ImageScale", "height"),
+                }
+            ):
                 raise ValueError("File/asset input requires a managed asset resolver")
             if spec.type == "string" and spec.model_kind is None:
                 if spec.enum is None and (node_type, spec.input) not in FREE_TEXT_INPUTS:
@@ -208,11 +328,29 @@ class WorkflowDefinition(BaseModel):
             "description": self.description,
             "provider_id": self.provider_id,
             "capability_id": self.capability_id,
+            "kind": "definition",
+            "metadata_schema_version": self.schema_version,
+            "definition_version": self.version,
+            "definition_digest": self.digest,
+            "readiness": {
+                "state": "validated",
+                "definition_version": self.version,
+                "definition_digest": self.digest,
+                "reason": "verification_required",
+            },
+            **({"image": self.image.model_dump(exclude_none=True)} if self.image else {}),
             "parameters": {
                 name: spec.model_dump(mode="json", exclude_none=True, exclude={"node", "input"})
                 for name, spec in self.parameters.items()
             },
         }
+
+    @property
+    def digest(self) -> str:
+        content = json.dumps(
+            self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(content).hexdigest()
 
 
 class _NoModels:
@@ -237,7 +375,7 @@ class WorkflowRegistry:
         self.root = root
         self.catalog = catalog
         self.definitions: dict[str, WorkflowDefinition] = {}
-        self._register_lock = threading.Lock()
+        self._register_lock = threading.RLock()
         if not root.exists():
             return
         if not root.is_dir() or root.is_symlink():

@@ -66,6 +66,73 @@ class ExternalRecipe(BaseModel):
 AnyRecipe = Recipe | ExternalRecipe
 
 
+def builtin_descriptors() -> list[dict]:
+    """Graph-free descriptions of the existing builtin contracts."""
+    properties = Parameters.model_json_schema()["properties"]
+    parameters = {}
+    for name, schema in properties.items():
+        if name == "loras":
+            continue
+        spec = {
+            k: v
+            for k, v in schema.items()
+            if k in {"type", "default", "minimum", "maximum", "minLength", "maxLength", "pattern"}
+        }
+        for source, target in (("minLength", "min_length"), ("maxLength", "max_length")):
+            if source in spec:
+                spec[target] = spec.pop(source)
+        if "multipleOf" in schema:
+            spec["multiple_of"] = int(schema["multipleOf"])
+        parameters[name] = {
+            **spec,
+            "role": name,
+            "required": name in properties and "default" not in schema,
+        }
+    parameters["checkpoint"]["model_kind"] = "checkpoint"
+    loras = {
+        "type": "ordered_loras",
+        "role": "loras",
+        "max_items": 16,
+        "model_kind": "lora",
+        "items": {
+            "name": {"type": "string", "model_kind": "lora"},
+            "strength_model": {"type": "number", "minimum": -20, "maximum": 20, "default": 1},
+            "strength_clip": {"type": "number", "minimum": -20, "maximum": 20, "default": 1},
+        },
+    }
+    return [
+        {
+            **template,
+            "kind": "builtin",
+            "metadata_schema_version": 2,
+            "version": 1,
+            "name": template["id"],
+            "provider_id": "comfyui",
+            "capability_id": "image.generate",
+            "image": {
+                "profile": "image-v1",
+                "mode": "txt2img",
+                "dimensions": {"mode": "parameters"},
+            },
+            "readiness": {
+                "state": "ready",
+                "basis": "builtin_compatibility",
+                "descriptor_revision": 1,
+            },
+            "parameters": {
+                **parameters,
+                "loras": {
+                    **loras,
+                    "min_items": 1 if template["id"].endswith("-lora") else 0,
+                    "max_items": 16 if template["id"].endswith("-lora") else 0,
+                    "required": template["id"].endswith("-lora"),
+                },
+            },
+        }
+        for template in TEMPLATES
+    ]
+
+
 def build_prompt(recipe: Recipe, catalog: ModelCatalog) -> dict:
     p = recipe.parameters
     catalog.require("checkpoint", p.checkpoint)
@@ -253,6 +320,12 @@ class WorkflowStore:
                 saved.append(path.stem)
         return {
             "templates": TEMPLATES,
+            "descriptors": builtin_descriptors()
+            + (
+                [item.metadata() for item in self.registry.definitions.values()]
+                if self.registry
+                else []
+            ),
             "definitions": (
                 [item.metadata() for item in self.registry.definitions.values()]
                 if self.registry
