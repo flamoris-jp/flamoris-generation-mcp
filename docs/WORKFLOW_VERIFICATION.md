@@ -13,6 +13,9 @@ Production recipes pin version/digest and `require_ready=true`. Discovery, build
 admission and the pre-POST staging boundary check current evidence. Builtins retain
 their compatibility policy; schema-v1 definitions require an Image metadata upgrade.
 Checkpoint selection must match the content identity tested by the attestation.
+Ready descriptors constrain the checkpoint enum to that tested model. The deadline
+covers provider admission, background observation and output materialization;
+an expired observation retains the ordinary active reservation for reconciliation.
 
 ## Runtime evidence authority contract
 

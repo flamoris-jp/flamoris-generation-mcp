@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import time
@@ -195,3 +196,43 @@ async def test_no_runtime_evidence_rejects_before_provider(verified, fake):
         await run_verify(verified)
     assert not jobs.activity()["busy"]
     assert not fake.prompts
+
+
+async def test_ready_descriptor_restricts_checkpoint_to_measured_domain(verified, fake):
+    await make_ready(verified, fake)
+    item = verified[0].list()["definitions"][0]
+    assert item["parameters"]["checkpoint"]["enum"] == ["base.safetensors"]
+
+
+async def test_submission_deadline_keeps_unknown_reservation(verified, monkeypatch):
+    import flamoris_generation_mcp.verification as module
+
+    _, jobs, _, _, _ = verified
+    provider = jobs.providers.get("comfyui")
+
+    async def stalled(*args):
+        await asyncio.Future()
+
+    monkeypatch.setattr(provider, "submit", stalled)
+    monkeypatch.setattr(module, "DEADLINE", 0.01)
+    with pytest.raises(TimeoutError):
+        await run_verify(verified)
+    assert jobs.activity()["busy"]
+    assert next(iter(jobs._jobs.values())).verification["state"] == "failed"
+
+
+async def test_observation_deadline_never_attests_or_releases_active_job(verified, monkeypatch):
+    import flamoris_generation_mcp.verification as module
+
+    _, jobs, verifier, _, _ = verified
+    provider = jobs.providers.get("comfyui")
+
+    async def stalled(*args):
+        await asyncio.Future()
+
+    monkeypatch.setattr(provider, "inspect", stalled)
+    monkeypatch.setattr(module, "DEADLINE", 0.01)
+    result = await run_verify(verified)
+    await asyncio.wait_for(asyncio.gather(*list(verifier.tasks)), timeout=1)
+    assert jobs._get(result["job_id"]).verification["state"] == "failed"
+    assert jobs.activity()["busy"]

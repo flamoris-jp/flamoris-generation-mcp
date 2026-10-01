@@ -58,7 +58,14 @@ class WorkflowVerification:
         item = definition.metadata()
         try:
             with self.evidence.guard() as runtime:
-                self._require_record(definition, runtime)
+                record = self._require_record(definition, runtime)
+            # Readiness covers the measured model domain, not every installed model.
+            checkpoint = next(
+                name for name, spec in definition.parameters.items() if spec.role == "checkpoint"
+            )
+            item["parameters"][checkpoint]["enum"] = [
+                record["model"]["model"].removeprefix("checkpoint:")
+            ]
             item["readiness"].update(state="ready", reason=None)
         except (ValueError, OSError, TypeError, KeyError):
             item["readiness"].update(state="validated", reason="verification_unavailable")
@@ -132,7 +139,8 @@ class WorkflowVerification:
             "evidence_revision": 1,
             "state": "pending",
         }
-        result = await self.jobs.submit(built["workflow_id"], verification=attempt)
+        async with asyncio.timeout(DEADLINE):
+            result = await self.jobs.submit(built["workflow_id"], verification=attempt)
         task = asyncio.create_task(self._watch(result["job_id"]))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -217,7 +225,8 @@ class WorkflowVerification:
         job = self.jobs._get(job_id)
         while job.verification.get("state") == "pending":
             try:
-                await self.jobs.status(job_id)
+                async with asyncio.timeout(max(0.01, job.verification["deadline"] - time.time())):
+                    await self.jobs.status(job_id)
             except Exception:
                 self.fail(job, "verification_observation_failed")
             if job.verification.get("state") == "pending":
