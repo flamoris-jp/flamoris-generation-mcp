@@ -72,6 +72,10 @@ designer, GPU runtime switching, and multi-provider framework are out of scope.
    registered -> validated -> ready; a separate service-owned attestation binds
    workflow_id/definition_version/canonical definition digest. Definitions cannot
    self-declare production_ready. Version OR digest changes invalidate ready.
+   Runtime evidence also binds the provider epoch and a measured execution
+   manifest fingerprint (node implementation/config/model content identities),
+   plus profile/evidence revisions. Same-name replacements invalidate it.
+   Require stable revision continuity; unavailable evidence fails closed.
    Do not claim provider uploads are automatically removed by current code.
 9. Exact audited integer dimension binding exceptions fix the Image-name
    heuristic; real file selectors remain managed-only.
@@ -96,9 +100,18 @@ designer, GPU runtime switching, and multi-provider framework are out of scope.
     installed node/provider compatibility, static semantics, managed staging,
     successful completion and declared output retrieval/validation before atomic
     attestation persistence. Human Approve/visual checks are not readiness gates.
-13. Reverify after failure is explicit and supported. Failure/timeout/cancel/busy/
-    submission_unknown never produces ready or releases uncertain provider work.
-    Exact identity is checked at finalization/discovery/build/submit; replacing a
+13. Reverify after failure is explicit and supported. Pre-admission validation/
+    busy/capacity rejection preserves a still-current prior ready attestation.
+    A tentative persisted attempt ID cannot supersede current readiness.
+    Acquire the existing JobStore reservation, then durably/atomically set the
+    admitted current attempt and supersede old ready before staging/provider
+    awaits. Definite pre-commit failure releases the unsubmitted reservation and
+    preserves prior evidence; uncertain commit fails closed pending reconciliation.
+    After admission, failure/timeout/cancel/submission_unknown stays unavailable
+    and never releases uncertain provider work. Exact identity AND runtime
+    epoch/fingerprint/profile evidence are checked at finalization/discovery/
+    require_ready build/restore/submit and revision continuity before provider POST
+    after staging; replacing a
     definition during smoke cannot inherit readiness. Guard finalization with the
     current service-generated attempt ID as well as Definition identity; an older
     attempt cannot publish ready over a newer failed reverify. Production img2img
@@ -127,6 +140,16 @@ designer, GPU runtime switching, and multi-provider framework are out of scope.
     Generation/Hub pair and backed-up persistence together, preserving newer data.
     Never resume from an empty reservation or assume old code reads new schemas.
     Follow the canonical rollout/rollback section; do not guess host commands.
+16. Implement the Studio retention contract: 128 rows/user and 1024 globally;
+    thumbnails <=512 px/dimension and <=256 KiB, 32 MiB/user and 128 MiB globally,
+    including pending create/temp/delete accounting. Reserve quota before
+    upstream create. Terminal grace is 24h, prune on startup/at least hourly in
+    indexed <=100-row batches; protect active/uncertain execution references,
+    refuse new creates when protected storage exhausts quota. Completed history
+    does not pin terminal inputs: nullable/SET NULL links and immutable snapshots
+    preserve scalars/opaque references with missing-preview/reselect behavior.
+    Source deletion does not revoke a live snapshot. Cleanup is confined and
+    durable across DB/file failure/restart; Generation retains binary TTL authority.
 
 ## Implementation order and commits
 
@@ -139,10 +162,10 @@ branches.
 | 2 | Generation: integer-only dimensions/multiple_of + static reference graph validation |
 | 3 | Generation: build version/digest/require_ready + admission/accepted-submit races + ambiguous-submit reservation hardening |
 | 4 | Generation: img2img definition/export fixture + bounded decode/staging tests + stale managed-input docs |
-| 5 | Generation: normal-job workflows.verify + separate durable attestation + infrastructure config/docs |
+| 5 | Generation: stable runtime-evidence adapter + normal-job workflows.verify + admission-safe separate durable attestation + infrastructure config/docs |
 | 6 | Hub: generated verify/build schemas and annotations + forwarding/parity tests |
 | 7 | Studio: normalized descriptors/DTOs + discovery |
-| 8 | Studio: managed-input owner table/migration/API/independent thumbnails |
+| 8 | Studio: managed-input owner table/migration/API/independent thumbnails + transactional quotas/retention cleanup |
 | 9 | Studio: role-based submit + normalized snapshot v2 + stale/reference handling |
 | 10 | Studio: dedicated Workflow selector + existing-Asset picker |
 | 11 | Studio: result/Use settings restoration + component regressions/docs |
@@ -165,6 +188,13 @@ failure, attestation persistence failure, restart/profile mismatch, version/dige
 finalization/revocation races, version races, decoded PNG/JPEG/WebP and
 malformed/animated/pixel-bound images, input expiry/deletion, ambiguous upload/submit
 and stage lease behavior.
+Add unchanged-name model/node replacement, provider-epoch change, unavailable/
+unprovable evidence, runtime change during smoke/build/staging, profile/domain
+mismatch and restart-continuity checks. Contrast pre-admission busy/validation/
+capacity/persistence rejection preserving current ready with admitted failure/
+cancel/unknown disabling it; cover tentative/admitted crash recovery, uncertain
+metadata commit and superseded finalizers. Evidence/attestation hardening is
+planned; current model names/size and health do not establish runtime identity.
 
 Studio: PostgreSQL-backed pytest + Alembic migration chain, npm ci, npm run build, npm
 test, and Docker packaging/static frontend check from CI. Test source and input
@@ -178,6 +208,10 @@ gates. Preserve builtin/LoRA/Style/preferences regressions. No unimplemented upl
 Real mocked component interactions must cover select/attach/remove/replace/ restore,
 initial selection with no input, reselection after expiry/revocation/ removal, empty
 Asset lists, and Generate blocked until a valid attachment.
+Include per-owner/global row and thumbnail limits, concurrent create reservations,
+quota denial before upstream calls, terminal grace, active/unknown protection,
+history-linked pruning without Execution/Asset deletion, missing-reference restore,
+bounded indexed cleanup and DB/file failure/restart accounting.
 
 Hub: mixed-version whole-connection rejection and paired schema rollback, plus current
 test/lint/format checks, present/absent version/digest/require_ready
@@ -204,6 +238,9 @@ requirement, not evidence that deployment or runtime smoke occurred.
 1. Record current Generation/Studio/Hub code revisions and infrastructure rollout flags.
 2. Verify installed ComfyUI required node schemas (object_info or actual exported
    API graph), model catalog, Clip Skip configuration, sampler/scheduler.
+   Establish authoritative stable runtime evidence with measured node/core/config/
+   model content identities and provider epoch; object_info/catalog alone is not
+   enough. Keep production readiness off if continuity cannot be established.
 3. Export/review the txt2img and img2img graphs. Record exact definition ID/version
    and canonical content digest; keep private prompts/media/runtime IDs out of
    public GitHub evidence.

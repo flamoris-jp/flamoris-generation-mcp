@@ -237,7 +237,7 @@ These are independent gates:
 | Gate | Authority and meaning |
 | --- | --- |
 | Infrastructure readiness | Generation operator configuration: managed-input/provider adapter is production usable, with bounded decoder/staging and upload retention evidence |
-| Workflow readiness | Generation verification authority: this exact workflow ID/version/canonical digest passed bounded real-runtime verification |
+| Workflow readiness | Generation verification authority: this exact workflow ID/version/canonical digest passed bounded real-runtime verification and its runtime evidence is still current |
 
 Retain top-level `managed_input_support` shaped as
 `{ready: boolean, media_types: ["image/png", "image/jpeg", "image/webp"]}`.
@@ -357,32 +357,100 @@ Definition documents cannot carry readiness, attestation, builtin basis or a
 production_ready self-claim; reject such fields. Trusted authoring does not
 authorize writing a runtime verification result. Store bounded service-owned
 attestations separately from definition files, with identity, verification
-profile revision, provider compatibility evidence, completion time and safe
+profile revision, runtime evidence fingerprint/epoch, provider compatibility evidence, completion time and safe
 output evidence. Persist atomically before publishing ready. Integrity/path/
 schema failures or missing evidence leave the entry unavailable. Restrict writes
 to the verification service; no client-supplied success receipt is accepted.
 
-Persist a service-generated verification attempt ID before admission, separate
-from executable job state. Serialize finalization with register/reverify and
-production admission; compare both exact Definition identity and current attempt
-ID before publishing success. A superseded attempt for the same identity cannot
-restore ready after a newer attempt failed. Attestation/evidence retention is
-bounded by the discovery entry limit and existing bounded output storage; reject
-overflow, never accumulate unbounded history. No new resource reservation is
-introduced by these metadata/persistence guards.
+### Runtime evidence and the ready predicate
 
-An updated version OR changed canonical digest invalidates eligibility
-immediately. Compare identity again atomically at finalization: an old pending
-job may complete, but cannot mark a replacement ready. Discovery and production
-admission recheck the match; failure to persist cannot expose ready. Failed,
-cancelled, timed-out or ambiguous verification retains registered/validated
-state, a safe failure reason, and permits explicit reverify. Starting a reverify
-clears current readiness before the attempt; failed reverify cannot retain an
-old success as current ready. Provider/profile incompatibility or evidence
-revocation also makes the entry unavailable. A successful persisted attestation
-survives restart only if its identity/profile/evidence still match; an interrupted
-pending verification never becomes ready from a fresh empty in-memory JobStore.
-Respect current singleton deployment/recovery rules, not multi-process locking.
+Definition identity alone cannot detect a checkpoint or node implementation
+replaced under the same name. Require a service-validated runtime evidence
+record with provider instance epoch and a canonical SHA-256 fingerprint of the
+execution-relevant manifest: provider/core and dependency revisions, required
+node interfaces AND implementation content/revisions, relevant runtime
+configuration, and model/checkpoint/LoRA/VAE/embedding content identities for
+the supported verification profile. Include the verification profile and
+evidence-format revisions. Catalog names, file size/mtime, object_info alone,
+health=true or a caller-supplied epoch are not proof of unchanged execution.
+Keep private manifest paths/details internal; discovery exposes only bounded
+safe readiness reasons, timestamp and profile revision.
+
+Generation's evidence adapter must obtain a stable runtime revision: measured
+content on an immutable runtime/model revision, or a trusted mutation authority
+that advances a non-reused epoch before any execution-relevant change and
+publishes its measured manifest before admitting work. Same-name replacements,
+node/core/config changes, provider restart/replacement and loss of revision
+continuity invalidate prior evidence. Refresh automatically; do not introduce a
+human Approve step. Fingerprint caching is allowed only while that immutable
+revision/epoch remains proven; stat-only caches or arbitrary unmanaged in-place
+mutation cannot satisfy this contract. If the provider cannot supply this
+guarantee or evidence refresh exceeds its bounded deadline, fail closed with
+runtime_evidence_unavailable and keep the Definition validated. Current main's
+name/size model catalog and health checks do not implement this prerequisite.
+
+For a Definition, ready requires ALL: current exact ID/version/digest and
+canonicalization revision; current admitted attempt with persisted successful
+attestation; matching verification-profile/evidence-format revisions; current
+provider epoch AND runtime fingerprint; complete non-revoked output/evidence;
+and no pending admitted reverify. Missing, malformed, incompatible or unknown
+evidence and persistence failure cannot publish ready. A model selector may
+only use content identities covered by that profile's verified evidence;
+another model with a matching name/type is not implicitly attested.
+Infrastructure readiness remains the independent additional img2img gate.
+
+Capture runtime evidence before verify and recheck it at finalization under the
+same readiness/publication guard. A change during smoke prevents attestation.
+Re-evaluate the full ready predicate at discovery, require_ready build, recipe
+restoration/rebuild and jobs.submit admission, then recheck revision continuity
+immediately before provider submission after staging. Serialize runtime changes
+with admission through the evidence authority; do not trust cached Studio
+discovery or pin only Definition identity. If continuity is lost after a
+provider may have accepted the call, preserve captured job/output identity and
+unknown-work handling; never replay or award readiness. Already accepted jobs
+may finish without conferring readiness on the changed environment.
+
+A successful persisted attestation survives a Generation restart only if exact
+identity, admitted-attempt state, profile and authoritative runtime epoch/
+fingerprint still match. Unprovable continuity or restored obsolete evidence
+requires explicit reverify. Runtime drift invalidates ready independently of
+whether a new verify call is rejected as busy. Bounded attestation records use
+the discovery-entry limit and existing bounded output storage; no unbounded
+attempt history or second job/resource authority is introduced.
+
+### Reverify admission and supersession
+
+Admission means acquisition of the existing JobStore reservation and durable
+verification metadata commit, not successful provider POST. Use this order:
+
+1. Perform bounded identity/parameter/compatibility/budget preflight. A tentative
+   service-generated attempt ID may be persisted for correlation, but it cannot
+   replace current_attempt_id or invalidate an otherwise current attestation.
+2. Under the normal JobStore admission/readiness/publication guards, recheck
+   identity/runtime evidence and acquire the existing singleton reservation.
+   Validation errors, busy, job-capacity rejection and other definite failures
+   before admission preserve the previous attestation/current attempt, provided
+   its full ready predicate still holds. Do not clear ready on verify entry.
+3. Before any staging/provider await, atomically persist the admitted attempt as
+   current and supersede the old ready attestation. Only this durable transition
+   completes verification admission. If it definitely fails before commit,
+   release the unsubmitted reservation and keep the unchanged prior attestation.
+   If commit outcome is uncertain, fail closed until durable state is reconciled;
+   never submit the provider job or silently restore old readiness.
+4. Run the normal job. After admission, staging/submit/output failure, cancel,
+   timeout or submission_unknown leaves the Definition validated/unavailable.
+   The historical success cannot become current again. Uncertain provider work
+   retains the same reservation until confirmed release/reconciliation.
+5. Finalization compares exact Definition identity, runtime evidence and current
+   admitted attempt ID under the same guard before atomic success persistence.
+   An older/superseded finalizer cannot publish over a newer admitted attempt.
+
+Definition update, runtime drift or explicit revocation invalidates eligibility
+even when a tentative reverify is rejected. An interrupted admitted verification
+remains unavailable after restart; a persisted tentative attempt never becomes
+admitted merely because the in-memory JobStore is empty. Respect singleton
+recovery rules. These are required implementation changes, not current-main
+guarantees.
 
 Legacy v1 definitions without Image metadata remain visible by name/version but
 are marked unavailable for the dedicated Image editor with an actionable
@@ -439,7 +507,9 @@ and require_ready=true for definitions. Build pins the canonical identity and
 readiness requirement into the recipe, rejects nonready/mismatched evidence,
 and jobs.submit rechecks the same identity/readiness at admission before any
 provider await, serialized with publication/revocation. For img2img production
-admission also rechecks infrastructure readiness, so a stale Studio discovery
+admission also rechecks infrastructure readiness and the full runtime-evidence
+ready predicate, with revision continuity rechecked after staging before POST,
+so a stale Studio discovery
 cannot bypass a disabled adapter gate. Candidate verification uses require_ready=false through the
 same normal job authority; this trusted testing path is not exposed to browsers.
 An attestation revoked after build must fail production admission. Already
@@ -654,7 +724,12 @@ sampler/batch/size literals, plus v1/builtin compatibility, metadata without raw
 and mode/dataflow checks, unknown required profiles/types, exact scalar exceptions
 and malicious selectors, multiple_of/default constraints, model validation,
 runtime register/persistence/rollback, validated-not-ready discovery, automatic
-attestation persistence/restart failure, version/digest invalidation, self-claim
+attestation persistence/restart failure, runtime fingerprint/provider epoch and
+same-name content replacement, unknown evidence/continuity loss, drift during
+smoke/build/staging, profile/model-domain mismatch, tentative versus admitted
+attempt recovery, pre-admission busy/validation/capacity/persistence rejection
+preserving current ready, admitted reverify failure/timeout/cancel/unknown
+disabling old ready, uncertain metadata commit, version/digest invalidation, self-claim
 rejection, finalization/update/revocation races, failed/retried/busy/timed-out/
 ambiguous verification sharing the single reservation, integer-only multiple_of
 and invalid divisors, stale discovery/build/recipe behavior,
