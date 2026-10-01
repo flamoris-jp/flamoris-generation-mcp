@@ -29,7 +29,7 @@ Generation catalog/availability comes from its own MCP tools.
 | Area | Evidence in current code | Remaining work |
 | --- | --- | --- |
 | Trusted registry | `WorkflowDefinition`, `ParameterSpec`, strict schema, bounded graph, model validation | Image semantics and more precise scalar bindings |
-| Registration | `WorkflowRegistry.register`, atomic publish/fsync/rollback; immediate activation | Preserve behavior; metadata schema upgrade |
+| Registration | `WorkflowRegistry.register`, atomic publish/fsync/rollback; immediate activation | Preserve restart-free publish; add separate readiness attestation |
 | Discovery | `WorkflowStore.list` returns templates/definitions; metadata excludes graph/node/input | Uniform Image descriptors; Studio consumption |
 | Versioning | Latest definition per ID; monotonically increasing versions; saved recipes pin version | Explicit build version precondition; document stale handling |
 | Managed inputs | Immutable generated-asset snapshots, confinement, expiry, stage lease | Studio ownership mapping and input preview |
@@ -56,7 +56,7 @@ paragraph as absence of the adapter.
 
 - ComfyUI owns runtime execution and its model/node environment.
 - Generation owns trusted definitions, validation, recipes, jobs, provider
-  adapters, managed inputs, and generated binary assets.
+  adapters, managed inputs, generated binary assets, and runtime readiness attestations.
 - Studio owns authenticated user authorization, opaque catalog/input handles,
   presentation, preferences/Styles, and request snapshots.
 - Hub owns routing and its explicit tool catalog; it does not inspect graphs.
@@ -84,8 +84,11 @@ V2 adds:
 
 - `image`: an Image-specific descriptor, not a universal UI schema.
 - `parameters.<key>.role`: optional bounded semantic role.
-- `parameters.<key>.multiple_of`: positive, finite numeric validation, used for
-  integral dimensions. Validate defaults/enums against it too.
+- `parameters.<key>.multiple_of`: positive integer only, on integer parameters
+  only. Reject booleans, numeric strings, non-integer values and nonpositive
+  divisors. Generation and Studio use integer remainder (`value % divisor == 0`)
+  and validate defaults/enums too. Width/height use 8. Decimal steps for number
+  parameters are outside v2; a future contract must avoid float tolerance.
 
 The Image descriptor has `profile: "image-v1"`,
 `mode: "txt2img" | "img2img"`, and one explicit dimension policy:
@@ -136,6 +139,12 @@ Example proposed graph-free descriptor:
   "metadata_schema_version": 2,
   "provider_id": "comfyui",
   "capability_id": "image.generate",
+  "readiness": {
+    "state": "validated",
+    "definition_version": 1,
+    "definition_digest": "sha256:<canonical-definition-digest>",
+    "reason": "verification_required"
+  },
   "image": {
     "profile": "image-v1",
     "mode": "img2img",
@@ -181,19 +190,140 @@ for new descriptors. Public metadata may have at most 128 workflow entries,
 individual strings/enums keep the existing definition bounds. Return a bounded
 availability failure on catalog overflow, never an unbounded browser response.
 
-Add top-level `managed_input_support` shaped as
-`{ready: boolean, media_types: ["image/png", "image/jpeg", "image/webp"]}`.
-Presence of inputs CRUD is not readiness. The new operator setting
-`FLAMORIS_COMFYUI_MANAGED_INPUTS_READY=0|1` defaults to 0 and is set to 1
-only after reviewed adapter/profile smoke and retention evidence.
-Trusted registration cannot set that operator flag. Direct trusted-client smoke
-may exercise a candidate while Studio keeps it unavailable.
+### Infrastructure readiness and workflow readiness
 
-Provider availability and operator readiness remain separate from declarative
-schema validity. Studio requires all of its own authorization, the descriptor,
-provider availability, and rollout readiness before enabling the picker.
-A trusted operator must review/smoke each production graph change; readiness
-does not certify arbitrary custom nodes or arbitrary admin registrations.
+These are independent gates:
+
+| Gate | Authority and meaning |
+| --- | --- |
+| Infrastructure readiness | Generation operator configuration: managed-input/provider adapter is production usable, with bounded decoder/staging and upload retention evidence |
+| Workflow readiness | Generation verification authority: this exact workflow ID/version/canonical digest passed bounded real-runtime verification |
+
+Retain top-level `managed_input_support` shaped as
+`{ready: boolean, media_types: ["image/png", "image/jpeg", "image/webp"]}`.
+Its ready field means infrastructure readiness only. Proposed operator setting
+`FLAMORIS_COMFYUI_MANAGED_INPUTS_READY=0|1` defaults to 0; establish it after
+adapter/profile smoke and a safe retention policy. This is a one-time deployment
+gate, not an Approve action on each new definition. Registration cannot set it.
+
+Each definition descriptor publishes Generation-computed `readiness` with
+`state: registered | validated | ready`, `definition_version`,
+`definition_digest`, and a bounded safe reason when unavailable. Ready entries
+also expose a bounded verification timestamp/profile revision, without prompts,
+input IDs, runtime filenames or private diagnostics. The sample above is
+graph-free discovery output, never a field accepted in a Definition document.
+Missing/mismatched/malformed readiness fails closed. Registered/validated entries
+may appear disabled for diagnostics, but never in Studio production selection.
+Studio cannot infer readiness from ID, JANKU/model name, graph, a successful
+registration, or the global flag. Normal definition use requires exact ready
+identity; Reference Image additionally requires infrastructure readiness,
+supported Image semantics, provider availability and Studio ownership APIs.
+
+Builtin txt2img/ordered-LoRA compatibility remains available. Generation emits
+ready builtin descriptors with basis `builtin_compatibility` and the bundled
+descriptor revision; this explicitly preserves existing behavior and is not a
+claim that an external Definition was runtime verified. External registrations
+cannot claim builtin kind/basis or replace reserved builtin IDs. New external
+definitions, including txt2img, require the attestation described below.
+
+### Automatic readiness attestation
+
+Separate the conceptual states:
+
+| State | Evidence | Studio production use |
+| --- | --- | --- |
+| registered | Trusted Definition durably published | Unavailable |
+| validated | Schema, bindings, bounds and static Image graph semantics pass | Unavailable |
+| ready | Exact identity has a persisted successful real-runtime attestation | Available subject to other gates |
+
+Keep current register validation-before-publication: malformed definitions are
+rejected and the last valid publication remains intact. Thus a successful
+`workflows.register(definition)` normally returns validated directly; registered
+is the conceptual durable-publication stage, not a reason to publish unsafe
+graphs. Register performs bounded static work only, with no generation wait.
+Preserve atomic/fsync/rollback and immediate activation for trusted build/save/
+verify, without image rebuild, file release, Git deployment or service restart.
+Immediate activation does not imply Studio production availability.
+
+Proposed separate trusted tool:
+`workflows.verify(workflow_id, definition_version, definition_digest, parameters)`.
+Here workflow_id identifies a registered Definition, not the recipe UUID
+returned by workflows.build. Require the exact current identity and normal
+declared parameter validation. Parameters contain declared scalar/model values
+and existing managed-input IDs only; no local upload, path, URL or raw graph.
+Caller authority is the existing trusted client group, not a browser API.
+
+Verify performs bounded installed-provider/node compatibility preflight and
+build, then admits one ordinary JobStore job through the normal submit path.
+Return its job_id and verification-pending metadata after bounded admission;
+do not keep an MCP call open until generation completes. Extend existing
+jobs.status/jobs.result with bounded verification outcome/attestation metadata;
+do not introduce another executable job state machine or GPU lock. An internal
+bounded observer/finalizer uses the same JobStore status/result/asset APIs and
+persists readiness automatically after the evidence is complete. No human
+Approve, mandatory visual review, or per-version operator flag change occurs.
+ChatGPT, Work, CI with an authorized runtime, or an operations tool can run
+register -> verify -> poll -> discovery without human intervention. Offline CI
+uses fake providers and never claims real production attestation.
+
+Use reviewed bounded smoke parameters (initial profile: one image, at most
+512 x 512 and 30 steps), bounded provider/transfer calls and a configurable
+verification deadline capped at 300 seconds. Reject incompatible or out-of-budget
+smoke requests before admission. No unbounded queue/rejection/retry loop. Busy
+returns the existing safe busy outcome; explicit retry after resource release
+is allowed. Re-verification also shares single-active-job authority, including
+managed-input staging leases. Never submit directly to ComfyUI. Deadline/cancel
+uses normal scoped job cancellation and terminal-state confirmation: expiration
+of the verification observer does not free an uncertain active provider job.
+Ambiguous submission retains normal submission_unknown/recovery semantics,
+never gets an attestation, and is never automatically resubmitted.
+
+For JANKU img2img, successful evidence requires all of:
+
+- installed provider/model/node interface compatibility (including the reviewed
+  Clip Skip/resize nodes), not just catalog presence;
+- Definition/schema/binding validation plus static reference dataflow validation
+  through crop/resize -> VAEEncode -> KSampler.latent_image -> declared output;
+- existing generated-asset managed snapshot staging/decoding/upload under lease;
+- normal build and submit, terminal successful completion, and bounded retrieval
+  of the declared output via normal assets/transfer APIs;
+- verified output MIME/decoding/size matching declared output/dimension policy,
+  with private evidence retained internally and safe summary metadata published.
+
+Human perception that an image looks plausible is not a readiness condition.
+Static semantics and runtime evidence together establish that the source path
+is connected and executed; a disconnected LoadImage can never pass validation.
+
+Attestation identity is `(workflow_id, definition_version, definition_digest)`.
+Generation alone computes the digest: SHA-256 over UTF-8 compact JSON of the
+validated, normalized full Definition (sorted object keys, array order retained,
+no NaN/Infinity; canonicalization revision `generation-json-v1`). Include graph,
+bindings, outputs, parameters, defaults and semantic metadata. The same
+Generation canonicalizer is used at registration, load, build and attestation;
+clients relay the digest, never derive it from discovery metadata or raw file
+formatting. A canonicalizer revision change invalidates old attestations.
+
+Definition documents cannot carry readiness, attestation, builtin basis or a
+production_ready self-claim; reject such fields. Trusted authoring does not
+authorize writing a runtime verification result. Store bounded service-owned
+attestations separately from definition files, with identity, verification
+profile revision, provider compatibility evidence, completion time and safe
+output evidence. Persist atomically before publishing ready. Integrity/path/
+schema failures or missing evidence leave the entry unavailable. Restrict writes
+to the verification service; no client-supplied success receipt is accepted.
+
+An updated version OR changed canonical digest invalidates eligibility
+immediately. Compare identity again atomically at finalization: an old pending
+job may complete, but cannot mark a replacement ready. Discovery and production
+admission recheck the match; failure to persist cannot expose ready. Failed,
+cancelled, timed-out or ambiguous verification retains registered/validated
+state, a safe failure reason, and permits explicit reverify. Starting a reverify
+clears current readiness before the attempt; failed reverify cannot retain an
+old success as current ready. Provider/profile incompatibility or evidence
+revocation also makes the entry unavailable. A successful persisted attestation
+survives restart only if its identity/profile/evidence still match; an interrupted
+pending verification never becomes ready from a fresh empty in-memory JobStore.
+Respect current singleton deployment/recovery rules, not multi-process locking.
 
 Legacy v1 definitions without Image metadata remain visible by name/version but
 are marked unavailable for the dedicated Image editor with an actionable
@@ -218,16 +348,13 @@ Fractional bounds narrow D using ceil/floor. Booleans, numeric strings and
 non-integer enum values cannot become integer seeds through coercion.
 
 Sample D cryptographically without an unbounded rejection loop: filter the
-bounded enum when present; otherwise sample an index in the exact valid integer
-progression within the bounds. For a fractional multiple_of p/q in reduced
-positive rational form, legal integer seeds are multiples of p; derive this
-with exact arithmetic, not floating-point tolerance or rounding. For example,
-multiple_of 2.5 permits integer seeds 0, 5, 10, ... within the declared bounds.
-An empty domain or unsupported constraint representation disables the Studio
-option with unsupported_parameter; do not fall back to an invalid default.
+bounded enum when present; otherwise sample an index in the exact integer
+progression with step equal to positive integer multiple_of (or 1 if absent).
+Use integer quotient/remainder and checked bounds in Generation and Studio;
+no rational-step conversion, rounding or floating tolerance. An empty domain or
+unsupported constraint representation disables the Studio option with
+unsupported_parameter; do not fall back to an invalid default.
 
-Generation validates multiple_of using the same exact numeric interpretation;
-Studio must not introduce a different rounding/tolerance rule.
 Generation remains authoritative for parameter validation. Studio revalidates
 automatic/explicit values before build and snapshots the resolved concrete seed
 before submit. Explicit zero remains zero and is rejected if outside D; it is
@@ -235,8 +362,8 @@ never a random sentinel. A missing seed role means no seed parameter is sent.
 Preserve existing builtin behavior; narrower definition constraints must not
 inherit the builtin full-range randomizer.
 
-Picker availability depends on supported Image metadata, provider/operator
-readiness and Studio's ownership API, not on a pre-existing input. A valid owned
+Picker availability depends on supported Image metadata, exact Workflow
+attestation, provider/infrastructure readiness and Studio's ownership API, not on a pre-existing input. A valid owned
 input is an additional Generate prerequisite. Missing/expired/revoked references
 must still permit authorized selection/replacement once those services are ready.
 
@@ -245,13 +372,23 @@ must still permit authorized selection/replacement once those services are ready
 Add optional `definition_version` to workflows.build. For definitions, if
 provided it must equal the currently installed version, checked before recipe
 creation. Omission preserves latest-version behavior for existing MCP clients.
-Builtin calls must omit it. Studio always sends it for definitions.
+Builtin calls must omit it. Add optional `definition_digest` as the exact
+canonical digest precondition (paired with definition_version when present),
+and `require_ready: boolean = false`. Existing trusted clients retain latest/
+candidate build behavior by omitting them. Studio always sends version, digest
+and require_ready=true for definitions. Build pins the canonical identity and
+readiness requirement into the recipe, rejects nonready/mismatched evidence,
+and jobs.submit rechecks the same identity/readiness at admission before any
+provider await. Candidate verification uses require_ready=false through the
+same normal job authority; this trusted testing path is not exposed to browsers.
+An attestation revoked after build must fail production admission. Already
+accepted jobs retain captured execution/output identity despite later changes.
 
 Retain latest-only storage: <id>.json and monotonic replacement. Updating v1 to
 v2 makes old v1 recipes fail closed. Do not implement history/archive retrieval
 or silently rebuild against v2 in this scope.
 
-Studio snapshots the chosen version and normalized parameters. If discovery or
+Studio snapshots the chosen version, canonical digest and normalized parameters. If discovery or
 build races an update, return workflow_changed, refresh discovery, preserve
 the draft, and require a new explicit Generate action. If update occurs after
 build but before submit, the pinned recipe must fail before provider submission.
@@ -259,7 +396,8 @@ For an already accepted execution, capture its definition/output metadata
 before the non-idempotent submit await; an update must not change output-node
 resolution or cause a post-submit version lookup failure. Test this race.
 
-Registering/updating a definition remains immediately active and durable without
+Registering/updating a definition remains immediately active for trusted verification
+and durable, while Studio production selection waits for automatic attestation, without
 container rebuild, Git release, manual definition-file release, or restart.
 The one-time deployment of the new schema/tool signature is separate.
 
@@ -297,6 +435,10 @@ explains the crop. No automatic size changes or hidden ignored size parameters.
 Proposed first public parameters: checkpoint, positive_prompt, negative_prompt,
 reference_image (role initial_image), width, height, seed, steps, cfg, sampler,
 scheduler, denoise. No multiple images, uploads, LoRA list, or batch count.
+Reference Image v1 is Studio-owned existing generated Asset -> managed input
+snapshot -> JANKU img2img only. This slice must not close Studio #30: its local
+file chooser/drag-drop requirement remains a follow-up for local upload ->
+authorized managed input. Do not render an unimplemented upload button.
 
 Use a bounded denoise range 0..1, initially 0.5; explain that higher values
 change more of the source and 1 can largely lose it. Do not call denoise an
@@ -354,19 +496,21 @@ already staged provider copy or cancel a running execution.
 
 Definition and invocation recipe storage remain distinct. Back up the configured
 definition directory and recipe/output metadata through existing deployment
-operations; do not invent host paths. A definition registration publishes the
+operations, together with separate service-owned attestation records; do not invent host paths. A definition registration publishes the
 new file before activating it; preserve atomic failure behavior and validation.
 Keep one service instance, as current process reservation and registry locks
 are not multi-process coordination.
 
 Author/review in ComfyUI -> export API graph -> add explicit allowed parameter
 bindings/Image metadata -> validate with offline tests -> trusted runtime
-registration -> discovery -> real smoke -> production promotion.
+registration/static validation -> automatic verify/normal job -> persisted exact
+identity attestation -> ready discovery -> Studio production selection.
 Source-controlled examples are reusable definitions with no model weights or
 private media. They must not become a second live registry.
 
 Recovery: restore validated current definition files, restart through the
-documented deployment process, then verify discovery. Restore source inputs
+documented deployment process, then validate exact attestation identity/evidence
+and discovery. Missing/incompatible attestation requires reverify, never inferred readiness. Restore source inputs
 through their existing metadata/binaries if needed. Expired inputs remain
 expired; recipe restoration does not revive input TTL or obsolete definitions.
 Rollback requires a reviewed higher version containing the previous graph, not
@@ -377,18 +521,26 @@ a decreasing-version runtime registration.
 Generation files: workflow_registry.py (v2/scalar validation/metadata),
 workflows.py (builtin descriptors/version precondition), server.py (tool signature),
 providers/comfyui.py and comfyui.py (bounded input/race handling),
-config.py (rollout readiness), example_definitions, pyproject.toml if decoder
+jobs.py (verification observer/admission through existing authority), separate bounded
+attestation persistence, config.py (infrastructure readiness/verification bounds), example_definitions, pyproject.toml if decoder
 dependency is added, README/docs/MANAGED_INPUTS, and focused tests.
 
-Hub needs only an optional argument addition in
-config/mcps/_generation.example.yaml and schema parity tests for workflows.build.
-Its existing registration and input tools already route opaque objects.
-No identity propagation changes here.
+Hub #26 must cover optional workflows.build definition_version/definition_digest/
+require_ready arguments, the new workflows.verify tool and its exact generated
+schema/annotations, plus safe register/list descriptions distinguishing activation
+from readiness. Existing jobs.status/result route additive verification metadata.
+Its existing registration and input tools already route opaque objects. Match
+schemas to the implemented Generation signature, never invent catalog defaults.
+No graph inspection, attestation authority or identity propagation belongs here.
 
 Tests must cover v1/builtin compatibility, metadata without raw graphs, v2 roles
 and mode/dataflow checks, unknown required profiles/types, exact scalar exceptions
 and malicious selectors, multiple_of/default constraints, model validation,
-runtime register/persistence/rollback, stale discovery/build/recipe behavior,
+runtime register/persistence/rollback, validated-not-ready discovery, automatic
+attestation persistence/restart failure, version/digest invalidation, self-claim
+rejection, finalization/update/revocation races, failed/retried/busy/timed-out/
+ambiguous verification sharing the single reservation, integer-only multiple_of
+and invalid divisors, stale discovery/build/recipe behavior,
 definition update during accepted submit, PNG/JPEG/WebP, malformed/animated/
 pixel-bound/expired/revoked inputs, upload failures and ambiguous submissions,
 declared-output scoping, and stage-lease release.
