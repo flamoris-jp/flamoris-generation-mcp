@@ -238,6 +238,12 @@ class WorkflowStore:
         definition_digest: str | None = None,
         require_ready: bool = False,
     ) -> dict:
+        if definition_digest is not None and definition_version is None:
+            raise ValueError("Definition digest requires a paired version")
+        if type(require_ready) is not bool or (
+            definition_version is not None and type(definition_version) is not int
+        ):
+            raise ValueError("Invalid build preconditions")
         if template in ("text-to-image", "text-to-image-lora"):
             if definition_version is not None or definition_digest is not None:
                 raise ValueError("Definition preconditions cannot target a builtin")
@@ -362,12 +368,18 @@ class WorkflowStore:
             "templates": TEMPLATES,
             "descriptors": builtin_descriptors()
             + (
-                [item.metadata() for item in self.registry.definitions.values()]
+                [
+                    self.readiness.descriptor(item) if self.readiness else item.metadata()
+                    for item in self.registry.definitions.values()
+                ]
                 if self.registry
                 else []
             ),
             "definitions": (
-                [item.metadata() for item in self.registry.definitions.values()]
+                [
+                    self.readiness.descriptor(item) if self.readiness else item.metadata()
+                    for item in self.registry.definitions.values()
+                ]
                 if self.registry
                 else []
             ),

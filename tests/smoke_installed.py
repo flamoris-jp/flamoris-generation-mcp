@@ -19,6 +19,7 @@ async def check_tools(client):
     assert {
         "capabilities.list",
         "workflows.register",
+        "workflows.verify",
         "jobs.submit",
         "assets.get",
         "assets.delete",

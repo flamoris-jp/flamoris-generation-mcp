@@ -21,7 +21,9 @@ from .models import ModelCatalog
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
 from .retention import RetentionStore
+from .runtime_evidence import RuntimeEvidence
 from .transfers import CHUNK_BYTES, AssetTransfers
+from .verification import WorkflowVerification
 from .workflows import WorkflowStore
 
 
@@ -69,12 +71,21 @@ def create_server(
     # Provider construction precedes JobStore/ManagedInputs because the input lease
     # validates the shared Hub reservation. Wire the adapter only after both exist.
     comfyui.managed_inputs = inputs
+    verifier = WorkflowVerification(
+        workflows,
+        jobs,
+        RuntimeEvidence(settings.runtime_evidence_file, settings.comfyui_url),
+        settings.managed_input_ready,
+    )
+    workflows.readiness = verifier
+    jobs.verifier = verifier
 
     @asynccontextmanager
     async def lifespan(server):
         try:
             yield None
         finally:
+            await verifier.close()
             await providers.close()
 
     server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
@@ -99,6 +110,7 @@ def create_server(
             "deployment": {"reservation_scope": "process", "single_instance_required": True},
             **jobs.activity(),
             "providers": provider_health,
+            "managed_input_support": {"ready": settings.managed_input_ready},
             "provider": "comfyui",
             "provider_health": {
                 key: value for key, value in provider_health[0].items() if key != "id"
@@ -157,6 +169,16 @@ def create_server(
         return workflows.build(
             template, parameters, definition_version, definition_digest, require_ready
         )
+
+    @server.tool(name="workflows.verify")
+    async def verify_workflow(
+        workflow_id: str,
+        definition_version: int,
+        definition_digest: str,
+        parameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Admit a bounded verification through the normal JobStore; poll its job_id."""
+        return await verifier.verify(workflow_id, definition_version, definition_digest, parameters)
 
     @server.tool(name="workflows.save")
     def save_workflow(workflow_id: str) -> dict[str, Any]:

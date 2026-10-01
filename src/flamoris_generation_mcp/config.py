@@ -41,6 +41,8 @@ class Settings(BaseModel):
     workflow_dir: Path = Path(".generation/workflows")
     workflow_definition_dir: Path = Path(".generation/definitions")
     output_dir: Path = Path(".generation/outputs")
+    runtime_evidence_file: Path | None = None
+    managed_input_ready: bool = False
     comfyui_output_root: Path | None = None
     provider_cleanup_enabled: bool = False
     provider_retention_days: int = Field(default=30, ge=0, le=36500)
@@ -78,6 +80,8 @@ class Settings(BaseModel):
     def from_env(cls, **overrides) -> "Settings":
         fields = {
             "COMFYUI_URL": "comfyui_url",
+            "RUNTIME_EVIDENCE_FILE": "runtime_evidence_file",
+            "MANAGED_INPUT_READY": "managed_input_ready",
             "MODEL_ROOT": "model_root",
             "WORKFLOW_DIR": "workflow_dir",
             "WORKFLOW_DEFINITION_DIR": "workflow_definition_dir",

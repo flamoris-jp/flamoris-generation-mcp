@@ -198,6 +198,9 @@ class JobStore:
                 try:
                     self.verifier.admit(job, verification)
                     self._persist_active(job)
+                except CommitUnknown:
+                    job.snapshot = JobSnapshot(status="unknown")
+                    raise
                 except BaseException:
                     self._authority.write("active.json", {"active": None})
                     self._active_job_id = None
