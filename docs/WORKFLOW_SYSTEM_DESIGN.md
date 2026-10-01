@@ -107,7 +107,12 @@ Roles are unique within a definition and have type/constraint checks;
 Required Image roles are checkpoint and positive_prompt; img2img additionally
 requires initial_image and denoise. Parameter-size mode requires both dimensions.
 Builtin descriptors additionally describe their existing ordered LoRA contract;
-external definitions do not claim it.
+external definitions do not claim it. The graph-free builtin parameter entry
+uses type `ordered_loras`, role `loras`, max_items 16, model_kind `lora`,
+and the existing item fields name, strength_model and strength_clip (each
+strength -20..20, default 1). The no-LoRA builtin disallows nonempty lists; the
+LoRA builtin requires at least one entry. This is a dedicated builtin descriptor
+extension, not a new external ParameterSpec type.
 
 Parameter keys remain arbitrary declared public keys. A key named `source`
 with role initial_image is valid. Studio maps roles, never workflow IDs, model
@@ -170,10 +175,17 @@ Builtin version is a descriptor contract version, distinct from external
 definition_version. Generation owns builtin metadata; Studio must not recreate
 its defaults/ranges.
 
-Add `managed_input_support` with supported media types and an operator rollout
-readiness boolean. Presence of inputs CRUD is not readiness. Readiness is
-default-off and activated once the reviewed adapter/profile smoke is evidenced
-(for example through a new, documented operator configuration flag).
+Define descriptor kind as `builtin | definition`, with metadata_schema_version 2
+for new descriptors. Public metadata may have at most 128 workflow entries,
+64 parameters per entry, and a 256 KiB total serialized discovery payload;
+individual strings/enums keep the existing definition bounds. Return a bounded
+availability failure on catalog overflow, never an unbounded browser response.
+
+Add top-level `managed_input_support` shaped as
+`{ready: boolean, media_types: ["image/png", "image/jpeg", "image/webp"]}`.
+Presence of inputs CRUD is not readiness. The new operator setting
+`FLAMORIS_COMFYUI_MANAGED_INPUTS_READY=0|1` defaults to 0 and is set to 1
+only after reviewed adapter/profile smoke and retention evidence.
 Trusted registration cannot set that operator flag. Direct trusted-client smoke
 may exercise a candidate while Studio keeps it unavailable.
 
