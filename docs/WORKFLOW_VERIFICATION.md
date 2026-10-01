@@ -87,3 +87,7 @@ unsupported persisted definitions fail validation. Revision-1 attestations do
 not confer readiness after this upgrade; run automatic verification again.
 Managed reference decoding rejects any dimension above 4096 before upload,
 while retaining the 16-megapixel aggregate bound and 512-pixel smoke-output bound.
+
+Scalar `number` enums compare numeric values across JSON integer and float
+representations (for example, `4` and `4.0`). Boolean and string values remain
+invalid numbers; `integer` parameters retain strict integer validation.

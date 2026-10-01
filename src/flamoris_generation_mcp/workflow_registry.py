@@ -169,7 +169,9 @@ class ParameterSpec(BaseModel):
             if self.max_length is not None and len(value) > self.max_length:
                 raise ValueError("Invalid string length")
         if self.enum is not None and not any(
-            type(value) is type(item) and value == item for item in self.enum
+            (type(item) in (int, float) if self.type == "number" else type(value) is type(item))
+            and value == item
+            for item in self.enum
         ):
             raise ValueError("Value is outside declared enum")
         if self.model_kind is not None:

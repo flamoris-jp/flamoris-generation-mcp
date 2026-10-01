@@ -125,6 +125,27 @@ def test_multiple_of_rejects_number_defaults_enums_and_values(settings):
         spec.validate_value(3, ModelCatalog(settings))
 
 
+@pytest.mark.parametrize("candidate", [4, 4.0])
+@pytest.mark.parametrize("value", [4, 4.0])
+def test_number_enums_accept_equivalent_json_numbers(settings, candidate, value):
+    spec = ParameterSpec(type="number", node="5", input="cfg", enum=[candidate])
+    assert spec.validate_value(value, ModelCatalog(settings)) == 4
+
+
+@pytest.mark.parametrize("value", [True, "4", 5])
+def test_number_enums_reject_non_numbers_and_other_values(settings, value):
+    spec = ParameterSpec(type="number", node="5", input="cfg", enum=[4])
+    with pytest.raises(ValueError):
+        spec.validate_value(value, ModelCatalog(settings))
+
+
+@pytest.mark.parametrize("value", [True, "4", 4.0])
+def test_integer_enums_remain_strict(settings, value):
+    spec = ParameterSpec(type="integer", node="5", input="seed", enum=[4])
+    with pytest.raises(ValueError):
+        spec.validate_value(value, ModelCatalog(settings))
+
+
 @pytest.mark.parametrize("field", ["production_ready", "readiness", "attestation"])
 def test_definition_cannot_self_attest(field):
     data = definition()
