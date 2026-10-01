@@ -1,9 +1,9 @@
 # Implementation Work handoff: Workflow + Studio img2img
 
-Prepared 2026-10-01. Design phase only.
-Recommended model: GPT-6.1 Sol; reasoning: High, because the contract crosses
-Generation, Studio authorization, persistence, provider execution, and Hub schemas.
-Local fixes after the contract is established can use Medium.
+Prepared 2026-10-01. Design phase only. Recommended model: GPT-6.1 Sol; reasoning: High,
+because the contract crosses Generation, Studio authorization, persistence, provider
+execution, and Hub schemas. Local fixes after the contract is established can use
+Medium.
 
 ## Start here
 
@@ -12,17 +12,17 @@ Read the design changes in the Generation and Studio design PRs before coding:
 - [Canonical Workflow design](WORKFLOW_SYSTEM_DESIGN.md)
 - [Studio integration](https://github.com/flamoris-jp/flamoris-studio/pull/37)
 
-If design PRs have not merged, read their branch docs explicitly. Do not assume
-these files already exist in main. Recheck current main, AGENTS/README/
-CONTRIBUTING/SECURITY, issue bodies, and open PRs. Compare changes after:
+If design PRs have not merged, read their branch docs explicitly. Do not assume these
+files already exist in main. Recheck current main, AGENTS/README/ CONTRIBUTING/SECURITY,
+issue bodies, and open PRs. Compare changes after:
 
 - Generation: cd5d6011bc0e35c274e8a9d7c1780cdd42100b53
 - Studio: e89e35e380627c9d4b14d0f59db5acf3cae47745
 - Hub: fcbe0243c2e54d77e7ea44dc073c883e90d38cb4
 
-Use connected GitHub for repository/issue/PR operations. Do not conflate failed
-local clone/authentication with repository access. Keep source backed by the
-repositories and commit each meaningful unit; no large uncommitted implementation.
+Use connected GitHub for repository/issue/PR operations. Do not conflate failed local
+clone/authentication with repository access. Keep source backed by the repositories and
+commit each meaningful unit; no large uncommitted implementation.
 
 ## Issue ownership
 
@@ -36,10 +36,9 @@ repositories and commit each meaningful unit; no large uncommitted implementatio
 | Hub #26 | workflows.verify plus build version/digest/require_ready catalog/signature parity |
 
 Hub #25 / Generation #41 / Studio #35 are a separate external-client
-identity/provenance/catalog-import project. Do not implement them here.
-Local uploads, IP-Adapter, ControlNet, inpainting, multiple inputs, batch count,
-general workflow designer, GPU runtime switching, and multi-provider framework
-are out of scope.
+identity/provenance/catalog-import project. Do not implement them here. Local uploads,
+IP-Adapter, ControlNet, inpainting, multiple inputs, batch count, general workflow
+designer, GPU runtime switching, and multi-provider framework are out of scope.
 
 ## Locked design decisions
 
@@ -100,14 +99,17 @@ are out of scope.
 13. Reverify after failure is explicit and supported. Failure/timeout/cancel/busy/
     submission_unknown never produces ready or releases uncertain provider work.
     Exact identity is checked at finalization/discovery/build/submit; replacing a
-    definition during smoke cannot inherit readiness. Persist separate attestation
+    definition during smoke cannot inherit readiness. Guard finalization with the
+    current service-generated attempt ID as well as Definition identity; an older
+    attempt cannot publish ready over a newer failed reverify. Production img2img
+    admission rechecks infrastructure readiness too. Persist separate bounded attestation
     evidence, revalidate after restart, and never revive pending verification from
     an empty process-local job reservation. Preserve singleton recovery rules.
 
 ## Implementation order and commits
 
-Use repository-specific branches and PRs; do not commit implementation on these
-design branches.
+Use repository-specific branches and PRs; do not commit implementation on these design
+branches.
 
 | Order | Repository / meaningful commit |
 | --- | --- |
@@ -123,48 +125,48 @@ design branches.
 | 10 | Studio: dedicated Workflow selector + existing-Asset picker |
 | 11 | Studio: result/Use settings restoration + component regressions/docs |
 
-Add focused tests with each commit, rather than holding tests until the end.
-Use existing architecture; extracting small contract helpers is fine, unrelated
-refactors are not. Preserve commit checkpoints when runtime smoke is blocked.
+Add focused tests with each commit, rather than holding tests until the end. Use
+existing architecture; extracting small contract helpers is fine, unrelated refactors
+are not. Preserve commit checkpoints when runtime smoke is blocked.
 
 ## Required verification
 
-Generation: existing ruff check/format, pytest, python -m build, installed-wheel
-smoke, Docker smoke from CI. Focus on v1/builtin compatibility, v2 metadata
-without graph leaks, role/dataflow validation, dimensions/file-selector
-regressions, integer-only divisor/default/enum bounds, registration atomic failure/
-restart, self-declared-ready rejection, missing/mismatched attestation exclusion,
-automated verify sharing JobStore reservation, busy/deadline/cancellation/unknown
-submission, output retrieval/decoding failure, attestation persistence failure,
-restart/profile mismatch, version/digest and finalization/revocation races,
-version races, decoded PNG/JPEG/WebP and malformed/animated/pixel-bound images,
-input expiry/deletion, ambiguous upload/submit and stage lease behavior.
+Generation: existing ruff check/format, pytest, python -m build, installed-wheel smoke,
+Docker smoke from CI. Focus on v1/builtin compatibility, v2 metadata without graph
+leaks, role/dataflow validation, dimensions/file-selector regressions, integer-only
+divisor/default/enum bounds, registration atomic failure/ restart, self-declared-ready
+rejection, missing/mismatched attestation exclusion, automated verify sharing JobStore
+reservation, busy/deadline/cancellation/unknown submission, output retrieval/decoding
+failure, attestation persistence failure, restart/profile mismatch, version/digest and
+finalization/revocation races, version races, decoded PNG/JPEG/WebP and
+malformed/animated/pixel-bound images, input expiry/deletion, ambiguous upload/submit
+and stage lease behavior.
 
-Studio: PostgreSQL-backed pytest + Alembic migration chain, npm ci,
-npm run build, npm test, and Docker packaging/static frontend check from CI.
-Test source and input cross-user denial BEFORE upstream calls, CSRF, expiry/
-revocation/source deletion, DB failures and orphan compensation, metadata and
-arbitrary public-key role mapping, version-aware snapshots, zero/auto seed,
-32-bit maximum/nonzero minimum/enum/positive integer multiple_of seed
-domains, singleton/empty domains, invalid explicit zero, missing seed role, and
-normalized seed restoration, invalid divisor rejection, exact-ready selection/
-production admission and both infrastructure/Workflow readiness gates. Preserve
-builtin/LoRA/Style/preferences regressions. No unimplemented upload UI.
-Real mocked component interactions must cover select/attach/remove/replace/
-restore, initial selection with no input, reselection after expiry/revocation/
-removal, empty Asset lists, and Generate blocked until a valid attachment.
+Studio: PostgreSQL-backed pytest + Alembic migration chain, npm ci, npm run build, npm
+test, and Docker packaging/static frontend check from CI. Test source and input
+cross-user denial BEFORE upstream calls, CSRF, expiry/ revocation/source deletion, DB
+failures and orphan compensation, metadata and arbitrary public-key role mapping,
+version-aware snapshots, zero/auto seed, 32-bit maximum/nonzero minimum/enum/positive
+integer multiple_of seed domains, singleton/empty domains, invalid explicit zero,
+missing seed role, and normalized seed restoration, invalid divisor rejection,
+exact-ready selection/ production admission and both infrastructure/Workflow readiness
+gates. Preserve builtin/LoRA/Style/preferences regressions. No unimplemented upload UI.
+Real mocked component interactions must cover select/attach/remove/replace/ restore,
+initial selection with no input, reselection after expiry/revocation/ removal, empty
+Asset lists, and Generate blocked until a valid attachment.
 
 Hub: current test/lint/format checks, present/absent version/digest/require_ready
-forwarding, workflows.verify routing and exact generated schema/annotation parity. Do not change lazy connection or automatic replay behavior.
-Normal CI never needs a live GPU, model weights, private tunnel, or paid API.
+forwarding, workflows.verify routing and exact generated schema/annotation parity. Do
+not change lazy connection or automatic replay behavior. Normal CI never needs a live
+GPU, model weights, private tunnel, or paid API.
 
 ## Real runtime smoke: after code/CI, separate from offline acceptance
 
-Do not deploy services during this design phase. During implementation prepare
-the smoke and report any operator action needed; inspect current deployment
-docs and approved server state before issuing repository-specific commands.
-Server Manager is authoritative for current infrastructure; Generation tools
-are authoritative for its catalog. Use no historical file as live state.
+Do not deploy services during this design phase. During implementation prepare the smoke
+and report any operator action needed; inspect current deployment docs and approved
+server state before issuing repository-specific commands. Server Manager is
+authoritative for current infrastructure; Generation tools are authoritative for its
+catalog. Use no historical file as live state.
 
 Smoke preparation:
 
@@ -212,27 +214,26 @@ Execution matrix:
 
 Infrastructure readiness may be enabled once adapter/profile smoke and a safe
 provider-upload retention policy are established. That flag never certifies a
-Definition. Every production Definition version/digest needs automatic verify
-and persisted matching attestation; updated identities immediately become
-unavailable until verification succeeds. No per-definition human approval or
-restart is required. Test a replaced/failed/retried candidate staying out of
-Studio production selection and a self-declared-ready definition being rejected.
+Definition. Every production Definition version/digest needs automatic verify and
+persisted matching attestation; updated identities immediately become unavailable until
+verification succeeds. No per-definition human approval or restart is required. Test a
+replaced/failed/retried candidate staying out of Studio production selection and a
+self-declared-ready definition being rejected.
 
-Missing deployed node inspection, successful automatic attestation, infrastructure readiness and
-provider-upload retention evidence are remaining real-environment checks, not
-completed design-phase tests. Browser multi-user/UI smoke is also real-runtime
+Missing deployed node inspection, successful automatic attestation, infrastructure
+readiness and provider-upload retention evidence are remaining real-environment checks,
+not completed design-phase tests. Browser multi-user/UI smoke is also real-runtime
 acceptance; Windows is not a requirement for these Python/web changes.
 
 ## PR and final report
 
-Create reviewable PRs per repository, repair CI failures, then self-review the
-whole flow including version/input races and authorization. Do not auto-merge;
-final merges belong to the user. Do not close a parent issue from a design-only
-or offline-only PR when its live acceptance is still outstanding. Even successful
-existing-Asset img2img acceptance does not close Studio #30: its PC file picker/
-drag-drop local upload -> authorized managed input remains follow-up scope.
+Create reviewable PRs per repository, repair CI failures, then self-review the whole
+flow including version/input races and authorization. Do not auto-merge; final merges
+belong to the user. Do not close a parent issue from a design-only or offline-only PR
+when its live acceptance is still outstanding. Even successful existing-Asset img2img
+acceptance does not close Studio #30: its PC file picker/ drag-drop local upload ->
+authorized managed input remains follow-up scope.
 
-Report implementation/commit/PR list, CI results, issue-by-issue done/residual,
-live smoke evidence or exact blockers, deployment order (Generation + Hub
-schema before Studio using new arguments), and the user's next concrete action.
-
+Report implementation/commit/PR list, CI results, issue-by-issue done/residual, live
+smoke evidence or exact blockers, deployment order (Generation + Hub schema before
+Studio using new arguments), and the user's next concrete action.

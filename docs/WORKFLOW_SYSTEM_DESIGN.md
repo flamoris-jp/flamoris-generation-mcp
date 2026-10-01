@@ -1,8 +1,8 @@
 # Workflow discovery and managed img2img design
 
-Status: proposed implementation contract; design-only. Reviewed 2026-10-01.
-Tracks Generation #19/#42 and Studio #21/#30. No implementation, deployment,
-runtime registration, GPU execution, or automatic merge is included in this PR.
+Status: proposed implementation contract; design-only. Reviewed 2026-10-01. Tracks
+Generation #19/#42 and Studio #21/#30. No implementation, deployment, runtime
+registration, GPU execution, or automatic merge is included in this PR.
 
 ## 1. Evidence and scope
 
@@ -14,15 +14,15 @@ Source baselines:
 | Studio | e89e35e380627c9d4b14d0f59db5acf3cae47745 |
 | MCP Hub | fcbe0243c2e54d77e7ea44dc073c883e90d38cb4 |
 
-Read-only live discovery confirmed a registered `janku-basic-image` v1,
-the checkpoint named in #19, and an available ComfyUI provider. This verifies
-discovery, not the installed node schemas, the raw registered graph, Clip Skip,
-img2img execution, or production smoke. Public docs do not retain private
-deployment details, upstream job/input IDs, or server inventories.
+Read-only live discovery confirmed a registered `janku-basic-image` v1, the checkpoint
+named in #19, and an available ComfyUI provider. This verifies discovery, not the
+installed node schemas, the raw registered graph, Clip Skip, img2img execution, or
+production smoke. Public docs do not retain private deployment details, upstream
+job/input IDs, or server inventories.
 
-The attached historical setup notes are background, not current runtime truth.
-Current infrastructure observations come from Server Manager; current
-Generation catalog/availability comes from its own MCP tools.
+The attached historical setup notes are background, not current runtime truth. Current
+infrastructure observations come from Server Manager; current Generation
+catalog/availability comes from its own MCP tools.
 
 ### Current implementation
 
@@ -40,17 +40,17 @@ Generation catalog/availability comes from its own MCP tools.
 | Reference UI | Static unavailable notice | Authorized existing-Asset picker, thumbnail, replace/remove |
 
 Generation #19 already has the registry foundation, runtime registration,
-parameter/default/model validation, saved version-pinned recipes, provider
-execution, tests, and an example packaged definition. It is not fully accepted:
-the example is a fixture, not a validated production JANKU export; the live
-basic v1 registration does not establish the intended full JANKU configuration;
-Studio discovery/selection and the recorded production smoke remain incomplete.
-Keep #19 open until these acceptance items are evidenced.
+parameter/default/model validation, saved version-pinned recipes, provider execution,
+tests, and an example packaged definition. It is not fully accepted: the example is a
+fixture, not a validated production JANKU export; the live basic v1 registration does
+not establish the intended full JANKU configuration; Studio discovery/selection and the
+recorded production smoke remain incomplete. Keep #19 open until these acceptance items
+are evidenced.
 
-`docs/MANAGED_INPUTS.md` still describes a pre-adapter rollout. README and
-current provider code already support reviewed LoadImage managed-image staging.
-Update that documentation during implementation instead of treating the stale
-paragraph as absence of the adapter.
+`docs/MANAGED_INPUTS.md` still describes a pre-adapter rollout. README and current
+provider code already support reviewed LoadImage managed-image staging. Update that
+documentation during implementation instead of treating the stale paragraph as absence
+of the adapter.
 
 ## 2. Responsibility and compatibility decisions
 
@@ -61,24 +61,24 @@ paragraph as absence of the adapter.
   presentation, preferences/Styles, and request snapshots.
 - Hub owns routing and its explicit tool catalog; it does not inspect graphs.
 
-Do not introduce a Studio workflow registry, second job state machine, direct
-browser MCP transport, or direct Studio-to-ComfyUI connection.
+Do not introduce a Studio workflow registry, second job state machine, direct browser
+MCP transport, or direct Studio-to-ComfyUI connection.
 
-Retain the two built-in templates, including ordered optional LoRA behavior.
-Do not force a dynamic ordered LoRA chain into this first scalar-only declarative
-schema. Existing clients and recipes continue working. New workflows use
-definitions; both paths expose the same Image descriptor vocabulary.
+Retain the two built-in templates, including ordered optional LoRA behavior. Do not
+force a dynamic ordered LoRA chain into this first scalar-only declarative schema.
+Existing clients and recipes continue working. New workflows use definitions; both paths
+expose the same Image descriptor vocabulary.
 
-External-client asset import is separate: Hub #25, Generation #41, Studio #35.
-This project enables Studio-originated img2img from Studio-owned assets. It
-does not make a previously ChatGPT-created asset owned or visible in Studio.
-There is no dependency on that identity project for this vertical slice.
+External-client asset import is separate: Hub #25, Generation #41, Studio #35. This
+project enables Studio-originated img2img from Studio-owned assets. It does not make a
+previously ChatGPT-created asset owned or visible in Studio. There is no dependency on
+that identity project for this vertical slice.
 
 ## 3. Definition and discovery contract
 
-Keep accepting definition schema v1. Add schema v2 for explicit Image metadata
-and parameter semantic roles. A v1 registration must continue to load/build/save/
-submit unchanged; do not silently rewrite it.
+Keep accepting definition schema v1. Add schema v2 for explicit Image metadata and
+parameter semantic roles. A v1 registration must continue to load/build/save/ submit
+unchanged; do not silently rewrite it.
 
 V2 adds:
 
@@ -90,44 +90,42 @@ V2 adds:
   and validate defaults/enums too. Width/height use 8. Decimal steps for number
   parameters are outside v2; a future contract must avoid float tolerance.
 
-The Image descriptor has `profile: "image-v1"`,
-`mode: "txt2img" | "img2img"`, and one explicit dimension policy:
+The Image descriptor has `profile: "image-v1"`, `mode: "txt2img" | "img2img"`, and one
+explicit dimension policy:
 
 - `{mode: "parameters"}`: width/height roles control output size;
 - `{mode: "fixed", width, height}`: display fixed size, omit size inputs.
 
-An img2img descriptor also declares
-`reference_semantics: "initial_image"` and
-`resize_policy: "center-crop-resize"` for the initial reviewed workflow.
-Do not label this as character identity, style conditioning, IP-Adapter,
-ControlNet, or an inpaint mask.
+An img2img descriptor also declares `reference_semantics: "initial_image"` and
+`resize_policy: "center-crop-resize"` for the initial reviewed workflow. Do not label
+this as character identity, style conditioning, IP-Adapter, ControlNet, or an inpaint
+mask.
 
-Roles supported by the dedicated Image editor are `checkpoint`,
-`positive_prompt`, `negative_prompt`, `width`, `height`, `seed`, `steps`,
-`cfg`, `sampler`, `scheduler`, `denoise`, and `initial_image`.
-Roles are unique within a definition and have type/constraint checks;
-`initial_image` requires a required managed_input with explicit media_types.
-Required Image roles are checkpoint and positive_prompt; img2img additionally
-requires initial_image and denoise. Parameter-size mode requires both dimensions.
-Builtin descriptors additionally describe their existing ordered LoRA contract;
-external definitions do not claim it. The graph-free builtin parameter entry
-uses type `ordered_loras`, role `loras`, max_items 16, model_kind `lora`,
-and the existing item fields name, strength_model and strength_clip (each
-strength -20..20, default 1). The no-LoRA builtin disallows nonempty lists; the
-LoRA builtin requires at least one entry. This is a dedicated builtin descriptor
-extension, not a new external ParameterSpec type.
+Roles supported by the dedicated Image editor are `checkpoint`, `positive_prompt`,
+`negative_prompt`, `width`, `height`, `seed`, `steps`, `cfg`, `sampler`, `scheduler`,
+`denoise`, and `initial_image`. Roles are unique within a definition and have
+type/constraint checks; `initial_image` requires a required managed_input with explicit
+media_types. Required Image roles are checkpoint and positive_prompt; img2img
+additionally requires initial_image and denoise. Parameter-size mode requires both
+dimensions. Builtin descriptors additionally describe their existing ordered LoRA
+contract; external definitions do not claim it. The graph-free builtin parameter entry
+uses type `ordered_loras`, role `loras`, max_items 16, model_kind `lora`, and the
+existing item fields name, strength_model and strength_clip (each strength -20..20,
+default 1). The no-LoRA builtin disallows nonempty lists; the LoRA builtin requires at
+least one entry. This is a dedicated builtin descriptor extension, not a new external
+ParameterSpec type.
 
-Parameter keys remain arbitrary declared public keys. A key named `source`
-with role initial_image is valid. Studio maps roles, never workflow IDs, model
-names, graph node IDs, or parameter spelling. Never infer missing roles.
+Parameter keys remain arbitrary declared public keys. A key named `source` with role
+initial_image is valid. Studio maps roles, never workflow IDs, model names, graph node
+IDs, or parameter spelling. Never infer missing roles.
 
-Shape-only metadata is insufficient to prove semantics: the current validator
-accepts a disconnected LoadImage. The ComfyUI v2 Image-profile validator must
-verify the supported dataflow for its claimed mode/resize policy, existing
-link targets, acyclic dependencies, and that initial_image reaches the declared
-output through VAEEncode and KSampler.latent_image. This check belongs in the
-provider-specific validation layer. Reject a semantic claim that does not match
-the graph. This is a reviewed Image profile, not a generic graph editor.
+Shape-only metadata is insufficient to prove semantics: the current validator accepts a
+disconnected LoadImage. The ComfyUI v2 Image-profile validator must verify the supported
+dataflow for its claimed mode/resize policy, existing link targets, acyclic
+dependencies, and that initial_image reaches the declared output through VAEEncode and
+KSampler.latent_image. This check belongs in the provider-specific validation layer.
+Reject a semantic claim that does not match the graph. This is a reviewed Image profile,
+not a generic graph editor.
 
 Example proposed graph-free descriptor:
 
@@ -266,7 +264,7 @@ ChatGPT, Work, CI with an authorized runtime, or an operations tool can run
 register -> verify -> poll -> discovery without human intervention. Offline CI
 uses fake providers and never claims real production attestation.
 
-Use reviewed bounded smoke parameters (initial profile: one image, at most
+Use reviewed bounded smoke parameters (initial JANKU img2img profile: one image, at most
 512 x 512 and 30 steps), bounded provider/transfer calls and a configurable
 verification deadline capped at 300 seconds. Reject incompatible or out-of-budget
 smoke requests before admission. No unbounded queue/rejection/retry loop. Busy
@@ -311,6 +309,15 @@ profile revision, provider compatibility evidence, completion time and safe
 output evidence. Persist atomically before publishing ready. Integrity/path/
 schema failures or missing evidence leave the entry unavailable. Restrict writes
 to the verification service; no client-supplied success receipt is accepted.
+
+Persist a service-generated verification attempt ID before admission, separate
+from executable job state. Serialize finalization with register/reverify and
+production admission; compare both exact Definition identity and current attempt
+ID before publishing success. A superseded attempt for the same identity cannot
+restore ready after a newer attempt failed. Attestation/evidence retention is
+bounded by the discovery entry limit and existing bounded output storage; reject
+overflow, never accumulate unbounded history. No new resource reservation is
+introduced by these metadata/persistence guards.
 
 An updated version OR changed canonical digest invalidates eligibility
 immediately. Compare identity again atomically at finalization: an old pending
@@ -379,7 +386,9 @@ candidate build behavior by omitting them. Studio always sends version, digest
 and require_ready=true for definitions. Build pins the canonical identity and
 readiness requirement into the recipe, rejects nonready/mismatched evidence,
 and jobs.submit rechecks the same identity/readiness at admission before any
-provider await. Candidate verification uses require_ready=false through the
+provider await, serialized with publication/revocation. For img2img production
+admission also rechecks infrastructure readiness, so a stale Studio discovery
+cannot bypass a disabled adapter gate. Candidate verification uses require_ready=false through the
 same normal job authority; this trusted testing path is not exposed to browsers.
 An attestation revoked after build must fail production admission. Already
 accepted jobs retain captured execution/output identity despite later changes.
