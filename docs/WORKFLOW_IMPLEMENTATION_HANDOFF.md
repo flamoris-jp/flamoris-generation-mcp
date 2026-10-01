@@ -10,7 +10,7 @@ Local fixes after the contract is established can use Medium.
 Read the design changes in the Generation and Studio design PRs before coding:
 
 - [Canonical Workflow design](WORKFLOW_SYSTEM_DESIGN.md)
-- [Studio integration](https://github.com/flamoris-jp/flamoris-studio/blob/docs/workflow-system-design/docs/WORKFLOW_IMAGE_INTEGRATION.md)
+- [Studio integration](https://github.com/flamoris-jp/flamoris-studio/pull/37)
 
 If design PRs have not merged, read their branch docs explicitly. Do not assume
 these files already exist in main. Recheck current main, AGENTS/README/
