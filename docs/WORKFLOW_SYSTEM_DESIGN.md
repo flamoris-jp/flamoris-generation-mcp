@@ -208,6 +208,38 @@ without disabling compatible workflows. Defaults, ranges, enums and model
 selectors come from validated descriptors. Unknown unsupported fields must not
 be silently dropped.
 
+### Studio seed domain
+
+A seed role uses an integer spec. Studio's automatic assignment and Randomize
+seed must satisfy the advertised constraints, not only JavaScript precision.
+Define D as all integers in 0..Number.MAX_SAFE_INTEGER satisfying the seed
+minimum, maximum, typed enum (if present), and multiple_of (if present).
+Fractional bounds narrow D using ceil/floor. Booleans, numeric strings and
+non-integer enum values cannot become integer seeds through coercion.
+
+Sample D cryptographically without an unbounded rejection loop: filter the
+bounded enum when present; otherwise sample an index in the exact valid integer
+progression within the bounds. For a fractional multiple_of p/q in reduced
+positive rational form, legal integer seeds are multiples of p; derive this
+with exact arithmetic, not floating-point tolerance or rounding. For example,
+multiple_of 2.5 permits integer seeds 0, 5, 10, ... within the declared bounds.
+An empty domain or unsupported constraint representation disables the Studio
+option with unsupported_parameter; do not fall back to an invalid default.
+
+Generation validates multiple_of using the same exact numeric interpretation;
+Studio must not introduce a different rounding/tolerance rule.
+Generation remains authoritative for parameter validation. Studio revalidates
+automatic/explicit values before build and snapshots the resolved concrete seed
+before submit. Explicit zero remains zero and is rejected if outside D; it is
+never a random sentinel. A missing seed role means no seed parameter is sent.
+Preserve existing builtin behavior; narrower definition constraints must not
+inherit the builtin full-range randomizer.
+
+Picker availability depends on supported Image metadata, provider/operator
+readiness and Studio's ownership API, not on a pre-existing input. A valid owned
+input is an additional Generate prerequisite. Missing/expired/revoked references
+must still permit authorized selection/replacement once those services are ready.
+
 ### Build/version behavior
 
 Add optional `definition_version` to workflows.build. For definitions, if

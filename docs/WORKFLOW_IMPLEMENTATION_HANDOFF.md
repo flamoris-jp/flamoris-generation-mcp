@@ -66,7 +66,14 @@ are out of scope.
 9. Exact audited integer dimension binding exceptions fix the Image-name
    heuristic; real file selectors remain managed-only.
 10. Explicitly owned input handles and snapshot v2 extend Use settings without
-    exposing raw Generation input IDs.
+    exposing raw Generation input IDs. Picker availability does not require an
+    existing valid input; Generate does. Support initial selection and authorized
+    replacement after expiry/revocation/removal.
+11. Automatic/Randomize seed samples the descriptor's legal integer domain
+    intersected with 0..Number.MAX_SAFE_INTEGER, including ranges, typed enum and
+    multiple_of. Use exact bounded sampling, revalidate before build, and snapshot
+    the concrete seed before submit. Empty/unsupported domains disable the option;
+    explicit zero is preserved and validated, not treated as automatic.
 
 ## Implementation order and commits
 
@@ -105,8 +112,12 @@ npm run build, npm test, and Docker packaging/static frontend check from CI.
 Test source and input cross-user denial BEFORE upstream calls, CSRF, expiry/
 revocation/source deletion, DB failures and orphan compensation, metadata and
 arbitrary public-key role mapping, version-aware snapshots, zero/auto seed,
-builtin/LoRA/Style/preferences regressions, and real mocked component interactions
-for select/attach/remove/replace/restore.
+32-bit maximum/nonzero minimum/enum/integral and fractional multiple_of seed
+domains, singleton/empty domains, invalid explicit zero, missing seed role, and
+normalized seed restoration. Preserve builtin/LoRA/Style/preferences regressions.
+Real mocked component interactions must cover select/attach/remove/replace/
+restore, initial selection with no input, reselection after expiry/revocation/
+removal, empty Asset lists, and Generate blocked until a valid attachment.
 
 Hub: current test/lint/format checks, present/absent version forwarding and exact
 schema parity. Do not change lazy connection or automatic replay behavior.
@@ -147,7 +158,9 @@ Execution matrix:
   without confirming the graph consumed the source.
 - Check low/high denoise behavior and declared center crop/output size.
 - Check supported PNG/JPEG/WebP, invalid input, expiry/revocation, no-reference
-  rejection and independent source deletion behavior.
+  rejection and independent source deletion behavior. The picker must permit the
+  first attachment and authorized reselection after expiry/revocation/removal;
+  Generate stays blocked until a valid reference is attached.
 - With a second Studio user, reject create/get/delete/thumbnail/submit/restore of
   the first user's handles.
 - Verify snapshot lease releases, provider-upload retention policy, safe failed/
