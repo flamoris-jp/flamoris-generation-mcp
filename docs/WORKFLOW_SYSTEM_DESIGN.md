@@ -355,5 +355,5 @@ checks for implementation. This design-only PR uses documentation/link/source
 consistency checks; it does not report product tests as run.
 
 See [implementation handoff](WORKFLOW_IMPLEMENTATION_HANDOFF.md) and
-[Studio companion design](https://github.com/flamoris-jp/flamoris-studio/blob/docs/workflow-system-design/docs/WORKFLOW_IMAGE_INTEGRATION.md)
+[Studio companion design](https://github.com/flamoris-jp/flamoris-studio/pull/37)
 for commit order, APIs, ownership, and acceptance.
