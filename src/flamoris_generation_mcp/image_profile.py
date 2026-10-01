@@ -119,6 +119,12 @@ def image_topology(definition, graph=None):
     if any(graph[key]["class_type"] not in allowed_types for key in active):
         raise ValueError("Unsupported effective Image topology")
     for spec in definition.parameters.values():
+        binding = (spec.node, spec.input)
+        for role in ("width", "height"):
+            if binding == bindings[role] and (
+                definition.image.dimensions.mode == "fixed" or spec.role != role
+            ):
+                raise ValueError("Dimension bindings require editable dimension roles")
         if spec.role is not None and (spec.node, spec.input) != bindings[spec.role]:
             raise ValueError("Image role must bind its effective semantic input")
         # Advanced scalar controls may use arbitrary public keys, but cannot mutate

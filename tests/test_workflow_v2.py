@@ -213,3 +213,59 @@ def test_smoke_bounds_hidden_effective_literals(tamper):
     with pytest.raises(ValueError):
         item = WorkflowDefinition.model_validate(raw)
         smoke_budget(item, item.graph)
+
+
+@pytest.mark.parametrize("mode", ["txt2img", "img2img"])
+@pytest.mark.parametrize("axis", ["width", "height"])
+def test_fixed_size_cannot_be_changed_through_roleless_parameters(mode, axis):
+    raw = definition(mode)
+    raw["image"]["dimensions"] = {"mode": "fixed", "width": 512, "height": 512}
+    spec = raw["parameters"].pop(axis)
+    raw["parameters"].pop("height" if axis == "width" else "width")
+    spec.pop("role")
+    raw["parameters"]["advanced_size"] = spec
+    with pytest.raises(ValueError, match="Dimension bindings"):
+        WorkflowDefinition.model_validate(raw)
+
+
+def test_materialized_dimensions_are_rechecked_and_production_size_is_not_smoke_size(
+    settings, tmp_path
+):
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, tmp_path / "defs")
+    store.register_definition(definition())
+    values = {"checkpoint": "base.safetensors", "positive_prompt": "x", "width": 4096}
+    assert store.build("image-v2", values)["prompt"]["4"]["inputs"]["width"] == 4096
+    # Defense in depth if an internal caller supplies a modified captured Definition.
+    item = store.registry.get("image-v2").model_copy(deep=True)
+    item.parameters["width"].maximum = None
+    with pytest.raises(ValueError, match="Effective Image dimensions"):
+        store.registry.materialize_definition(item, {**values, "width": 10**9})
+
+
+def test_discovery_byte_limit_includes_legacy_aliases_and_unicode(settings, tmp_path, monkeypatch):
+    import flamoris_generation_mcp.workflows as workflows
+
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, tmp_path / "defs")
+    for index in range(8):
+        raw = definition()
+        raw["id"] = f"large-{index}"
+        raw["parameters"]["positive_prompt"].update(required=False, default="花" * 10000)
+        store.register_definition(raw)
+    with pytest.raises(ValueError, match="discovery exceeds byte limit"):
+        store.list()
+    store.registry.definitions.clear()
+    payload = store.list()
+    size = len(json.dumps(payload, indent=2).encode("utf-8"))
+    monkeypatch.setattr(workflows, "MAX_DISCOVERY_BYTES", size)
+    assert store.list() == payload
+    monkeypatch.setattr(workflows, "MAX_DISCOVERY_BYTES", size - 1)
+    with pytest.raises(ValueError, match="byte limit"):
+        store.list()
+
+
+def test_discovery_entry_limit_applies_to_loaded_definitions(settings, tmp_path):
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, tmp_path / "defs")
+    item = WorkflowDefinition.model_validate(definition())
+    store.registry.definitions.update({f"loaded-{i}": item for i in range(127)})
+    with pytest.raises(ValueError, match="entry limit"):
+        store.list()

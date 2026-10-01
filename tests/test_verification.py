@@ -262,3 +262,22 @@ async def test_nonregular_evidence_paths_never_block(verified):
                 pass
         target.unlink()
         target.write_text("{}")
+
+
+async def test_ready_checkpoint_default_matches_measured_domain_without_changing_digest(
+    verified, fake
+):
+    store, _, _, _, _ = verified
+    raw = definition()
+    raw["version"] = 2
+    raw["parameters"]["checkpoint"].update(required=False, default="other.safetensors")
+    store.register_definition(raw)
+    item = store.registry.get("image-v2")
+    digest = item.digest
+    await make_ready(verified, fake)
+    public = store.list()["definitions"][0]
+    checkpoint = public["parameters"]["checkpoint"]
+    assert checkpoint["default"] == "base.safetensors"
+    assert checkpoint["enum"] == [checkpoint["default"]]
+    assert public["definition_digest"] == digest == item.digest
+    assert item.parameters["checkpoint"].default == "other.safetensors"

@@ -63,9 +63,10 @@ class WorkflowVerification:
             checkpoint = next(
                 name for name, spec in definition.parameters.items() if spec.role == "checkpoint"
             )
-            item["parameters"][checkpoint]["enum"] = [
-                record["model"]["model"].removeprefix("checkpoint:")
-            ]
+            measured = record["model"]["model"].removeprefix("checkpoint:")
+            item["parameters"][checkpoint]["enum"] = [measured]
+            if "default" in item["parameters"][checkpoint]:
+                item["parameters"][checkpoint]["default"] = measured
             item["readiness"].update(state="ready", reason=None)
         except (ValueError, OSError, TypeError, KeyError):
             item["readiness"].update(state="validated", reason="verification_unavailable")

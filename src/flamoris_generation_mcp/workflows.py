@@ -16,6 +16,7 @@ from .workflow_registry import WorkflowRegistry
 
 Template = Literal["text-to-image", "text-to-image-lora"]
 MAX_RECIPE_BYTES = 256 * 1024
+MAX_DISCOVERY_BYTES = 256 * 1024
 TEMPLATES = [
     {"id": "text-to-image", "description": "Checkpoint-based text-to-image; no LoRAs"},
     {"id": "text-to-image-lora", "description": "Text-to-image with an ordered LoRA chain"},
@@ -360,29 +361,29 @@ class WorkflowStore:
         return {"workflow_id": workflow_id, "file": str(path), "saved": True}
 
     def list(self) -> dict:
+        definitions = (
+            [
+                self.readiness.descriptor(item) if self.readiness else item.metadata()
+                for item in self.registry.definitions.values()
+            ]
+            if self.registry
+            else []
+        )
+        descriptors = builtin_descriptors() + definitions
+        if len(descriptors) > 128:
+            raise ValueError("Workflow discovery exceeds entry limit")
         saved = []
         for path in sorted(self.directory.glob("*.json")):
             if re.fullmatch(r"[0-9a-f]{32}", path.stem) and not path.is_symlink():
                 saved.append(path.stem)
-        return {
+        result = {
             "templates": TEMPLATES,
-            "descriptors": builtin_descriptors()
-            + (
-                [
-                    self.readiness.descriptor(item) if self.readiness else item.metadata()
-                    for item in self.registry.definitions.values()
-                ]
-                if self.registry
-                else []
-            ),
-            "definitions": (
-                [
-                    self.readiness.descriptor(item) if self.readiness else item.metadata()
-                    for item in self.registry.definitions.values()
-                ]
-                if self.registry
-                else []
-            ),
+            "descriptors": descriptors,
+            "definitions": definitions,
             "built_workflows": list(self._recipes),
             "saved_workflows": saved,
         }
+        # Include legacy aliases and recipe IDs; bound the full public response.
+        if len(json.dumps(result, indent=2).encode("utf-8")) > MAX_DISCOVERY_BYTES:
+            raise ValueError("Workflow discovery exceeds byte limit")
+        return result

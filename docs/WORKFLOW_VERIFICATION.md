@@ -69,3 +69,11 @@ replay, merge or deployment is performed by implementation tests.
 
 Real installed graph/node inspection, trusted runtime mutation authority, retention
 evidence and successful automatic live verification remain operational acceptance.
+
+
+Public discovery is bounded to 128 entries and 256 KiB of serialized JSON,
+including legacy descriptor aliases and recipe IDs. Catalog overflow returns a
+bounded availability error. Ready checkpoint defaults and enums both use the
+measured model without altering the canonical Definition or digest. Fixed
+Image dimensions cannot have editable bindings, including roleless aliases;
+materialized production graphs recheck effective dimension bounds before POST.

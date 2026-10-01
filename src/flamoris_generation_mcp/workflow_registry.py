@@ -553,4 +553,8 @@ class WorkflowRegistry:
             raise ValueError("Resolved managed inputs do not match workflow definition")
         if job_id is not None:
             graph[definition.output_node]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        if definition.schema_version == 2:
+            from .image_profile import image_topology
+
+            image_topology(definition, graph)
         return normalized, graph
