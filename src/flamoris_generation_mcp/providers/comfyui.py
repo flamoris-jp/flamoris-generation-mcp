@@ -1,9 +1,11 @@
 """ComfyUI implementation of the provider-neutral generation contract."""
 
+import asyncio
 from contextlib import nullcontext
 from pathlib import Path
 
 from ..comfyui import ComfyUIClient
+from ..image_decode import decode_image
 from ..models import ModelCatalog
 from ..workflows import ExternalRecipe, Recipe, WorkflowStore, build_prompt
 from .base import (
@@ -107,6 +109,7 @@ class ComfyUIProvider:
                             content = bytearray()
                             async for chunk in reader.chunks():
                                 content.extend(chunk)
+                            await asyncio.to_thread(decode_image, bytes(content), mime_type)
                             provider_inputs[name] = await self.client.upload_input(
                                 bytes(content),
                                 mime_type,

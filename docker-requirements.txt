@@ -51,6 +51,8 @@ mcp-types==2.2.0
     # via mcp
 opentelemetry-api==1.44.0
     # via mcp
+pillow==12.3.0
+    # via flamoris-generation-mcp (pyproject.toml)
 pycparser==3.0
     # via cffi
 pydantic==2.13.5

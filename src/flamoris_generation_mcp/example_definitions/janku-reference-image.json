@@ -1,0 +1,251 @@
+{
+  "schema_version": 2,
+  "id": "janku-reference-image",
+  "version": 1,
+  "name": "JANKU initial-image candidate",
+  "description": "Unverified Image-v1 example. Inspect installed node interfaces and export the actual runtime graph before registration/verification. Never an automatic production-ready definition.",
+  "provider_id": "comfyui",
+  "capability_id": "image.generate",
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "example.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "example",
+        "clip": [
+          "1",
+          1
+        ]
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "",
+        "clip": [
+          "1",
+          1
+        ]
+      }
+    },
+    "4": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "8",
+          0
+        ],
+        "width": 512,
+        "height": 512,
+        "upscale_method": "lanczos",
+        "crop": "center"
+      }
+    },
+    "5": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "2",
+          0
+        ],
+        "negative": [
+          "3",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 7,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 1
+      }
+    },
+    "6": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "5",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "6",
+          0
+        ],
+        "filename_prefix": "flamoris"
+      }
+    },
+    "8": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": ""
+      }
+    },
+    "9": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "4",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    }
+  },
+  "output_node": "7",
+  "parameters": {
+    "checkpoint": {
+      "type": "string",
+      "node": "1",
+      "input": "ckpt_name",
+      "model_kind": "checkpoint",
+      "role": "checkpoint"
+    },
+    "positive_prompt": {
+      "type": "string",
+      "node": "2",
+      "input": "text",
+      "min_length": 1,
+      "max_length": 20000,
+      "role": "positive_prompt"
+    },
+    "steps": {
+      "type": "integer",
+      "node": "5",
+      "input": "steps",
+      "required": false,
+      "default": 20,
+      "minimum": 1,
+      "maximum": 150,
+      "role": "steps"
+    },
+    "cfg": {
+      "type": "number",
+      "node": "5",
+      "input": "cfg",
+      "required": false,
+      "default": 4,
+      "minimum": 0,
+      "maximum": 100,
+      "role": "cfg"
+    },
+    "sampler": {
+      "type": "string",
+      "node": "5",
+      "input": "sampler_name",
+      "required": false,
+      "default": "euler",
+      "enum": [
+        "euler",
+        "euler_ancestral"
+      ],
+      "role": "sampler"
+    },
+    "width": {
+      "type": "integer",
+      "role": "width",
+      "node": "4",
+      "input": "width",
+      "required": false,
+      "default": 512,
+      "minimum": 64,
+      "maximum": 4096,
+      "multiple_of": 8
+    },
+    "height": {
+      "type": "integer",
+      "role": "height",
+      "node": "4",
+      "input": "height",
+      "required": false,
+      "default": 512,
+      "minimum": 64,
+      "maximum": 4096,
+      "multiple_of": 8
+    },
+    "seed": {
+      "type": "integer",
+      "role": "seed",
+      "node": "5",
+      "input": "seed",
+      "required": false,
+      "default": 0,
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "source": {
+      "type": "managed_input",
+      "role": "initial_image",
+      "node": "8",
+      "input": "image",
+      "media_types": [
+        "image/png",
+        "image/jpeg",
+        "image/webp"
+      ]
+    },
+    "denoise": {
+      "type": "number",
+      "role": "denoise",
+      "node": "5",
+      "input": "denoise",
+      "required": false,
+      "default": 0.6,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "negative_prompt": {
+      "type": "string",
+      "role": "negative_prompt",
+      "node": "3",
+      "input": "text",
+      "required": false,
+      "default": "",
+      "max_length": 20000
+    },
+    "scheduler": {
+      "type": "string",
+      "role": "scheduler",
+      "node": "5",
+      "input": "scheduler",
+      "required": false,
+      "default": "normal",
+      "enum": [
+        "normal"
+      ]
+    }
+  },
+  "image": {
+    "profile": "image-v1",
+    "mode": "img2img",
+    "dimensions": {
+      "mode": "parameters"
+    },
+    "reference_semantics": "initial_image",
+    "resize_policy": "center-crop-resize"
+  }
+}
