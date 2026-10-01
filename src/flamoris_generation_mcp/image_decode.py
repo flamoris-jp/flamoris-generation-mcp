@@ -9,7 +9,7 @@ FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}
 MAX_PIXELS = 16 * 1024 * 1024
 
 
-def decode_image(data, mime_type, *, max_dimension=8192, max_pixels=MAX_PIXELS):
+def decode_image(data, mime_type, *, max_dimension=4096, max_pixels=MAX_PIXELS):
     if mime_type not in FORMATS or not isinstance(data, bytes) or not 0 < len(data) <= 64 * 1024**2:
         raise ValueError("Image media type or byte bound exceeded")
     try:

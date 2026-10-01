@@ -281,3 +281,21 @@ async def test_ready_checkpoint_default_matches_measured_domain_without_changing
     assert checkpoint["enum"] == [checkpoint["default"]]
     assert public["definition_digest"] == digest == item.digest
     assert item.parameters["checkpoint"].default == "other.safetensors"
+
+
+async def test_previous_profile_attestation_cannot_inherit_readiness(verified, fake):
+    store, _, verifier, _, _ = verified
+    await make_ready(verified, fake)
+    item = store.registry.get("image-v2")
+    record = verifier.records.read(item.id + ".json")
+    record["identity"]["profile_revision"] = 1
+    verifier.records.write(item.id + ".json", record)
+    assert store.list()["definitions"][0]["readiness"]["state"] == "validated"
+    with pytest.raises(ValueError, match="readiness"):
+        store.build(
+            item.id,
+            {"checkpoint": "base.safetensors", "positive_prompt": "x"},
+            item.version,
+            item.digest,
+            True,
+        )

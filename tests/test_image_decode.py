@@ -44,3 +44,13 @@ def test_invalid_images_rejected_before_upload(tamper):
         data = stream.getvalue()
     with pytest.raises(ValueError):
         decode_image(data, mime, **options)
+
+
+@pytest.mark.parametrize("size", [(4097, 16), (16, 4097), (8192, 512)])
+def test_managed_image_rejects_each_dimension_above_4096(size):
+    with pytest.raises(ValueError, match="bound mismatch"):
+        decode_image(image_bytes(size=size), "image/png")
+
+
+def test_managed_image_accepts_4096_boundary():
+    assert decode_image(image_bytes(size=(4096, 16)), "image/png") == {"width": 4096, "height": 16}

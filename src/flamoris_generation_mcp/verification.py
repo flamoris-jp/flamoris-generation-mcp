@@ -11,7 +11,7 @@ from .image_decode import decode_image
 from .image_profile import image_topology, smoke_budget
 from .workflows import ExternalRecipe
 
-PROFILE_REVISION = 1
+PROFILE_REVISION = 2
 DEADLINE = 300
 
 

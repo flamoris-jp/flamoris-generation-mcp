@@ -269,3 +269,21 @@ def test_discovery_entry_limit_applies_to_loaded_definitions(settings, tmp_path)
     store.registry.definitions.update({f"loaded-{i}": item for i in range(127)})
     with pytest.raises(ValueError, match="entry limit"):
         store.list()
+
+
+@pytest.mark.parametrize("node_type", ["UnreviewedOutput", "EmptyLatentImage"])
+def test_disconnected_nodes_are_rejected_even_without_public_bindings(node_type):
+    raw = definition()
+    raw["graph"]["99"] = {"class_type": node_type, "inputs": {}}
+    with pytest.raises(ValueError, match="outside declared output dependencies"):
+        WorkflowDefinition.model_validate(raw)
+
+
+def test_materialized_prompt_rejects_extra_output_nodes(settings, tmp_path):
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, tmp_path / "defs")
+    item = WorkflowDefinition.model_validate(definition()).model_copy(deep=True)
+    item.graph["99"] = {"class_type": "UnreviewedOutput", "inputs": {}}
+    with pytest.raises(ValueError, match="outside declared output dependencies"):
+        store.registry.materialize_definition(
+            item, {"checkpoint": "base.safetensors", "positive_prompt": "x"}
+        )

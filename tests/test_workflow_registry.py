@@ -483,7 +483,9 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
         assert archived["managed_inputs"] == {"source": expected}
 
 
-@pytest.mark.parametrize("failure", ["wrong_media", "unknown", "deleted", "expired", "upload"])
+@pytest.mark.parametrize(
+    "failure", ["wrong_media", "unknown", "deleted", "expired", "upload", "dimension"]
+)
 async def test_managed_image_submit_failures_release_lease_and_reservation(
     settings, tmp_path, fake, monkeypatch, failure
 ):
@@ -504,6 +506,10 @@ async def test_managed_image_submit_failures_release_lease_and_reservation(
 
     def handler(request):
         if request.url.path == "/view":
+            if failure == "dimension":
+                from test_image_decode import image_bytes
+
+                return httpx.Response(200, content=image_bytes(size=(4097, 16)))
             return httpx.Response(200, content=png())
         if request.url.path == "/upload/image":
             uploads.append(request.content)

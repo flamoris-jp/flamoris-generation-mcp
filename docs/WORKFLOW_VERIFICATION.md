@@ -77,3 +77,13 @@ bounded availability error. Ready checkpoint defaults and enums both use the
 measured model without altering the canonical Definition or digest. Fixed
 Image dimensions cannot have editable bindings, including roleless aliases;
 materialized production graphs recheck effective dimension bounds before POST.
+
+
+Image profile revision 2 rejects every node outside the declared SaveImage's
+dependency graph, including disconnected custom output nodes. The complete
+submitted graph is therefore covered by topology and runtime node evidence.
+Remove unused nodes from exported definitions before registration or startup;
+unsupported persisted definitions fail validation. Revision-1 attestations do
+not confer readiness after this upgrade; run automatic verification again.
+Managed reference decoding rejects any dimension above 4096 before upload,
+while retaining the 16-megapixel aggregate bound and 512-pixel smoke-output bound.

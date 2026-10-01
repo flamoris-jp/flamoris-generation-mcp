@@ -133,6 +133,10 @@ def image_topology(definition, graph=None):
             raise ValueError("Unsupported Image profile parameter binding")
         if spec.type == "managed_input" and spec.role != "initial_image":
             raise ValueError("Image profile supports one initial_image only")
+    # ComfyUI also executes disconnected OUTPUT_NODEs. A reviewed Image prompt
+    # must contain exactly the declared output's dependency graph.
+    if set(graph) != active:
+        raise ValueError("Image profile forbids nodes outside declared output dependencies")
     for role in ("width", "height"):
         size = graph[dimensions]["inputs"].get(role)
         if type(size) is not int or not 64 <= size <= 4096 or size % 8:
