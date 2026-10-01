@@ -273,8 +273,18 @@ is allowed. Re-verification also shares single-active-job authority, including
 managed-input staging leases. Never submit directly to ComfyUI. Deadline/cancel
 uses normal scoped job cancellation and terminal-state confirmation: expiration
 of the verification observer does not free an uncertain active provider job.
-Ambiguous submission retains normal submission_unknown/recovery semantics,
+Ambiguous submission retains Studio's submission_unknown/no-replay presentation,
 never gets an attestation, and is never automatically resubmitted.
+Current main JobStore.submit clears its reservation on any provider-submit
+exception, while the ComfyUI client reports transport failure without proving
+that POST was rejected. It therefore does not yet guarantee reservation retention
+after ambiguous acceptance. Before verification is enabled, harden the SAME
+JobStore/provider boundary to distinguish definite pre-submit rejection from
+uncertain post-send failure. Keep the existing reservation for uncertain work
+until bounded provider reconciliation or explicit singleton recovery confirms
+release; timeout alone is not that proof. Do not fabricate a successful job ID
+or add a parallel verification lock. Record the attempt as unavailable/unknown
+and follow normal safe recovery before an explicit reverify.
 
 For JANKU img2img, successful evidence requires all of:
 

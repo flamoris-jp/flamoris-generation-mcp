@@ -105,6 +105,12 @@ designer, GPU runtime switching, and multi-provider framework are out of scope.
     admission rechecks infrastructure readiness too. Persist separate bounded attestation
     evidence, revalidate after restart, and never revive pending verification from
     an empty process-local job reservation. Preserve singleton recovery rules.
+    Current main releases the JobStore slot on provider-submit exceptions even
+    when a transport failure may follow accepted POST. Reservation retention
+    after ambiguous acceptance is REQUIRED hardening in the same normal submit
+    authority before verify is enabled, not a feature already implemented. Retain
+    the unknown-work reservation until reconciliation/explicit safe recovery;
+    preserve Studio submission_unknown and no replay.
 
 ## Implementation order and commits
 
@@ -115,7 +121,7 @@ branches.
 | --- | --- |
 | 1 | Generation: v2 metadata/roles + builtin descriptors + validation tests |
 | 2 | Generation: integer-only dimensions/multiple_of + static reference graph validation |
-| 3 | Generation: build version/digest/require_ready + admission and accepted-submit race fixes |
+| 3 | Generation: build version/digest/require_ready + admission/accepted-submit races + ambiguous-submit reservation hardening |
 | 4 | Generation: img2img definition/export fixture + bounded decode/staging tests + stale managed-input docs |
 | 5 | Generation: normal-job workflows.verify + separate durable attestation + infrastructure config/docs |
 | 6 | Hub: generated verify/build schemas and annotations + forwarding/parity tests |
