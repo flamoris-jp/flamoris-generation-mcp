@@ -6,6 +6,7 @@ import pytest
 
 from flamoris_generation_mcp.comfyui import ComfyUIClient, ProviderError
 from flamoris_generation_mcp.jobs import GenerationBusyError
+from flamoris_generation_mcp.providers.base import SubmissionRejected
 from flamoris_generation_mcp.workflows import Parameters
 
 
@@ -99,7 +100,7 @@ async def test_provider_submit_failure_releases_exclusivity(stores, fake, monkey
     original_submit = provider.submit
 
     async def failed_submit(request, job_id):
-        raise ProviderError("provider rejected test submission")
+        raise SubmissionRejected("provider rejected test submission")
 
     monkeypatch.setattr(provider, "submit", failed_submit)
     with pytest.raises(ProviderError, match="provider rejected"):
@@ -235,7 +236,7 @@ async def test_timeout_unavailable_health_and_no_submit_retry(settings):
     client = ComfyUIClient(settings, httpx.MockTransport(handler))
     try:
         assert (await client.health())["available"] is False
-        with pytest.raises(ProviderError, match="connectivity"):
+        with pytest.raises(ProviderError, match="submission_unknown"):
             await client.submit({}, "client")
         assert len(calls) == 2
     finally:

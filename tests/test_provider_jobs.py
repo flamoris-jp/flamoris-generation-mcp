@@ -14,6 +14,7 @@ from flamoris_generation_mcp.providers import (
     ProviderOutput,
     ProviderRegistry,
 )
+from flamoris_generation_mcp.providers.base import SubmissionRejected
 from flamoris_generation_mcp.workflows import Lora, Parameters, WorkflowStore
 
 
@@ -124,7 +125,7 @@ async def test_job_store_tracks_provider_neutral_identity_and_outputs(settings):
 
 async def test_provider_submit_failure_releases_hub_reservation(settings):
     _, provider, _, jobs, workflow_id = make_store(settings)
-    provider.submit_error = ProviderError("test provider rejected request")
+    provider.submit_error = SubmissionRejected("test provider rejected request")
 
     with pytest.raises(ProviderError, match="rejected"):
         await jobs.submit(workflow_id)

@@ -10,7 +10,9 @@ from uuid import uuid4
 
 from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
+from .durable import CommitUnknown, Records
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
+from .providers.base import SubmissionRejected, SubmissionUnknown
 from .retention import RetentionStore
 from .workflows import AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
 
@@ -48,6 +50,8 @@ class Job:
     snapshot: JobSnapshot = field(default_factory=lambda: JobSnapshot(status="queued"))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     deleted_outputs: set[int] = field(default_factory=set)
+    definition: object | None = None
+    verification: dict = field(default_factory=dict)
 
 
 class JobStore:
@@ -68,6 +72,64 @@ class JobStore:
         self._archived_locks = tuple(asyncio.Lock() for _ in range(64))
         self._submit_lock = asyncio.Lock()
         self._active_job_id: str | None = None
+        self._authority = Records(output_dir, "job-authority")
+        self.verifier = None
+        self._recover()
+
+    def _recover(self):
+        record = self._authority.read("active.json")
+        if record is None or record == {"active": None}:
+            return
+        try:
+            from .workflow_registry import WorkflowDefinition
+            from .workflows import Recipe
+
+            raw = record["active"]
+            job_id = checked_id(raw["job_id"])
+            recipe_type = ExternalRecipe if raw["recipe"]["schema_version"] == 2 else Recipe
+            recipe = recipe_type.model_validate(raw["recipe"])
+            definition = (
+                WorkflowDefinition.model_validate(raw["definition"]) if raw["definition"] else None
+            )
+            provider = self.providers.get(raw["provider_id"])
+            job = Job(
+                job_id,
+                checked_id(raw["workflow_id"]),
+                raw["operation"],
+                recipe,
+                raw["provider_id"],
+                raw["execution_id"],
+                definition=definition,
+                verification=raw.get("verification", {}),
+                snapshot=JobSnapshot(status="unknown"),
+            )
+            if job.provider_execution_id and hasattr(provider, "_output_nodes"):
+                provider._output_nodes[job.provider_execution_id] = (
+                    definition.output_node if definition else "7"
+                )
+            self._jobs[job_id] = job
+            self._active_job_id = job_id
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Invalid execution reservation; reconcile before starting") from exc
+
+    def _persist_active(self, job):
+        self._authority.write(
+            "active.json",
+            {
+                "active": {
+                    "job_id": job.job_id,
+                    "workflow_id": job.workflow_id,
+                    "operation": job.operation,
+                    "provider_id": job.provider_id,
+                    "execution_id": job.provider_execution_id,
+                    "recipe": job.recipe.model_dump(mode="json"),
+                    "definition": job.definition.model_dump(mode="json")
+                    if job.definition
+                    else None,
+                    "verification": job.verification,
+                }
+            },
+        )
 
     def _active_job(self) -> tuple[str, str] | None:
         if self._active_job_id is None:
@@ -80,10 +142,12 @@ class JobStore:
             return
         async with self._submit_lock:
             if self._active_job_id == job_id:
+                self._authority.write("active.json", {"active": None})
                 self._active_job_id = None
 
-    async def submit(self, workflow_id: str) -> dict:
+    async def submit(self, workflow_id: str, *, verification=None) -> dict:
         recipe = self.workflows.get(workflow_id)
+        definition = self.workflows.capture(recipe)
         capability = self.capabilities.resolve_workflow(recipe.template)
         if isinstance(recipe, ExternalRecipe):
             routed_provider, routed_operation = self.workflows.routing(recipe)
@@ -99,17 +163,46 @@ class JobStore:
             active = self._active_job()
             if active is not None:
                 active_job_id, state = active
-                if state in TERMINAL:
-                    self._active_job_id = None
-                else:
-                    raise GenerationBusyError(
-                        f"Generation is busy: active job {active_job_id} is {state}; "
-                        "poll jobs.status/jobs.result or cancel it before submitting again"
-                    )
+                raise GenerationBusyError(
+                    f"Generation is busy: active job {active_job_id} is {state}; "
+                    "poll jobs.status/jobs.result or cancel it before submitting again"
+                )
             if len(self._jobs) >= 1024:
                 raise ValueError("Job session is full; retrieve results before restarting")
             job_id = uuid4().hex
+            self.workflows.capture(recipe)
+            job = Job(
+                job_id,
+                workflow_id,
+                operation,
+                recipe,
+                provider_id,
+                "",
+                definition=definition,
+                snapshot=JobSnapshot(status="submitting"),
+            )
+            # Journal the ordinary reservation before any provider await. Restart is
+            # never proof that work vanished, including the accepted-POST crash window.
             self._active_job_id = job_id
+            self._jobs[job_id] = job
+            try:
+                self._persist_active(job)
+            except CommitUnknown:
+                job.snapshot = JobSnapshot(status="unknown")
+                raise
+            except BaseException:
+                self._active_job_id = None
+                del self._jobs[job_id]
+                raise
+            if verification is not None:
+                try:
+                    self.verifier.admit(job, verification)
+                    self._persist_active(job)
+                except BaseException:
+                    self._authority.write("active.json", {"active": None})
+                    self._active_job_id = None
+                    del self._jobs[job_id]
+                    raise
 
         try:
             provider_job = await provider.submit(
@@ -117,27 +210,40 @@ class JobStore:
                     operation=operation,
                     workflow_id=workflow_id,
                     payload=recipe,
+                    definition=definition,
+                    runtime_evidence=verification["runtime"] if verification else None,
                 ),
                 job_id,
             )
-        except BaseException:
-            async with self._submit_lock:
-                if self._active_job_id == job_id:
-                    self._active_job_id = None
+        except SubmissionRejected:
+            job.snapshot = JobSnapshot(status="failed")
+            if verification is not None:
+                self.verifier.fail(job, "submission_rejected")
+            await self._release_if_terminal(job_id, job)
             raise
+        except BaseException as exc:
+            job.snapshot = JobSnapshot(status="unknown", error={"code": "submission_unknown"})
+            if verification is not None:
+                self.verifier.fail(job, "submission_unknown")
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise SubmissionUnknown(
+                "submission_unknown: keep reservation; reconcile before retry"
+            ) from exc
 
-        self._jobs[job_id] = Job(
-            job_id=job_id,
-            workflow_id=workflow_id,
-            operation=operation,
-            recipe=recipe,
-            provider_id=provider_id,
-            provider_execution_id=provider_job.execution_id,
-            managed_inputs={
-                name: dict(metadata) for name, metadata in provider_job.managed_inputs.items()
-            },
-        )
-        return self._metadata(self._jobs[job_id])
+        job.provider_execution_id = provider_job.execution_id
+        job.managed_inputs = {
+            name: dict(metadata) for name, metadata in provider_job.managed_inputs.items()
+        }
+        job.snapshot = JobSnapshot(status="queued")
+        try:
+            self._persist_active(job)
+        except BaseException:
+            job.snapshot = JobSnapshot(status="unknown", error={"code": "submission_unknown"})
+            if verification is not None:
+                self.verifier.fail(job, "submission_unknown")
+            raise SubmissionUnknown("submission_unknown: accepted job journal failed") from None
+        return self._metadata(job)
 
     def _get(self, job_id: str) -> Job:
         checked_id(job_id)
@@ -158,13 +264,16 @@ class JobStore:
             "managed_inputs": {
                 name: dict(metadata) for name, metadata in job.managed_inputs.items()
             },
+            **({"verification": dict(job.verification)} if job.verification else {}),
             **job.recipe.model_dump(mode="json"),
         }
 
     async def _refresh(self, job_id: str, job: Job) -> None:
-        if job.snapshot.status not in TERMINAL:
+        if job.snapshot.status not in TERMINAL and job.provider_execution_id:
             provider = self.providers.get(job.provider_id)
             job.snapshot = await provider.inspect(job.provider_execution_id)
+        if self.verifier is not None and job.verification:
+            await self.verifier.refresh(job)
         await self._release_if_terminal(job_id, job)
         if job.snapshot.status == "completed":
             self._archive_metadata(job)
@@ -482,7 +591,9 @@ class JobStore:
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
-            if job.snapshot.status not in TERMINAL:
+            if self.verifier is not None and job.verification:
+                self.verifier.fail(job, "cancelled")
+            if job.snapshot.status not in TERMINAL and job.provider_execution_id:
                 provider = self.providers.get(job.provider_id)
                 job.snapshot = await provider.cancel(job.provider_execution_id)
             await self._release_if_terminal(job_id, job)
@@ -491,6 +602,6 @@ class JobStore:
     def activity(self) -> dict[str, object]:
         active = self._active_job()
         return {
-            "busy": active is not None and active[1] not in TERMINAL,
+            "busy": active is not None,
             "active_job_id": active[0] if active is not None else None,
         }

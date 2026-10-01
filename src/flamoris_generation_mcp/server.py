@@ -146,9 +146,17 @@ def create_server(
         return result
 
     @server.tool(name="workflows.build")
-    def build_workflow(template: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    def build_workflow(
+        template: str,
+        parameters: dict[str, Any],
+        definition_version: int | None = None,
+        definition_digest: str | None = None,
+        require_ready: bool = False,
+    ) -> dict[str, Any]:
         """Build a known template with validated parameters; returns a workflow_id."""
-        return workflows.build(template, parameters)
+        return workflows.build(
+            template, parameters, definition_version, definition_digest, require_ready
+        )
 
     @server.tool(name="workflows.save")
     def save_workflow(workflow_id: str) -> dict[str, Any]:

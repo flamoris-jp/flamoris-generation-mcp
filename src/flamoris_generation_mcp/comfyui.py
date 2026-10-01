@@ -6,7 +6,7 @@ import httpx
 
 from .config import Settings
 from .models import model_name
-from .providers.base import ProviderError
+from .providers.base import ProviderError, SubmissionRejected, SubmissionUnknown
 
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 INPUT_MIME_EXTENSIONS = {
@@ -127,9 +127,18 @@ class ComfyUIClient:
 
     async def submit(self, prompt: dict, client_id: str) -> str:
         # Never retry POST: a timeout can happen after ComfyUI has already accepted the work.
-        data = await self._request(
-            "POST", "prompt", json={"prompt": prompt, "client_id": client_id}
-        )
+        try:
+            data = await self._request(
+                "POST", "prompt", json={"prompt": prompt, "client_id": client_id}
+            )
+        except ProviderError as exc:
+            # ComfyUI's own 400 validation response is a definite rejection. Gateway,
+            # 5xx, transport and malformed-success responses can follow accepted work.
+            if str(exc).startswith("ComfyUI prompt returned HTTP 400"):
+                raise SubmissionRejected(str(exc)) from None
+            raise SubmissionUnknown(
+                "submission_unknown: provider acceptance is uncertain"
+            ) from None
         prompt_id = data.get("prompt_id")
         if (
             data.get("error")
@@ -137,7 +146,9 @@ class ComfyUIClient:
             or not isinstance(prompt_id, str)
             or not prompt_id
         ):
-            raise ProviderError("ComfyUI rejected the workflow or returned an invalid prompt ID")
+            if (data.get("error") or data.get("node_errors")) and not prompt_id:
+                raise SubmissionRejected("ComfyUI rejected the workflow")
+            raise SubmissionUnknown("submission_unknown: provider returned an invalid prompt ID")
         return prompt_id
 
     async def inspect(self, prompt_id: str) -> dict:

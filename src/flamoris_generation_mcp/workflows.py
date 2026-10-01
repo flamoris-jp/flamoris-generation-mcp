@@ -1,5 +1,6 @@
 """Trusted template builders and saved parameter recipes, not a raw node editing API."""
 
+import copy
 import json
 import os
 import re
@@ -60,6 +61,8 @@ class ExternalRecipe(BaseModel):
     schema_version: Literal[2] = 2
     template: str
     definition_version: int
+    definition_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    require_ready: bool = Field(default=False, strict=True)
     parameters: dict[str, Any]
 
 
@@ -218,6 +221,7 @@ class WorkflowStore:
         self.directory = directory
         self.registry = WorkflowRegistry(definition_dir, catalog) if definition_dir else None
         self._recipes: dict[str, AnyRecipe] = {}
+        self.readiness = None
 
     def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
         if self.registry is None:
@@ -226,8 +230,17 @@ class WorkflowStore:
             raise ValueError("Built-in workflow template IDs are reserved")
         return self.registry.register(definition)
 
-    def build(self, template: str, parameters: Parameters | dict[str, Any]) -> dict:
+    def build(
+        self,
+        template: str,
+        parameters: Parameters | dict[str, Any],
+        definition_version: int | None = None,
+        definition_digest: str | None = None,
+        require_ready: bool = False,
+    ) -> dict:
         if template in ("text-to-image", "text-to-image-lora"):
+            if definition_version is not None or definition_digest is not None:
+                raise ValueError("Definition preconditions cannot target a builtin")
             recipe: AnyRecipe = Recipe(
                 template=template, parameters=Parameters.model_validate(parameters)
             )
@@ -235,14 +248,21 @@ class WorkflowStore:
         else:
             if self.registry is None:
                 raise ValueError("Unknown workflow definition ID")
-            definition = self.registry.get(template)
+            definition = self.registry.get(template, definition_version)
+            if definition_digest is not None and definition.digest != definition_digest:
+                raise ValueError("Stale workflow definition digest")
             values = parameters.model_dump() if isinstance(parameters, Parameters) else parameters
             normalized, prompt = self.registry.materialize(
                 definition.id, definition.version, values
             )
             recipe = ExternalRecipe(
-                template=template, definition_version=definition.version, parameters=normalized
+                template=template,
+                definition_version=definition.version,
+                definition_digest=definition.digest,
+                require_ready=require_ready,
+                parameters=normalized,
             )
+            self.capture(recipe)
         if len(self._recipes) >= 1024:
             raise ValueError("Workflow session is full; save needed workflows and restart")
         workflow_id = uuid4().hex
@@ -269,6 +289,25 @@ class WorkflowStore:
             return ExternalRecipe.model_validate(data)
         return Recipe.model_validate(data)
 
+    def capture(self, recipe: AnyRecipe):
+        """Recheck identity/policy and capture output identity before provider awaits."""
+        if not isinstance(recipe, ExternalRecipe):
+            return None
+        if self.registry is None:
+            raise ValueError("Workflow definitions are not configured")
+        with self.registry._register_lock:
+            definition = self.registry.get(recipe.template, recipe.definition_version)
+            if (
+                recipe.definition_digest is not None
+                and recipe.definition_digest != definition.digest
+            ):
+                raise ValueError("Stale workflow definition digest")
+            if recipe.require_ready:
+                if self.readiness is None:
+                    raise ValueError("Workflow production readiness is unavailable")
+                self.readiness.require(definition, recipe.parameters)
+            return copy.deepcopy(definition)
+
     def managed_input_bindings(self, recipe: AnyRecipe) -> dict[str, object]:
         if not isinstance(recipe, ExternalRecipe):
             return {}
@@ -281,13 +320,14 @@ class WorkflowStore:
         recipe: AnyRecipe,
         job_id: str | None = None,
         provider_inputs: dict[str, str] | None = None,
+        definition=None,
     ) -> dict:
         if isinstance(recipe, ExternalRecipe):
             if self.registry is None:
                 raise ValueError("Workflow definitions are not configured")
-            _, prompt = self.registry.materialize(
-                recipe.template,
-                recipe.definition_version,
+            definition = definition or self.capture(recipe)
+            _, prompt = self.registry.materialize_definition(
+                definition,
                 recipe.parameters,
                 job_id,
                 provider_inputs,
@@ -300,7 +340,7 @@ class WorkflowStore:
 
     def routing(self, recipe: AnyRecipe) -> tuple[str, str]:
         if isinstance(recipe, ExternalRecipe):
-            definition = self.registry.get(recipe.template, recipe.definition_version)
+            definition = self.capture(recipe)
             return definition.provider_id, definition.capability_id
         return "comfyui", "image.generate"
 

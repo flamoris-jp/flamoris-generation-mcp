@@ -20,6 +20,14 @@ class ProviderError(RuntimeError):
     """A bounded provider failure safe to surface as an MCP tool error."""
 
 
+class SubmissionRejected(ProviderError, ValueError):
+    """Definite rejection: no generation POST can have been accepted."""
+
+
+class SubmissionUnknown(ProviderError):
+    """Acceptance is uncertain; retain the ordinary JobStore reservation. Never replay."""
+
+
 @dataclass(frozen=True)
 class ProviderHealth:
     available: bool
@@ -36,6 +44,8 @@ class GenerationRequest:
     operation: str
     workflow_id: str
     payload: object
+    definition: object | None = None
+    runtime_evidence: object | None = None
 
 
 @dataclass(frozen=True)

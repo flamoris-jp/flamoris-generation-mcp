@@ -513,6 +513,15 @@ class WorkflowRegistry:
         provider_inputs: dict[str, str] | None = None,
     ) -> tuple[dict, dict]:
         definition = self.get(definition_id, version)
+        return self.materialize_definition(definition, parameters, job_id, provider_inputs)
+
+    def materialize_definition(
+        self,
+        definition: WorkflowDefinition,
+        parameters: dict,
+        job_id: str | None = None,
+        provider_inputs: dict[str, str] | None = None,
+    ) -> tuple[dict, dict]:
         if not isinstance(parameters, dict) or set(parameters) - set(definition.parameters):
             raise ValueError("Unknown workflow parameter")
         graph = copy.deepcopy(definition.graph)
@@ -537,7 +546,9 @@ class WorkflowRegistry:
                     graph[spec.node]["inputs"][spec.input] = provider_inputs[name]
             else:
                 graph[spec.node]["inputs"][spec.input] = normalized[name]
-        expected_inputs = set(self.managed_input_bindings(definition_id, version))
+        expected_inputs = {
+            name for name, spec in definition.parameters.items() if spec.type == "managed_input"
+        }
         if provider_inputs is not None and set(provider_inputs) != expected_inputs:
             raise ValueError("Resolved managed inputs do not match workflow definition")
         if job_id is not None:
