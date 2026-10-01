@@ -112,6 +112,22 @@ designer, GPU runtime switching, and multi-provider framework are out of scope.
     the unknown-work reservation until reconciliation/explicit safe recovery;
     preserve Studio submission_unknown and no replay.
 
+14. Image roles must bind the reviewed inputs in the effective declared-output
+    dependency graph. Reject ignored/disconnected or wrong-semantic bindings;
+    non-default dimensions/seed must reach the actual resize/latent/sampler nodes.
+    Bound verify against the materialized executed graph, including fixed
+    dimensions, sampler steps, batch/output count; caller smoke values alone
+    cannot establish its budget. Generation owns these checks; Studio maps roles.
+15. Generation signature and deployed Hub catalog must change in one coordinated
+    maintenance window. Hub exact schema comparison blocks the whole Generation
+    connection during a mismatch, even for legacy calls. Pause all submitters,
+    drain/reconcile provider work, replace the Generation singleton, update/restart
+    Hub with exact implemented schemas/annotations, validate parity and legacy/new
+    calls, then deploy Studio and reopen. Rollback restores a compatible Studio,
+    Generation/Hub pair and backed-up persistence together, preserving newer data.
+    Never resume from an empty reservation or assume old code reads new schemas.
+    Follow the canonical rollout/rollback section; do not guess host commands.
+
 ## Implementation order and commits
 
 Use repository-specific branches and PRs; do not commit implementation on these design
@@ -137,7 +153,9 @@ are not. Preserve commit checkpoints when runtime smoke is blocked.
 
 ## Required verification
 
-Generation: existing ruff check/format, pytest, python -m build, installed-wheel smoke,
+Generation: include unused/wrong role bindings, non-default effective dimensions/seed,
+and materialized sampler/batch/size budget regressions. Existing ruff check/format,
+pytest, python -m build, installed-wheel smoke,
 Docker smoke from CI. Focus on v1/builtin compatibility, v2 metadata without graph
 leaks, role/dataflow validation, dimensions/file-selector regressions, integer-only
 divisor/default/enum bounds, registration atomic failure/ restart, self-declared-ready
@@ -161,7 +179,8 @@ Real mocked component interactions must cover select/attach/remove/replace/ rest
 initial selection with no input, reselection after expiry/revocation/ removal, empty
 Asset lists, and Generate blocked until a valid attachment.
 
-Hub: current test/lint/format checks, present/absent version/digest/require_ready
+Hub: mixed-version whole-connection rejection and paired schema rollback, plus current
+test/lint/format checks, present/absent version/digest/require_ready
 forwarding, workflows.verify routing and exact generated schema/annotation parity. Do
 not change lazy connection or automatic replay behavior. Normal CI never needs a live
 GPU, model weights, private tunnel, or paid API.
@@ -175,6 +194,12 @@ authoritative for current infrastructure; Generation tools are authoritative for
 catalog. Use no historical file as live state.
 
 Smoke preparation:
+
+Before deploying the supporting signature change, follow the canonical coordinated
+maintenance rollout/rollback: pause all submission ingress, drain/reconcile while
+the old pair matches, replace the singleton and deployed Hub catalog together,
+then validate legacy/new parity before Studio/reopening. This is a design
+requirement, not evidence that deployment or runtime smoke occurred.
 
 1. Record current Generation/Studio/Hub code revisions and infrastructure rollout flags.
 2. Verify installed ComfyUI required node schemas (object_info or actual exported

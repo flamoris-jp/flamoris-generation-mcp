@@ -127,6 +127,48 @@ KSampler.latent_image. This check belongs in the provider-specific validation la
 Reject a semantic claim that does not match the graph. This is a reviewed Image profile,
 not a generic graph editor.
 
+### Semantic role bindings and effective verification budget
+
+Type/constraint checks and reachability of initial_image are necessary but not
+sufficient. For each advertised Image role, the provider-specific validator
+must verify its binding in the declared output's executed dependency graph
+against the reviewed Image profile. A correctly typed binding to an unused node,
+or to a node/input with a different meaning, must fail static validation.
+
+For the initial reviewed ComfyUI profile, verify at least:
+
+- initial_image binds the LoadImage whose IMAGE output feeds the active
+  ImageScale -> VAEEncode -> KSampler.latent_image path.
+- width/height in parameter-size mode bind the active dimension-producing node:
+  ImageScale for img2img, EmptyLatentImage for txt2img. Fixed-size mode must have
+  no editable dimension roles and must match the effective graph dimensions.
+- seed, steps, cfg, sampler, scheduler and denoise, when advertised, bind the
+  corresponding inputs of the KSampler that reaches the declared SaveImage.
+- positive_prompt/negative_prompt bind the CLIPTextEncode nodes used by that
+  sampler's respective conditioning inputs; checkpoint binds the reviewed
+  loader supplying its model and the profile's CLIP/VAE paths.
+
+Follow actual node links and output indices, not node names or parameter keys.
+Allow a role to be absent where the contract permits an internal constant, but
+never publish an editable control for an ignored binding. Unsupported node
+topologies require an explicit reviewed profile/validator; do not infer support
+from generic reachability. This remains Generation/provider validation; Studio
+only maps validated public roles and never inspects graphs.
+
+Check the verification budget against the fully materialized executed graph,
+including fixed literals, effective dimensions, sampler steps, batch size and
+output count. Checking only caller parameters or advertised role values is not
+enough. The initial smoke profile permits one image, effective dimensions at
+most 512 x 512 and at most 30 sampler steps; reject unsupported or over-budget
+graphs before provider submission. A deadline does not guarantee cancellation
+of already running provider work.
+
+Required regressions include an unused width/seed/steps binding, a binding with
+the wrong semantic input, a disconnected dimension node with active size fixed
+at 512, non-default width/height and seed materialization, and hidden active
+sampler/batch/dimension literals exceeding the smoke budget. A default 512
+output alone cannot certify a dimension control.
+
 Example proposed graph-free descriptor:
 
 ```json
@@ -535,6 +577,60 @@ expired; recipe restoration does not revive input TTL or obsolete definitions.
 Rollback requires a reviewed higher version containing the previous graph, not
 a decreasing-version runtime registration.
 
+### Coordinated schema rollout and rollback
+
+Current Hub LazyConnection._check_catalog compares every configured upstream
+input schema for exact equality before forwarding any tool. Adding optional
+workflows.build arguments therefore invalidates the old catalog; it blocks
+even otherwise unchanged system.health/jobs.status/assets calls through that
+Generation connection. Keeping legacy arguments optional does not make mixed
+Generation/Hub deployments compatible.
+
+Use one maintenance window for the supporting code/signature rollout:
+
+1. Record a compatible rollback set: Generation code/image revision, the deployed
+   Hub Generation catalog and Hub code revision, Studio revision, and backups of
+   definition/recipe/output/attestation metadata and Studio DB/thumbnail state.
+   Use current deployment documentation; preserve deployment-specific endpoint
+   and authentication settings when editing the catalog.
+2. Pause all submission ingress, including Studio, trusted direct clients and
+   automation. Drain active jobs while the old catalog still matches. Confirm
+   provider terminal/resource release and materialize any results needed after
+   restart. Uncertain work must be reconciled before replacing the singleton;
+   neither timeout nor an empty process-local reservation proves release.
+3. Replace Generation using stop-then-start singleton deployment. Update the
+   deployed Hub catalog to the exact generated implemented schemas/annotations
+   and reload it through its documented restart procedure. Keep ingress paused
+   throughout the mixed-schema interval; expect whole-connection catalog failure,
+   not just temporary unavailability of workflows.verify.
+4. Establish a fresh Hub connection and verify full catalog parity, unchanged
+   legacy build/status/result/asset calls, and forwarding of the new build
+   arguments and verify tool. Use bounded offline/fake-provider checks and
+   non-submitting runtime discovery; do not replay an ambiguous smoke submission.
+5. Deploy the Studio backend/migration/UI support only after the compatible
+   Generation/Hub pair is established. Check descriptor discovery, ownership
+   boundaries and readiness invalidation/recovery before reopening ingress.
+   Production references remain gated by infrastructure AND exact attestation.
+   Reopen normal submissions only after the release checks succeed.
+
+Rollback also runs with all ingress paused and provider work reconciled. If the
+new Studio was deployed, return it to a compatible revision/schema first using
+its documented migration/restore procedure. Restore Generation code and its
+matching deployed Hub catalog together; restoring either one alone leaves the
+connection unusable. Restore only a compatible, backed-up persistence set.
+Older code may not read v2 definitions, changed recipes, attestations or DB
+migrations: check compatibility before starting it. Preserve newer data and
+definitions for recovery; do not delete registrations or force a decreasing
+version through workflows.register. If safe data/schema rollback cannot be
+shown, keep maintenance in effect and report the blocker instead of starting an
+incompatible process. Recheck singleton/provider state, full catalog parity,
+durable assets and readiness before reopening. Pending/unknown jobs and
+attestations cannot become successful merely by restoring files.
+
+This one-time maintenance rollout does not change restart-free registration
+and automatic verification of each later Definition. Include mixed-version
+rejection, paired rollback and legacy/new forwarding in Hub #26 acceptance.
+
 ## 8. Implementation boundaries and checks
 
 Generation files: workflow_registry.py (v2/scalar validation/metadata),
@@ -552,7 +648,9 @@ Its existing registration and input tools already route opaque objects. Match
 schemas to the implemented Generation signature, never invent catalog defaults.
 No graph inspection, attestation authority or identity propagation belongs here.
 
-Tests must cover v1/builtin compatibility, metadata without raw graphs, v2 roles
+Tests must cover semantic role bindings in the effective output graph, ignored/wrong
+role inputs, non-default dimension/seed values, effective smoke budget and hidden
+sampler/batch/size literals, plus v1/builtin compatibility, metadata without raw graphs, v2 roles
 and mode/dataflow checks, unknown required profiles/types, exact scalar exceptions
 and malicious selectors, multiple_of/default constraints, model validation,
 runtime register/persistence/rollback, validated-not-ready discovery, automatic
