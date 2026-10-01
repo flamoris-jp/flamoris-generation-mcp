@@ -318,6 +318,12 @@ class WorkflowDefinition(BaseModel):
             if spec.enum is not None:
                 for item in spec.enum:
                     spec.validate_value(item, _NoModels())
+        if self.schema_version == 2:
+            from .image_profile import image_topology
+
+            image_topology(self)
+        # Full definitions must have a canonical JSON representation, including constants.
+        json.dumps(self.model_dump(mode="json"), allow_nan=False)
         return self
 
     def metadata(self) -> dict[str, Any]:
@@ -407,6 +413,8 @@ class WorkflowRegistry:
 
         with self._register_lock:
             current = self.definitions.get(definition.id)
+            if current is None and len(self.definitions) >= 126:
+                raise ValueError("Workflow discovery entry limit exceeded")
             if current is not None and definition.version <= current.version:
                 raise ValueError("Workflow definition version must increase")
 

@@ -141,3 +141,75 @@ def test_builtin_descriptor_preserves_ordered_lora_contract(settings):
     assert descriptors[1]["parameters"]["loras"]["min_items"] == 1
     assert descriptors[1]["parameters"]["loras"]["max_items"] == 16
     assert descriptors[1]["parameters"]["width"]["multiple_of"] == 8
+
+
+@pytest.mark.parametrize("mode", ["txt2img", "img2img"])
+def test_effective_size_seed_and_arbitrary_public_keys(settings, tmp_path, mode):
+    store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, tmp_path / "definitions")
+    data = definition(mode)
+    data["parameters"]["horizontal"] = data["parameters"].pop("width")
+    store.register_definition(data)
+    values = {
+        "checkpoint": "base.safetensors",
+        "positive_prompt": "flowers",
+        "horizontal": 320,
+        "height": 384,
+        "seed": 123,
+    }
+    if mode == "img2img":
+        values["source"] = "a" * 32
+    graph = store.build(data["id"], values)["prompt"]
+    assert graph["4"]["inputs"]["width"] == 320
+    assert graph["4"]["inputs"]["height"] == 384
+    assert graph["5"]["inputs"]["seed"] == 123
+
+
+@pytest.mark.parametrize("role", ["width", "seed", "steps", "source"])
+def test_disconnected_or_wrong_semantic_role_rejected(role):
+    raw = definition("img2img")
+    spec = raw["parameters"][role]
+    raw["graph"]["99"] = copy.deepcopy(raw["graph"][spec["node"]])
+    spec["node"] = "99"
+    with pytest.raises(ValueError, match="semantic input"):
+        WorkflowDefinition.model_validate(raw)
+
+
+@pytest.mark.parametrize("tamper", ["cycle", "index", "source", "crop", "batch", "seed"])
+def test_unsupported_reference_topology_rejected(tamper):
+    raw = definition("img2img")
+    if tamper == "cycle":
+        raw["graph"]["4"]["inputs"]["image"] = ["4", 0]
+    elif tamper == "index":
+        raw["graph"]["4"]["inputs"]["image"] = ["8", 1]
+    elif tamper == "source":
+        raw["graph"]["9"]["inputs"]["pixels"] = ["8", 0]
+    elif tamper == "crop":
+        raw["graph"]["4"]["inputs"]["crop"] = "disabled"
+    elif tamper == "batch":
+        raw = definition()
+        raw["graph"]["4"]["inputs"]["batch_size"] = 2
+    else:
+        raw["parameters"]["seed"]["input"] = "steps"
+        del raw["parameters"]["steps"]
+    with pytest.raises(ValueError):
+        WorkflowDefinition.model_validate(raw)
+
+
+@pytest.mark.parametrize("tamper", ["width", "steps", "batch"])
+def test_smoke_bounds_hidden_effective_literals(tamper):
+    from flamoris_generation_mcp.image_profile import smoke_budget
+
+    raw = definition()
+    if tamper == "width":
+        raw["image"]["dimensions"] = {"mode": "fixed", "width": 1024, "height": 512}
+        del raw["parameters"]["width"]
+        del raw["parameters"]["height"]
+        raw["graph"]["4"]["inputs"]["width"] = 1024
+    elif tamper == "steps":
+        del raw["parameters"]["steps"]
+        raw["graph"]["5"]["inputs"]["steps"] = 100
+    else:
+        raw["graph"]["4"]["inputs"]["batch_size"] = 2
+    with pytest.raises(ValueError):
+        item = WorkflowDefinition.model_validate(raw)
+        smoke_budget(item, item.graph)
