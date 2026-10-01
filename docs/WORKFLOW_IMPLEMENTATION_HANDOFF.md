@@ -28,12 +28,12 @@ repositories and commit each meaningful unit; no large uncommitted implementatio
 
 | Issue | Scope for this implementation |
 | --- | --- |
-| Generation #19 | Complete metadata/discovery/version precondition and production JANKU acceptance; foundation already exists |
-| Generation #42 | One-image img2img definition, semantics, bounded input validation, smoke evidence |
+| Generation #19 | Complete metadata/discovery/exact-identity production admission and automatic attestation; registry foundation already exists |
+| Generation #42 | One-image img2img definition, static semantics, bounded input validation and automated real-runtime verification |
 | Studio #21 | Managed-input owner mapping/API/preview and cross-user authorization |
-| Studio #36 | Descriptor discovery/selection/role mapping and version-aware snapshots |
-| Studio #30 | Remaining reference/restore/UI integration; preserve implemented Styles/parameters/preferences/seeds |
-| Hub #26 | Optional workflows.build definition_version catalog/signature parity |
+| Studio #36 | Ready-only descriptor selection/role mapping and version/digest-aware snapshots |
+| Studio #30 | Existing-Asset reference/restore/UI slice only; keep open for local upload follow-up; preserve implemented features |
+| Hub #26 | workflows.verify plus build version/digest/require_ready catalog/signature parity |
 
 Hub #25 / Generation #41 / Studio #35 are a separate external-client
 identity/provenance/catalog-import project. Do not implement them here.
@@ -52,17 +52,28 @@ are out of scope.
    conditioning. Start from a verified installed-node export, not an invented
    production graph.
 4. Input picker selects an existing owned Studio-generated Asset; input CRUD
-   currently cannot upload a local file.
+   currently cannot upload a local file. Reference Image v1 is strictly
+   Studio-owned existing generated Asset -> managed input snapshot -> JANKU
+   img2img. No PC file picker, drag/drop upload or unimplemented upload button.
+   Studio #30 must not close from this slice; local upload -> authorized managed
+   input is explicit follow-up scope.
 5. Managed inputs use existing immutable snapshots and bounded staging. Source
    deletion does not invalidate an existing snapshot; expiry/revocation does.
 6. Preserve latest-only definition storage and monotonically increasing versions.
-   Old recipes fail closed; new optional definition_version prevents stale builds.
+   Old recipes fail closed; optional definition_version/definition_digest prevent
+   stale builds. Studio uses require_ready=true; Generation pins this policy and
+   rechecks exact attestation at JobStore admission, before provider submission.
    Accepted provider submissions use captured definition/output metadata.
 7. runtime registration remains release/rebuild/restart-free. One-time code/Hub
-   signature rollout and operator readiness promotion are separate.
-8. Required provider readiness and runtime upload-file retention policy must be
-   evidenced before enabling production reference UI. Do not claim provider
-   uploads are automatically removed by current code.
+   signature rollout and infrastructure readiness are separate. Register does
+   bounded static validation/publish only; it never waits for generation.
+   Trusted candidates activate immediately for testing, not Studio selection.
+8. Infrastructure readiness (adapter/provider/upload retention policy) AND exact
+   Workflow readiness are necessary for Reference Image. Generation computes
+   registered -> validated -> ready; a separate service-owned attestation binds
+   workflow_id/definition_version/canonical definition digest. Definitions cannot
+   self-declare production_ready. Version OR digest changes invalidate ready.
+   Do not claim provider uploads are automatically removed by current code.
 9. Exact audited integer dimension binding exceptions fix the Image-name
    heuristic; real file selectors remain managed-only.
 10. Explicitly owned input handles and snapshot v2 extend Use settings without
@@ -71,9 +82,27 @@ are out of scope.
     replacement after expiry/revocation/removal.
 11. Automatic/Randomize seed samples the descriptor's legal integer domain
     intersected with 0..Number.MAX_SAFE_INTEGER, including ranges, typed enum and
-    multiple_of. Use exact bounded sampling, revalidate before build, and snapshot
+    positive integer multiple_of only. V2 applies it only to integer parameters;
+    width/height use 8. Reject invalid divisors; number-parameter decimal steps
+    need a future separate contract without float tolerance. Use integer modulo
+    and bounded progression/enum sampling, revalidate before build, and snapshot
     the concrete seed before submit. Empty/unsupported domains disable the option;
     explicit zero is preserved and validated, not treated as automatic.
+
+12. workflows.verify takes the registered ID/version/digest and declared bounded
+    smoke parameters, builds and submits through ordinary JobStore authority,
+    returns a job_id, and exposes outcome through jobs.status/result. Bound smoke
+    to the canonical profile/deadline; no separate GPU reservation, direct provider
+    submit, unbounded wait or automatic replay. An automatic finalizer verifies
+    installed node/provider compatibility, static semantics, managed staging,
+    successful completion and declared output retrieval/validation before atomic
+    attestation persistence. Human Approve/visual checks are not readiness gates.
+13. Reverify after failure is explicit and supported. Failure/timeout/cancel/busy/
+    submission_unknown never produces ready or releases uncertain provider work.
+    Exact identity is checked at finalization/discovery/build/submit; replacing a
+    definition during smoke cannot inherit readiness. Persist separate attestation
+    evidence, revalidate after restart, and never revive pending verification from
+    an empty process-local job reservation. Preserve singleton recovery rules.
 
 ## Implementation order and commits
 
@@ -83,11 +112,11 @@ design branches.
 | Order | Repository / meaningful commit |
 | --- | --- |
 | 1 | Generation: v2 metadata/roles + builtin descriptors + validation tests |
-| 2 | Generation: precise dimensions/multiple_of + semantic graph validation |
-| 3 | Generation: optional build version + accepted-submit version race fix |
-| 4 | Generation: img2img definition/export fixture + bounded decode/staging tests |
-| 5 | Generation: readiness config/docs + stale managed-input documentation correction |
-| 6 | Hub: actual generated workflows.build catalog schema + parity tests |
+| 2 | Generation: integer-only dimensions/multiple_of + static reference graph validation |
+| 3 | Generation: build version/digest/require_ready + admission and accepted-submit race fixes |
+| 4 | Generation: img2img definition/export fixture + bounded decode/staging tests + stale managed-input docs |
+| 5 | Generation: normal-job workflows.verify + separate durable attestation + infrastructure config/docs |
+| 6 | Hub: generated verify/build schemas and annotations + forwarding/parity tests |
 | 7 | Studio: normalized descriptors/DTOs + discovery |
 | 8 | Studio: managed-input owner table/migration/API/independent thumbnails |
 | 9 | Studio: role-based submit + normalized snapshot v2 + stale/reference handling |
@@ -103,7 +132,11 @@ refactors are not. Preserve commit checkpoints when runtime smoke is blocked.
 Generation: existing ruff check/format, pytest, python -m build, installed-wheel
 smoke, Docker smoke from CI. Focus on v1/builtin compatibility, v2 metadata
 without graph leaks, role/dataflow validation, dimensions/file-selector
-regressions, model/default/enum bounds, registration atomic failure/restart,
+regressions, integer-only divisor/default/enum bounds, registration atomic failure/
+restart, self-declared-ready rejection, missing/mismatched attestation exclusion,
+automated verify sharing JobStore reservation, busy/deadline/cancellation/unknown
+submission, output retrieval/decoding failure, attestation persistence failure,
+restart/profile mismatch, version/digest and finalization/revocation races,
 version races, decoded PNG/JPEG/WebP and malformed/animated/pixel-bound images,
 input expiry/deletion, ambiguous upload/submit and stage lease behavior.
 
@@ -112,15 +145,17 @@ npm run build, npm test, and Docker packaging/static frontend check from CI.
 Test source and input cross-user denial BEFORE upstream calls, CSRF, expiry/
 revocation/source deletion, DB failures and orphan compensation, metadata and
 arbitrary public-key role mapping, version-aware snapshots, zero/auto seed,
-32-bit maximum/nonzero minimum/enum/integral and fractional multiple_of seed
+32-bit maximum/nonzero minimum/enum/positive integer multiple_of seed
 domains, singleton/empty domains, invalid explicit zero, missing seed role, and
-normalized seed restoration. Preserve builtin/LoRA/Style/preferences regressions.
+normalized seed restoration, invalid divisor rejection, exact-ready selection/
+production admission and both infrastructure/Workflow readiness gates. Preserve
+builtin/LoRA/Style/preferences regressions. No unimplemented upload UI.
 Real mocked component interactions must cover select/attach/remove/replace/
 restore, initial selection with no input, reselection after expiry/revocation/
 removal, empty Asset lists, and Generate blocked until a valid attachment.
 
-Hub: current test/lint/format checks, present/absent version forwarding and exact
-schema parity. Do not change lazy connection or automatic replay behavior.
+Hub: current test/lint/format checks, present/absent version/digest/require_ready
+forwarding, workflows.verify routing and exact generated schema/annotation parity. Do not change lazy connection or automatic replay behavior.
 Normal CI never needs a live GPU, model weights, private tunnel, or paid API.
 
 ## Real runtime smoke: after code/CI, separate from offline acceptance
@@ -133,22 +168,30 @@ are authoritative for its catalog. Use no historical file as live state.
 
 Smoke preparation:
 
-1. Record current Generation/Studio/Hub code revisions and operator rollout flags.
+1. Record current Generation/Studio/Hub code revisions and infrastructure rollout flags.
 2. Verify installed ComfyUI required node schemas (object_info or actual exported
    API graph), model catalog, Clip Skip configuration, sampler/scheduler.
 3. Export/review the txt2img and img2img graphs. Record exact definition ID/version
    and canonical content digest; keep private prompts/media/runtime IDs out of
    public GitHub evidence.
 4. Register candidate definitions through the trusted runtime path, inspect
-   discovery, save an invocation recipe, and test restart durability through an
-   authorized operational window. Registering alone must not turn UI readiness on.
+   discovery (validated/unavailable), and test restart durability through an
+   authorized operational window. Registering alone never enables UI readiness.
 5. Start with an existing generated Asset owned by the smoke Studio user.
    If none exists, generate one through Studio; do not claim an arbitrary external
    Generation asset belongs to that user.
+6. Invoke workflows.verify with exact ID/version/canonical digest, an authorized
+   managed-input snapshot and bounded declared smoke parameters. Poll the normal
+   job; the automatic finalizer checks compatibility -> validation -> staging ->
+   build -> submit -> successful completion -> declared output retrieval/validation
+   and persists readiness. Re-read exact ready descriptor before Studio selection.
+   No Approve button, manual per-version promotion, or human image judgement is
+   required. ChatGPT/Work/runtime-enabled CI/operations tools can run this sequence.
+   Report busy or failure and explicitly reverify; never silently replay submit.
 
 Execution matrix:
 
-- Select the registered descriptor in Studio, create its owned immutable input,
+- Select the exact automatically attested ready descriptor in Studio, create its owned immutable input,
   show thumbnail, build/submit, poll to completion, synchronize Asset, preview/
   download it, inspect snapshot and Use settings.
 - With identical seed/prompt/dimensions/denoise, compare two visibly different
@@ -167,12 +210,15 @@ Execution matrix:
   ambiguous submission behavior, and no removal of original source files.
 - Confirm builtin txt2img/LoRA, existing Assets and snapshots still work.
 
-Only after successful adapter/profile smoke and an explicit safe provider-upload
-retention policy should an operator enable the production readiness flag.
-Review/smoke new production graph versions before promoting them; no restart
-is required just to runtime-register the definition.
+Infrastructure readiness may be enabled once adapter/profile smoke and a safe
+provider-upload retention policy are established. That flag never certifies a
+Definition. Every production Definition version/digest needs automatic verify
+and persisted matching attestation; updated identities immediately become
+unavailable until verification succeeds. No per-definition human approval or
+restart is required. Test a replaced/failed/retried candidate staying out of
+Studio production selection and a self-declared-ready definition being rejected.
 
-Missing deployed node inspection, real img2img smoke, operator readiness and
+Missing deployed node inspection, successful automatic attestation, infrastructure readiness and
 provider-upload retention evidence are remaining real-environment checks, not
 completed design-phase tests. Browser multi-user/UI smoke is also real-runtime
 acceptance; Windows is not a requirement for these Python/web changes.
@@ -182,8 +228,11 @@ acceptance; Windows is not a requirement for these Python/web changes.
 Create reviewable PRs per repository, repair CI failures, then self-review the
 whole flow including version/input races and authorization. Do not auto-merge;
 final merges belong to the user. Do not close a parent issue from a design-only
-or offline-only PR when its live acceptance is still outstanding.
+or offline-only PR when its live acceptance is still outstanding. Even successful
+existing-Asset img2img acceptance does not close Studio #30: its PC file picker/
+drag-drop local upload -> authorized managed input remains follow-up scope.
 
 Report implementation/commit/PR list, CI results, issue-by-issue done/residual,
 live smoke evidence or exact blockers, deployment order (Generation + Hub
 schema before Studio using new arguments), and the user's next concrete action.
+
