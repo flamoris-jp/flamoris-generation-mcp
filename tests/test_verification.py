@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import os
 import time
 
 import httpx
@@ -236,3 +237,28 @@ async def test_observation_deadline_never_attests_or_releases_active_job(verifie
     await asyncio.wait_for(asyncio.gather(*list(verifier.tasks)), timeout=1)
     assert jobs._get(result["job_id"]).verification["state"] == "failed"
     assert jobs.activity()["busy"]
+
+
+@pytest.mark.parametrize(
+    "field,value", [("nodes", []), ("models", []), ("nodes", {"KSampler": []})]
+)
+async def test_malformed_runtime_manifest_is_unavailable(verified, fake, field, value):
+    _, jobs, _, path, _ = verified
+    data = json.loads(path.read_text())
+    data["manifest"][field] = value
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="runtime_evidence_unavailable"):
+        await run_verify(verified)
+    assert not jobs.activity()["busy"] and not fake.prompts
+
+
+async def test_nonregular_evidence_paths_never_block(verified):
+    _, _, verifier, path, _ = verified
+    for target in (path, path.with_suffix(".json.lock")):
+        target.unlink()
+        os.mkfifo(target)
+        with pytest.raises(ValueError, match="runtime_evidence_unavailable"):
+            with verifier.evidence.guard():
+                pass
+        target.unlink()
+        target.write_text("{}")
