@@ -8,6 +8,7 @@ import httpx
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -100,7 +101,12 @@ def create_server(
         availability = {item["id"]: item.get("available") is True for item in health}
         return health, availability
 
-    @server.tool(name="system.health")
+    @server.tool(
+        name="system.health",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def health() -> dict[str, Any]:
         """Check this process and provider connectivity/queue availability."""
         provider_health, _ = await provider_availability()
@@ -117,34 +123,64 @@ def create_server(
             },
         }
 
-    @server.tool(name="capabilities.list")
+    @server.tool(
+        name="capabilities.list",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def list_capabilities() -> dict[str, Any]:
         """List provider-independent operations and current availability."""
         _, availability = await provider_availability()
         return {"capabilities": capabilities.list(availability)}
 
-    @server.tool(name="capabilities.get")
+    @server.tool(
+        name="capabilities.get",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def get_capability(capability_id: str) -> dict[str, Any]:
         """Inspect one capability ID independently from provider transport details."""
         _, availability = await provider_availability()
         return capabilities.get(capability_id, availability)
 
-    @server.tool(name="models.list")
+    @server.tool(
+        name="models.list",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     def list_models(kind: ModelKind | None = None) -> dict[str, Any]:
         """Scan installed model files, optionally filtered by kind."""
         return {"models": catalog.list(kind)}
 
-    @server.tool(name="models.get")
+    @server.tool(
+        name="models.get",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     def get_model(model_id: str) -> dict[str, Any]:
         """Inspect one kind:relative_filename ID from models.list."""
         return catalog.get(model_id)
 
-    @server.tool(name="workflows.list")
+    @server.tool(
+        name="workflows.list",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     def list_workflows() -> dict[str, Any]:
         """List known templates and workflow IDs (including saved recipes)."""
         return workflows.list()
 
-    @server.tool(name="workflows.register")
+    @server.tool(
+        name="workflows.register",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+        ),
+    )
     def register_workflow(definition: dict[str, Any]) -> dict[str, Any]:
         """Validate, persist, and activate one trusted workflow definition immediately."""
         # Reject routing conflicts before the definition is published to disk.
@@ -157,7 +193,12 @@ def create_server(
         capabilities.assign_workflow(result["capability_id"], result["provider_id"], result["id"])
         return result
 
-    @server.tool(name="workflows.build")
+    @server.tool(
+        name="workflows.build",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     def build_workflow(
         template: str,
         parameters: dict[str, Any],
@@ -170,7 +211,12 @@ def create_server(
             template, parameters, definition_version, definition_digest, require_ready
         )
 
-    @server.tool(name="workflows.verify")
+    @server.tool(
+        name="workflows.verify",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+        ),
+    )
     async def verify_workflow(
         workflow_id: str,
         definition_version: int,
@@ -180,12 +226,22 @@ def create_server(
         """Admit a bounded verification through the normal JobStore; poll its job_id."""
         return await verifier.verify(workflow_id, definition_version, definition_digest, parameters)
 
-    @server.tool(name="workflows.save")
+    @server.tool(
+        name="workflows.save",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+        ),
+    )
     def save_workflow(workflow_id: str) -> dict[str, Any]:
         """Persist the parameter recipe for reuse by workflow_id after restart."""
         return workflows.save(workflow_id)
 
-    @server.tool(name="jobs.submit")
+    @server.tool(
+        name="jobs.submit",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def submit_job(workflow_id: str) -> dict[str, Any]:
         """Submit one workflow when this process has no active generation."""
         try:
@@ -193,22 +249,42 @@ def create_server(
         except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
 
-    @server.tool(name="jobs.status")
+    @server.tool(
+        name="jobs.status",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def job_status(job_id: str) -> dict[str, Any]:
         """Poll execution status for a job submitted by this process."""
         return await jobs.status(job_id)
 
-    @server.tool(name="jobs.result")
+    @server.tool(
+        name="jobs.result",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def job_result(job_id: str) -> dict[str, Any]:
         """Return reproducibility metadata; download completed outputs to configured storage."""
         return await jobs.result(job_id)
 
-    @server.tool(name="jobs.cancel")
+    @server.tool(
+        name="jobs.cancel",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+        ),
+    )
     async def cancel_job(job_id: str) -> dict[str, Any]:
         """Cancel queued work; targeted running interruption requires configured support."""
         return await jobs.cancel(job_id)
 
-    @server.tool(name="assets.list")
+    @server.tool(
+        name="assets.list",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def list_assets(job_id: str) -> dict[str, Any]:
         """List generated media assets belonging to one completed generation job."""
         try:
@@ -216,7 +292,12 @@ def create_server(
         except (ValueError, ProviderError) as exc:
             raise ToolError(str(exc)) from exc
 
-    @server.tool(name="assets.delete")
+    @server.tool(
+        name="assets.delete",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+        ),
+    )
     async def delete_asset(asset_id: str) -> dict[str, Any]:
         """Delete one Hub-managed generated asset (not provider originals)."""
         try:
@@ -224,7 +305,12 @@ def create_server(
         except (ValueError, ProviderError) as exc:
             raise ToolError(str(exc)) from exc
 
-    @server.tool(name="assets.get")
+    @server.tool(
+        name="assets.get",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def get_asset(asset_id: str) -> Image:
         """Return one generated image asset as MCP-native binary media content."""
         try:
@@ -233,7 +319,12 @@ def create_server(
         except (ValueError, ProviderError) as exc:
             raise ToolError(str(exc)) from exc
 
-    @server.tool(name="assets.prepare")
+    @server.tool(
+        name="assets.prepare",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def prepare_asset(asset_id: str) -> dict[str, Any]:
         """Materialize one asset for bounded transfer; return immutable content digest."""
         try:
@@ -245,7 +336,12 @@ def create_server(
                 else "Asset preparation failed; retry safely"
             ) from None
 
-    @server.tool(name="assets.read")
+    @server.tool(
+        name="assets.read",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def read_asset(
         asset_id: str, sha256: str, offset: int, length: int = CHUNK_BYTES
     ) -> dict[str, Any]:
@@ -259,7 +355,12 @@ def create_server(
                 else "Asset read failed; prepare again"
             ) from None
 
-    @server.tool(name="inputs.create")
+    @server.tool(
+        name="inputs.create",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def create_input(asset_id: str) -> dict[str, Any]:
         """Snapshot a generated image/audio asset as an immutable expiring input."""
         try:
@@ -271,7 +372,12 @@ def create_server(
                 else "Input creation failed"
             ) from None
 
-    @server.tool(name="inputs.get")
+    @server.tool(
+        name="inputs.get",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+        ),
+    )
     async def get_input(input_id: str) -> dict[str, Any]:
         """Inspect managed input metadata; an ID is not a Studio ownership grant."""
         try:
@@ -281,7 +387,12 @@ def create_server(
                 str(exc) if isinstance(exc, ValueError) else "Input retrieval failed"
             ) from None
 
-    @server.tool(name="inputs.delete")
+    @server.tool(
+        name="inputs.delete",
+        annotations=ToolAnnotations(
+            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+        ),
+    )
     async def delete_input(input_id: str) -> dict[str, Any]:
         """Delete a managed snapshot unless a provider adapter is using it."""
         try:

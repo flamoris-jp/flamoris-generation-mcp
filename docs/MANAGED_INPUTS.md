@@ -51,10 +51,9 @@ bounded readers plus immutable metadata. An adapter owns mapping these readers
 to its runtime's input locations, cleanup and retention across ambiguous submits.
 No second job/GPU authority is created. Runtime lifecycle remains external.
 
-This PR does not claim a verified upload/staging API for ComfyUI, Irodori,
-SheetSage2, AnimeGen or SeeThrough. Production workflow file bindings therefore
-remain fail-closed. No production provider input capability is advertised.
-The internal stage contract is exercised with fake adapters and small real media
-fixtures. Provider-specific staging/submit integration must keep the lease for
-all runtime reads, preserve returned provenance in job metadata, and pass the
-separate real-runtime smoke before a trusted manifest can enable file bindings.
+The ComfyUI adapter uploads bounded decoded PNG/JPEG/WebP images, resolves only
+LoadImage.image, and uses ordinary JobStore staging leases. Production img2img
+requires both independent infrastructure readiness and exact automatic Workflow
+attestation; see [verification](WORKFLOW_VERIFICATION.md). Provider upload retention
+is an operational prerequisite, not automatic deletion claimed by this adapter.
+Other provider bindings remain unsupported.
