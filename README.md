@@ -14,6 +14,10 @@ Automatic registered Image Workflow verification is described in
 validated candidate; exact runtime attestation and the independent infrastructure
 gate control production use.
 
+## Proposed integration design
+
+[Multimodal Workflows and pinned includes](docs/MULTIMODAL_WORKFLOWS.md) records the proposed media/Workflow/Agent integration coordinated by [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). It is a design proposal, not a claim that new providers, composed execution or shared-user Agent assistance are implemented. Existing public contracts and readiness gates remain authoritative.
+
 ## Ecosystem boundary
 
 FLAMORIS Generation MCP owns generative-media and closely related media-analysis execution: workflows, jobs, provider coordination, and generated/materialized assets.
