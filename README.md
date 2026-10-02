@@ -16,6 +16,11 @@ gate control production use.
 
 ## Proposed integration design
 
+The internal [v3 static foundation](docs/WORKFLOW_V3_FOUNDATION.md) implements strict
+contracts, immutable version history and bounded include compilation. Public MCP
+execution and readiness remain on the existing Image contract until reviewed
+adapters, lowering, attestation and catalog migration are connected.
+
 [Multimodal Workflows and pinned includes](docs/MULTIMODAL_WORKFLOWS.md) records the proposed media/Workflow/Agent integration coordinated by [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). It is a design proposal, not a claim that new providers, composed execution or shared-user Agent assistance are implemented. Existing public contracts and readiness gates remain authoritative.
 
 ## Ecosystem boundary
@@ -551,4 +556,3 @@ tools to users. Production workflow file bindings remain fail-closed except for 
 ComfyUI `LoadImage.image` managed-image binding described above. A real-runtime
 smoke is still required before enabling a production Reference Image workflow.
 This does not advertise transcription, TTS, video-input, or arbitrary file capabilities.
-
