@@ -37,8 +37,10 @@ an ABC score as part of the full pipeline. An eventual `music.plan` operation ne
 its own supported contract; it cannot be inferred from an ABC output or supplied
 MIDI. ABC input is symbolic text, not an arbitrary MIDI rendering promise.
 
-The server retains at most 32 completed-job records by evicting old non-running
-entries; running records are not evicted by that loop. There is no durable restart
+On each job creation the server tries to reduce total retained records to 32 by
+evicting old non-running entries. Running records are exempt, so this is not a hard
+queue/memory ceiling; later completions can remain until another creation triggers
+eviction. There is no durable restart
 recovery, caller request-id deduplication or immutable content receipt at this HTTP
 boundary. Generation must snapshot and validate outputs before source eviction.
 
