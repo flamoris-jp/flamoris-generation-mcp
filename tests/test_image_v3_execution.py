@@ -277,6 +277,16 @@ async def test_opt_in_tools_preserve_legacy_and_expose_graph_free_descriptors(se
             await client.call_tool("workflows.v3.build", args | {"require_ready": False})
         ).structured_content
         assert built["schema_version"] == 3
+        for invalid in (
+            {"definition_version": True},
+            {"definition_version": "1"},
+            {"require_ready": "false"},
+        ):
+            assert (
+                await client.call_tool(
+                    "workflows.v3.build", args | {"require_ready": False} | invalid
+                )
+            ).is_error
         assert (
             await client.call_tool("jobs.submit", {"workflow_id": built["workflow_id"]})
         ).is_error

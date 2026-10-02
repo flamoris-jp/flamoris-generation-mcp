@@ -9,6 +9,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import StrictBool, StrictInt
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -299,10 +300,10 @@ def create_server(
         )
         def build_v3(
             workflow_id: str,
-            definition_version: int,
+            definition_version: StrictInt,
             definition_digest: str,
             parameters: dict[str, Any],
-            require_ready: bool = True,
+            require_ready: StrictBool = True,
         ) -> dict[str, Any]:
             """Build an exact Image v3 invocation; production requires parent attestation."""
             return v3_operation(
@@ -314,7 +315,7 @@ def create_server(
         @server.tool(name="workflows.v3.verify", annotations=write_annotations)
         async def verify_v3(
             workflow_id: str,
-            definition_version: int,
+            definition_version: StrictInt,
             definition_digest: str,
             parameters: dict[str, Any],
         ) -> dict[str, Any]:
@@ -328,7 +329,7 @@ def create_server(
 
         @server.tool(name="workflows.v3.revoke", annotations=write_annotations)
         def revoke_v3(
-            workflow_id: str, definition_version: int, definition_digest: str
+            workflow_id: str, definition_version: StrictInt, definition_digest: str
         ) -> dict[str, Any]:
             """Administratively revoke an exact retained version and its dependent compositions."""
 
