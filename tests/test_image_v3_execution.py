@@ -1,5 +1,6 @@
 """Actual JobStore/HTTP/attestation boundaries, without a live GPU."""
 
+import asyncio
 import copy
 import json
 import time
@@ -111,7 +112,7 @@ async def test_revocation_after_prompt_construction_blocks_post(execution, fake,
 
 
 @pytest.mark.parametrize(
-    "change", ["missing", "duplicate", "mime", "payload", "bytes", "dimensions"]
+    "change", ["missing", "duplicate", "foreign", "mime", "payload", "bytes", "dimensions"]
 )
 async def test_invalid_outputs_never_qualify(execution, fake, change):
     _, jobs, verifier, root, _, client = execution
@@ -123,6 +124,8 @@ async def test_invalid_outputs_never_qualify(execution, fake, change):
         outputs.clear()
     elif change == "duplicate":
         outputs.append(dict(outputs[0]))
+    elif change == "foreign":
+        fake.history[execution_id]["outputs"]["8"] = {"images": [dict(outputs[0])]}
     elif change == "mime":
         outputs[0]["filename"] = "result.webp"
     else:
@@ -211,6 +214,43 @@ async def test_runtime_replacement_invalidates_v3_parent(execution, fake):
         build(execution)
     plan = store.v3.versions.compile(root.id, root.version, root.digest)
     assert verifier.v3_descriptor(root, plan)["readiness"]["state"] == "validated"
+
+
+async def test_verification_deadline_also_cancels_target_and_never_qualifies(execution):
+    _, jobs, verifier, root, _, _ = execution
+    result = await verifier.verify(root.id, root.version, root.digest, VALUES, v3=True)
+    job = jobs._get(result["job_id"])
+    job.execution_deadline = time.time() - 1
+    await asyncio.wait_for(jobs._watch_deadline(job.job_id), 3)
+    assert job.snapshot.status == "cancelled"
+    assert job.verification["state"] == "failed"
+    assert not jobs.activity()["busy"]
+
+
+async def test_admitted_rejection_supersedes_parent_ready(execution, fake):
+    store, jobs, verifier, root, _, client = execution
+    await ready(execution, fake)
+    client.http._transport = httpx.MockTransport(
+        lambda req: httpx.Response(400) if req.url.path == "/prompt" else fake.handle(req)
+    )
+    with pytest.raises(ValueError):
+        await verifier.verify(root.id, root.version, root.digest, VALUES, v3=True)
+    assert not jobs.activity()["busy"]
+    plan = store.v3.versions.compile(root.id, root.version, root.digest)
+    assert verifier.v3_descriptor(root, plan)["readiness"]["state"] == "validated"
+
+
+async def test_recipe_invocation_tampering_and_revocation_before_promotion(execution, fake):
+    store, jobs, verifier, root, _, _ = execution
+    built = build(execution, require_ready=False)
+    recipe = store.get(built["workflow_id"])
+    altered = recipe.model_copy(update={"invocation_digest": "sha256:" + "a" * 64})
+    with pytest.raises(ValueError, match="Stale compiled"):
+        store.capture(altered)
+    result = await verifier.verify(root.id, root.version, root.digest, VALUES, v3=True)
+    store.v3.versions.revoke("image-leaf", 1, Definition.model_validate(leaf()).digest)
+    fake.finish(result["provider_execution_id"])
+    assert (await jobs.status(result["job_id"]))["verification"]["state"] == "failed"
 
 
 async def test_opt_in_tools_preserve_legacy_and_expose_graph_free_descriptors(settings, fake):

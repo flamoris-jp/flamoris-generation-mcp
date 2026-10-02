@@ -187,7 +187,11 @@ class ComfyUIProvider:
             raise ProviderError("Unknown ComfyUI execution; inspect only submitted jobs")
         selected = [item for item in raw.get("outputs", []) if item.get("node_id") == declared_node]
         contract = self._output_contracts.get(execution_id)
-        if contract is not None and status == "completed" and len(selected) != 1:
+        if (
+            contract is not None
+            and status == "completed"
+            and (len(selected) != 1 or len(raw.get("outputs", [])) != 1)
+        ):
             # Provider completion is observed, but cannot satisfy the declared result.
             return JobSnapshot(status="failed", error={"code": "output_contract"})
         if status == "completed" and not selected:

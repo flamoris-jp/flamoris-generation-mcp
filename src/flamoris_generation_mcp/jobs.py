@@ -288,7 +288,7 @@ class JobStore:
             if verification is not None:
                 self.verifier.fail(job, "submission_unknown")
             raise SubmissionUnknown("submission_unknown: accepted job journal failed") from None
-        if recipe.schema_version == 3 and verification is None:
+        if recipe.schema_version == 3:
             task = asyncio.create_task(self._watch_deadline(job_id))
             self._watchers.add(task)
             task.add_done_callback(self._watchers.discard)
