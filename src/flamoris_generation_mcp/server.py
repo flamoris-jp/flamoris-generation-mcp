@@ -9,6 +9,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import StrictBool, StrictInt
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -35,7 +36,12 @@ def create_server(
 ) -> MCPServer:
     settings = settings or Settings.from_env()
     catalog = ModelCatalog(settings)
-    workflows = WorkflowStore(catalog, settings.workflow_dir, settings.workflow_definition_dir)
+    workflows = WorkflowStore(
+        catalog,
+        settings.workflow_dir,
+        settings.workflow_definition_dir,
+        v3_enabled=settings.workflow_v3_enabled,
+    )
     client = ComfyUIClient(settings, transport)
     comfyui = ComfyUIProvider(client, catalog, workflows)
     providers = ProviderRegistry((comfyui,))
@@ -87,6 +93,7 @@ def create_server(
             yield None
         finally:
             await verifier.close()
+            await jobs.close()
             await providers.close()
 
     server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
@@ -225,6 +232,115 @@ def create_server(
     ) -> dict[str, Any]:
         """Admit a bounded verification through the normal JobStore; poll its job_id."""
         return await verifier.verify(workflow_id, definition_version, definition_digest, parameters)
+
+    if settings.workflow_v3_enabled:
+        # A separate opt-in catalog revision preserves every legacy tool/schema
+        # and avoids ambiguous Image descriptor/recipe reinterpretation.
+        from .workflow_v3 import canonical
+
+        def v3_operation(call):
+            try:
+                return call()
+            except (ValueError, TypeError, KeyError, OSError):
+                raise ToolError(
+                    "V3 workflow unavailable; check exact pins/profile/input contract"
+                ) from None
+
+        read_annotations = ToolAnnotations(
+            readOnlyHint=True, destructiveHint=False, openWorldHint=False
+        )
+        write_annotations = ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, openWorldHint=False
+        )
+
+        @server.tool(name="workflows.v3.register", annotations=write_annotations)
+        def register_v3(definition: dict[str, Any]) -> dict[str, Any]:
+            """Register a strict Image v3 provider or pinned pass-through composition; not ready."""
+            return v3_operation(lambda: workflows.v3.versions.register(definition))
+
+        @server.tool(name="workflows.v3.list", annotations=read_annotations)
+        def list_v3() -> dict[str, Any]:
+            """Return graph-free descriptor revision 3, independent of legacy Image discovery."""
+
+            def project():
+                descriptors = []
+                with workflows.v3.versions.lock:
+                    workflows.v3.versions._current()
+                    for workflow_id, version in sorted(
+                        workflows.v3.versions.state["active"].items()
+                    ):
+                        try:
+                            root = workflows.v3.versions.get(workflow_id, version)
+                            plan = workflows.v3.versions.compile(root.id, root.version, root.digest)
+                            descriptor = verifier.v3_descriptor(root, plan)
+                            descriptors.append(descriptor)
+                        except (ValueError, TypeError, KeyError, OSError):
+                            # Revoked/unsupported aliases remain visible, never executable.
+                            raw = workflows.v3.versions.state["versions"][
+                                workflows.v3.versions.key(workflow_id, version)
+                            ]
+                            from .workflow_v3 import Definition
+
+                            descriptor = Definition.model_validate(raw).descriptor()
+                            descriptor["readiness"].update(
+                                state="validated", reason="verification_unavailable"
+                            )
+                            descriptors.append(descriptor)
+                result = {"descriptor_revision": 3, "descriptors": descriptors}
+                canonical(result, 256 * 1024)
+                return result
+
+            return v3_operation(project)
+
+        @server.tool(
+            name="workflows.v3.build",
+            annotations=ToolAnnotations(
+                readOnlyHint=False, destructiveHint=False, openWorldHint=False
+            ),
+        )
+        def build_v3(
+            workflow_id: str,
+            definition_version: StrictInt,
+            definition_digest: str,
+            parameters: dict[str, Any],
+            require_ready: StrictBool = True,
+        ) -> dict[str, Any]:
+            """Build an exact Image v3 invocation; production requires parent attestation."""
+            return v3_operation(
+                lambda: workflows.build_v3(
+                    workflow_id, definition_version, definition_digest, parameters, require_ready
+                )
+            )
+
+        @server.tool(name="workflows.v3.verify", annotations=write_annotations)
+        async def verify_v3(
+            workflow_id: str,
+            definition_version: StrictInt,
+            definition_digest: str,
+            parameters: dict[str, Any],
+        ) -> dict[str, Any]:
+            """Smoke the entire exact composed Image plan through the ordinary JobStore once."""
+            try:
+                return await verifier.verify(
+                    workflow_id, definition_version, definition_digest, parameters, v3=True
+                )
+            except (ValueError, TypeError, KeyError, OSError):
+                raise ToolError("V3 verification unavailable; no automatic replay") from None
+
+        @server.tool(name="workflows.v3.revoke", annotations=write_annotations)
+        def revoke_v3(
+            workflow_id: str, definition_version: StrictInt, definition_digest: str
+        ) -> dict[str, Any]:
+            """Administratively revoke an exact retained version and its dependent compositions."""
+
+            def revoke():
+                from .image_v3 import Identity
+
+                Identity(id=workflow_id, version=definition_version, digest=definition_digest)
+                workflows.v3.versions.revoke(workflow_id, definition_version, definition_digest)
+                return {"revoked": True}
+
+            return v3_operation(revoke)
 
     @server.tool(
         name="workflows.save",

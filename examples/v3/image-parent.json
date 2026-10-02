@@ -1,0 +1,152 @@
+{
+  "schema_version": 3,
+  "id": "image-parent",
+  "version": 1,
+  "name": "Pinned Image",
+  "capability_id": "image.generate",
+  "profile": {
+    "id": "image-generate-v1",
+    "revision": 1
+  },
+  "inputs": {
+    "checkpoint": {
+      "type": "string",
+      "schema_id": "image-checkpoint",
+      "schema_revision": 1,
+      "role": "checkpoint",
+      "max_bytes": 20000,
+      "min_count": 1
+    },
+    "positive_prompt": {
+      "type": "string",
+      "schema_id": "image-positive-prompt",
+      "schema_revision": 1,
+      "role": "positive_prompt",
+      "max_bytes": 20000,
+      "min_count": 1
+    },
+    "steps": {
+      "type": "integer",
+      "schema_id": "image-steps",
+      "schema_revision": 1,
+      "role": "steps",
+      "max_bytes": 64,
+      "min_count": 0,
+      "default": 20,
+      "minimum": 1,
+      "maximum": 150
+    },
+    "cfg": {
+      "type": "number",
+      "schema_id": "image-cfg",
+      "schema_revision": 1,
+      "role": "cfg",
+      "max_bytes": 64,
+      "min_count": 0,
+      "default": 7,
+      "minimum": 0,
+      "maximum": 100
+    },
+    "width": {
+      "type": "integer",
+      "schema_id": "image-width",
+      "schema_revision": 1,
+      "role": "width",
+      "max_bytes": 64,
+      "min_count": 0,
+      "default": 512,
+      "minimum": 64,
+      "maximum": 4096
+    },
+    "height": {
+      "type": "integer",
+      "schema_id": "image-height",
+      "schema_revision": 1,
+      "role": "height",
+      "max_bytes": 64,
+      "min_count": 0,
+      "default": 512,
+      "minimum": 64,
+      "maximum": 4096
+    },
+    "seed": {
+      "type": "integer",
+      "schema_id": "image-seed",
+      "schema_revision": 1,
+      "role": "seed",
+      "max_bytes": 64,
+      "min_count": 0,
+      "default": 0,
+      "minimum": 0,
+      "maximum": 4294967295
+    }
+  },
+  "outputs": {
+    "image": {
+      "type": "asset",
+      "schema_id": "image-v1",
+      "schema_revision": 1,
+      "role": "primary_image",
+      "media_kind": "image",
+      "mime_types": [
+        "image/png"
+      ],
+      "max_bytes": 1048576
+    }
+  },
+  "budget": {
+    "steps": 7,
+    "deadline_seconds": 300,
+    "output_assets": 1,
+    "output_bytes": 1048576
+  },
+  "effects": [
+    "external",
+    "write"
+  ],
+  "execution": {
+    "kind": "composition"
+  },
+  "includes": [
+    {
+      "alias": "render",
+      "workflow_id": "image-leaf",
+      "version": 1,
+      "digest": "sha256:b49ffe810c3817178e94ed098de9a48dac099c3ef08bfc94a6514987e76db364"
+    }
+  ],
+  "bindings": [
+    {
+      "from": "inputs.checkpoint",
+      "to": "render.inputs.checkpoint"
+    },
+    {
+      "from": "inputs.positive_prompt",
+      "to": "render.inputs.positive_prompt"
+    },
+    {
+      "from": "inputs.steps",
+      "to": "render.inputs.steps"
+    },
+    {
+      "from": "inputs.cfg",
+      "to": "render.inputs.cfg"
+    },
+    {
+      "from": "inputs.width",
+      "to": "render.inputs.width"
+    },
+    {
+      "from": "inputs.height",
+      "to": "render.inputs.height"
+    },
+    {
+      "from": "inputs.seed",
+      "to": "render.inputs.seed"
+    },
+    {
+      "from": "render.outputs.image",
+      "to": "outputs.image"
+    }
+  ]
+}

@@ -17,9 +17,10 @@ gate control production use.
 ## Proposed integration design
 
 The internal [v3 static foundation](docs/WORKFLOW_V3_FOUNDATION.md) implements strict
-contracts, immutable version history and bounded include compilation. Public MCP
-execution and readiness remain on the existing Image contract until reviewed
-adapters, lowering, attestation and catalog migration are connected.
+contracts, immutable version history and bounded include compilation. The opt-in
+[Image v3 execution profile](docs/IMAGE_V3_EXECUTION.md) connects exact pinned
+provider/pass-through compositions to the ordinary jobs and automatic attestation.
+The legacy catalog is unchanged; multiple leaves and other media remain gated.
 
 [Multimodal Workflows and pinned includes](docs/MULTIMODAL_WORKFLOWS.md) records the proposed media/Workflow/Agent integration coordinated by [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). It is a design proposal, not a claim that new providers, composed execution or shared-user Agent assistance are implemented. Existing public contracts and readiness gates remain authoritative.
 
@@ -168,6 +169,7 @@ ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
 | `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | ComfyUI HTTP base URL; path prefixes supported |
 | `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
 | `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
+| `FLAMORIS_WORKFLOW_V3_ENABLED` | `false` | Add the separate Image v3 tool/descriptor catalog; enable with its matching Hub template |
 | `FLAMORIS_WORKFLOW_DIR` | `.generation/workflows` | Saved parameter recipes |
 | `FLAMORIS_WORKFLOW_DEFINITION_DIR` | `.generation/definitions` | Trusted API-format ComfyUI workflow definitions, read at startup |
 | `FLAMORIS_OUTPUT_DIR` | `.generation/outputs` | Downloaded outputs and metadata, grouped by job ID |

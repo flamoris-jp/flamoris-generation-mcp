@@ -18,9 +18,10 @@ STORE_BYTES = 8 * 1024 * 1024
 
 
 class DefinitionVersions:
-    def __init__(self, root, validate: Callable[[Definition], None]):
+    def __init__(self, root, validate: Callable[[Definition], None], *, validate_plan=None):
         self.records = Records(root, "definition-versions-v3", limit=STORE_BYTES)
         self.validate = validate
+        self.validate_plan = validate_plan
         self.lock = threading.RLock()
         self.uncertain = False
         self.state = self.records.read("index.json") or {
@@ -83,7 +84,9 @@ class DefinitionVersions:
         return False
 
     def _compiler(self, state):
-        return Compiler(lambda i, v, d: self._lookup(state, i, v, d), self.validate)
+        return Compiler(
+            lambda i, v, d: self._lookup(state, i, v, d), self.validate, self.validate_plan
+        )
 
     def _lookup(self, state, workflow_id, version, expected_digest=None):
         key = self.key(workflow_id, version)

@@ -63,9 +63,11 @@ class Compiler:
         self,
         lookup: Callable[[str, int, str], Definition],
         validate: Callable[[Definition], None],
+        validate_plan: Callable[[Plan], None] | None = None,
     ):
         self.lookup = lookup
         self.validate = validate
+        self.validate_plan = validate_plan
 
     def compile(self, root: Definition) -> Plan:
         state = {"occurrences": 0, "edges": 0, "bytes": 0, "steps": [], "closure": {}}
@@ -87,7 +89,10 @@ class Compiler:
             "effects": sorted(effects),
         }
         canonical(manifest)
-        return Plan(manifest)
+        plan = Plan(manifest)
+        if self.validate_plan is not None:
+            self.validate_plan(plan)
+        return plan
 
     def _expand(self, definition, path, assigned, ancestors, state):
         key = (definition.id, definition.version, definition.digest)

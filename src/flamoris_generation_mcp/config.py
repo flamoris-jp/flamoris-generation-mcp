@@ -43,6 +43,7 @@ class Settings(BaseModel):
     output_dir: Path = Path(".generation/outputs")
     runtime_evidence_file: Path | None = None
     managed_input_ready: bool = False
+    workflow_v3_enabled: bool = False
     comfyui_output_root: Path | None = None
     provider_cleanup_enabled: bool = False
     provider_retention_days: int = Field(default=30, ge=0, le=36500)
@@ -82,6 +83,7 @@ class Settings(BaseModel):
             "COMFYUI_URL": "comfyui_url",
             "RUNTIME_EVIDENCE_FILE": "runtime_evidence_file",
             "MANAGED_INPUT_READY": "managed_input_ready",
+            "WORKFLOW_V3_ENABLED": "workflow_v3_enabled",
             "MODEL_ROOT": "model_root",
             "WORKFLOW_DIR": "workflow_dir",
             "WORKFLOW_DEFINITION_DIR": "workflow_definition_dir",

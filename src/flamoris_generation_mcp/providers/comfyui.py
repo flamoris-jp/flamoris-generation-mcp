@@ -6,11 +6,13 @@ from pathlib import Path
 
 from ..comfyui import ComfyUIClient
 from ..image_decode import decode_image
+from ..image_profile import image_topology
 from ..models import ModelCatalog
 from ..workflows import ExternalRecipe, Recipe, WorkflowStore, build_prompt
 from .base import (
     GenerationRequest,
     JobSnapshot,
+    OutputRole,
     ProviderError,
     ProviderHealth,
     ProviderJob,
@@ -52,6 +54,16 @@ class ComfyUIProvider:
         self.managed_inputs = managed_inputs
         self._outputs: dict[tuple[str, str], dict] = {}
         self._output_nodes: dict[str, str] = {}
+        self._output_contracts = {}
+
+    def capture_output_contract(self, execution_id, definition):
+        if hasattr(definition, "v3_identity"):
+            dimensions = image_topology(definition)["dimensions"]
+            self._output_contracts[execution_id] = (
+                definition.output_port,
+                definition.output_contract,
+                {k: definition.graph[dimensions]["inputs"][k] for k in ("width", "height")},
+            )
 
     def retention(self) -> ComfyUIRetention | None:
         root = self.client.settings.comfyui_output_root
@@ -161,6 +173,7 @@ class ComfyUIProvider:
             raise
         # The accepted execution always retains the graph's captured output identity.
         self._output_nodes[execution_id] = definition.output_node if definition is not None else "7"
+        self.capture_output_contract(execution_id, definition)
         return ProviderJob(execution_id=execution_id, managed_inputs=managed_inputs)
 
     def _normalize(self, execution_id: str, raw: dict) -> JobSnapshot:
@@ -173,15 +186,29 @@ class ComfyUIProvider:
         if declared_node is None:
             raise ProviderError("Unknown ComfyUI execution; inspect only submitted jobs")
         selected = [item for item in raw.get("outputs", []) if item.get("node_id") == declared_node]
+        contract = self._output_contracts.get(execution_id)
+        if (
+            contract is not None
+            and status == "completed"
+            and (len(selected) != 1 or len(raw.get("outputs", [])) != 1)
+        ):
+            # Provider completion is observed, but cannot satisfy the declared result.
+            return JobSnapshot(status="failed", error={"code": "output_contract"})
         if status == "completed" and not selected:
             raise ProviderError("ComfyUI returned no declared workflow output")
+        if contract is not None and status != "completed":
+            selected = []  # Partial provider outputs are never public v3 results.
         for index, item in enumerate(selected):
             try:
                 filename = item["filename"]
                 suffix = Path(filename).suffix.lower()
                 media_kind, mime_type = MEDIA_TYPES[suffix]
             except (KeyError, TypeError, ValueError):
+                if contract is not None:
+                    return JobSnapshot(status="failed", error={"code": "output_contract"})
                 raise ProviderError("ComfyUI returned an unsupported output") from None
+            if contract is not None and mime_type not in contract[1].mime_types:
+                return JobSnapshot(status="failed", error={"code": "output_contract"})
             output_id = f"{index:03d}"
             outputs.append(
                 ProviderOutput(
@@ -189,6 +216,7 @@ class ComfyUIProvider:
                     filename=filename,
                     media_kind=media_kind,
                     mime_type=mime_type,
+                    role=OutputRole(contract[0], contract[1].role) if contract else None,
                 )
             )
             self._outputs[(execution_id, output_id)] = dict(item)
@@ -217,7 +245,20 @@ class ComfyUIProvider:
             raise ProviderError(
                 "Unknown ComfyUI output; inspect the job before retrieval"
             ) from None
-        return await self.client.download(output)
+        data = await self.client.download(output)
+        contract = self._output_contracts.get(execution_id)
+        if contract is not None and len(data) > contract[1].max_bytes:
+            raise ProviderError("Image output exceeds declared byte limit")
+        if contract is not None:
+            await self._validate_image(data, output, contract)
+        return data
+
+    @staticmethod
+    async def _validate_image(data, output, contract):
+        mime_type = MEDIA_TYPES[Path(output["filename"]).suffix.lower()][1]
+        dimensions = await asyncio.to_thread(decode_image, data, mime_type)
+        if dimensions != contract[2]:
+            raise ProviderError("Image output differs from declared dimensions")
 
     async def close(self) -> None:
         await self.client.close()
@@ -229,5 +270,16 @@ class ComfyUIProvider:
         if output is None:
             raise ProviderError("Unknown ComfyUI output; inspect before retrieval")
         async with aclosing(self.client.stream_output(output)) as stream:
+            size = 0
+            contract = self._output_contracts.get(execution_id)
+            data = bytearray() if contract is not None else None
             async for chunk in stream:
+                size += len(chunk)
+                if contract is not None and size > contract[1].max_bytes:
+                    raise ProviderError("Image output exceeds declared byte limit")
+                if data is not None:
+                    data.extend(chunk)
                 yield chunk
+            if data is not None:
+                # Transfer destinations commit only after the stream closes successfully.
+                await self._validate_image(bytes(data), output, contract)

@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 import time
 from contextlib import contextmanager
 from uuid import uuid4
@@ -13,6 +14,7 @@ from .workflows import ExternalRecipe
 
 PROFILE_REVISION = 2
 DEADLINE = 300
+V3_DOMAIN = {"id": "image-v1-bounded-scalars", "revision": 1}
 
 
 class WorkflowVerification:
@@ -22,6 +24,7 @@ class WorkflowVerification:
         self.evidence = evidence
         self.infrastructure_ready = infrastructure_ready
         self.records = Records(jobs.output_dir, "workflow-attestations")
+        self.v3_records = Records(jobs.output_dir, "workflow-attestations-v3")
         self.instance = uuid4().hex
         self.tasks = set()
         self.uncertain = set()
@@ -33,7 +36,17 @@ class WorkflowVerification:
             "definition_version": definition.version,
             "definition_digest": definition.digest,
             "profile_revision": PROFILE_REVISION,
+            **(
+                {"media_plan": definition.v3_identity.model_dump(mode="json")}
+                if hasattr(definition, "v3_identity")
+                else {}
+            ),
         }
+
+    def record_location(self, definition):
+        if hasattr(definition, "v3_identity"):
+            return self.v3_records, f"{definition.id}-{definition.version}.json"
+        return self.records, definition.id + ".json"
 
     @staticmethod
     def compatible(definition, parameters, runtime):
@@ -73,12 +86,20 @@ class WorkflowVerification:
         return item
 
     def _require_record(self, definition, runtime, parameters=None):
-        if definition.id in self.uncertain:
+        records, key = self.record_location(definition)
+        record = self._require_identity(records, key, self.identity(definition), runtime)
+        if parameters is not None:
+            if self.compatible(definition, parameters, runtime) != record.get("model"):
+                raise ValueError("Model outside verified profile domain")
+        return record
+
+    def _require_identity(self, records, key, identity, runtime):
+        if (records.namespace, key) in self.uncertain or identity["workflow_id"] in self.uncertain:
             raise ValueError("Workflow production readiness persistence uncertain")
-        record = self.records.read(definition.id + ".json")
+        record = records.read(key)
         if (
             not record
-            or record.get("identity") != self.identity(definition)
+            or record.get("identity") != identity
             or record.get("state") != "ready"
             or record.get("runtime") != runtime
             or record.get("evidence_revision") != 1
@@ -86,10 +107,33 @@ class WorkflowVerification:
             or not record.get("output")
         ):
             raise ValueError("Workflow production readiness is unavailable")
-        if parameters is not None:
-            if self.compatible(definition, parameters, runtime) != record.get("model"):
-                raise ValueError("Model outside verified profile domain")
+        if "media_plan" in identity and (
+            record.get("qualified_domain") != V3_DOMAIN
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", record.get("smoke_invocation_digest", ""))
+        ):
+            raise ValueError("Composed workflow qualification is unavailable")
         return record
+
+    def v3_descriptor(self, root, plan):
+        item = root.descriptor()
+        identity = {
+            "workflow_id": root.id,
+            "definition_version": root.version,
+            "definition_digest": root.digest,
+            "profile_revision": PROFILE_REVISION,
+            "media_plan": self.workflows.v3.plan_identity(plan).model_dump(mode="json"),
+        }
+        try:
+            with self.evidence.guard() as runtime:
+                record = self._require_identity(
+                    self.v3_records, f"{root.id}-{root.version}.json", identity, runtime
+                )
+            item["readiness"].update(state="ready", reason=None)
+            item["qualified_models"] = [record["model"]["model"]]
+            item["qualified_domain"] = dict(V3_DOMAIN)
+        except (ValueError, OSError, TypeError, KeyError):
+            item["readiness"].update(state="validated", reason="verification_unavailable")
+        return item
 
     def require(self, definition, parameters):
         with self.evidence.guard() as runtime:
@@ -111,6 +155,10 @@ class WorkflowVerification:
             yield
 
     def before_post(self, recipe, definition, expected):
+        if recipe.schema_version == 3:
+            current = self.workflows.capture(recipe)
+            if self.identity(current) != self.identity(definition):
+                raise ValueError("Composed workflow changed before submission")
         if isinstance(recipe, ExternalRecipe) and (recipe.require_ready or expected):
             with self.evidence.guard() as runtime:
                 if expected is not None and runtime != expected:
@@ -118,10 +166,14 @@ class WorkflowVerification:
                 if recipe.require_ready:
                     self.require(definition, recipe.parameters)
 
-    async def verify(self, workflow_id, version, digest, parameters):
+    async def verify(self, workflow_id, version, digest, parameters, *, v3=False):
         if type(version) is not int or not isinstance(digest, str):
             raise ValueError("Verification requires exact Definition identity")
-        built = self.workflows.build(workflow_id, parameters, version, digest)
+        built = (
+            self.workflows.build_v3(workflow_id, version, digest, parameters, False)
+            if v3
+            else self.workflows.build(workflow_id, parameters, version, digest)
+        )
         recipe = self.workflows.get(built["workflow_id"])
         definition = self.workflows.capture(recipe)
         if definition is None:
@@ -139,6 +191,14 @@ class WorkflowVerification:
             "deadline": time.time() + DEADLINE,
             "evidence_revision": 1,
             "state": "pending",
+            **(
+                {
+                    "smoke_invocation_digest": recipe.invocation_digest,
+                    "qualified_domain": dict(V3_DOMAIN),
+                }
+                if recipe.schema_version == 3
+                else {}
+            ),
         }
         async with asyncio.timeout(DEADLINE):
             result = await self.jobs.submit(built["workflow_id"], verification=attempt)
@@ -148,25 +208,28 @@ class WorkflowVerification:
         return result
 
     def admit(self, job, attempt):
-        with self.workflows.registry._register_lock, self.evidence.guard() as runtime:
+        with self.workflows.definition_lock(job.recipe), self.evidence.guard() as runtime:
             definition = self.workflows.capture(job.recipe)
             if self.identity(definition) != attempt["identity"] or runtime != attempt["runtime"]:
                 raise ValueError("Verification identity changed before admission")
             try:
-                self.records.write(definition.id + ".json", attempt)
+                records, key = self.record_location(definition)
+                records.write(key, attempt)
             except CommitUnknown:
-                self.uncertain.add(definition.id)
+                self.uncertain.add((records.namespace, key))
                 raise
             job.verification = dict(attempt)
 
     def fail(self, job, reason):
         job.verification.update(state="failed", reason=reason)
         try:
-            record = self.records.read(job.definition.id + ".json")
+            records, key = self.record_location(job.definition)
+            record = records.read(key)
             if record and record.get("attempt_id") == job.verification["attempt_id"]:
-                self.records.write(job.definition.id + ".json", job.verification)
+                records.write(key, job.verification)
         except (OSError, ValueError, TypeError, KeyError):
-            self.uncertain.add(job.definition.id)
+            records, key = self.record_location(job.definition)
+            self.uncertain.add((records.namespace, key))
 
     async def refresh(self, job):
         if job.verification.get("state") != "pending":
@@ -195,9 +258,10 @@ class WorkflowVerification:
                 budget = job.verification["budget"]
                 if dimensions != {k: budget[k] for k in ("width", "height")}:
                     raise ValueError("Verification output dimensions differ")
-                with self.workflows.registry._register_lock, self.evidence.guard() as runtime:
+                with self.workflows.definition_lock(job.recipe), self.evidence.guard() as runtime:
                     current = self.workflows.capture(job.recipe)
-                    record = self.records.read(current.id + ".json")
+                    records, key = self.record_location(current)
+                    record = records.read(key)
                     if (
                         self.identity(current) != job.verification["identity"]
                         or runtime != job.verification["runtime"]
@@ -215,7 +279,7 @@ class WorkflowVerification:
                             "digest": "sha256:" + hashlib.sha256(data).hexdigest(),
                         },
                     }
-                    self.records.write(current.id + ".json", ready)
+                    records.write(key, ready)
                     job.verification = ready
         except (ValueError, OSError, TypeError, KeyError, TimeoutError):
             self.fail(job, "verification_evidence_failed")

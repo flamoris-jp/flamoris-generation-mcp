@@ -1,6 +1,11 @@
 # Workflow v3 static foundation
 
-Implemented scope: the first internal delivery of #45. The public MCP contracts,
+Historical scope: the first internal deliveries of #45. The subsequent opt-in
+[Image v3 execution delivery](IMAGE_V3_EXECUTION.md) connects the reviewed
+single-leaf profile described there; the statements below describe the static
+foundation in isolation.
+
+Implemented foundation scope: The public MCP contracts,
 saved recipes, v1/v2 definitions, Image verification and provider execution retain
 their existing behavior. This delivery does **not** register production Music,
 Speech or Video profiles or advertise compositions as ready.
