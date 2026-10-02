@@ -43,6 +43,14 @@ composition checks aggregate child ceilings, including intermediate outputs.
 The compiler deliberately treats scalar/structured ports as single-value slots;
 asset collections have bounded cardinality and require a managed-input validator.
 
+`CapabilityRegistry` also accepts multiple **explicit** provider implementations
+of one capability when deployment configuration pins an unambiguous legacy route.
+The legacy implementation must be registered first; incompatible activation
+rejects before publishing the alternative. Workflow routing always resolves its
+registered provider, and existing list/get remain on the fixed legacy route even
+when another provider is healthy. `implementations()` is an internal graph-free
+registry projection, not a public negotiated catalog or aggregate ready predicate.
+
 `Plan.bind` validates declared scalar slots and separates structural identity from
 the concrete invocation hash. It does not authorize an asset handle or implement
 ABC/JSON format semantics: these require the registered profile validator.

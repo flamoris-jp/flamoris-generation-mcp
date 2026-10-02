@@ -107,3 +107,73 @@ def test_parallel_workflow_assignment_preserves_every_template():
     assert set(registry.list({})[0]["workflow_templates"]) == expected
     for template in templates:
         assert registry.resolve_workflow(template).capability_id == "image.generate"
+
+
+def implementations():
+    return (
+        Capability("image.generate", "comfyui", "janku", ("legacy-image",)),
+        Capability("image.generate", "alternate", "different", ("alternate-image",)),
+    )
+
+
+def test_two_providers_need_explicit_legacy_route_before_activation():
+    with pytest.raises(ValueError, match="explicit legacy route"):
+        CapabilityRegistry(implementations())
+    with pytest.raises(ValueError, match="before alternatives"):
+        CapabilityRegistry(implementations()[::-1], legacy_routes={"image.generate": "comfyui"})
+    with pytest.raises(ValueError, match="does not exist"):
+        CapabilityRegistry((), legacy_routes={"image.generate": "comfyui"})
+
+
+def test_legacy_projection_and_explicit_workflow_routes_never_follow_health():
+    registry = CapabilityRegistry(implementations(), legacy_routes={"image.generate": "comfyui"})
+    availability = {"comfyui": False, "alternate": True}
+    legacy = registry.get("image.generate", availability)
+    assert legacy["provider_id"] == "comfyui" and not legacy["available"]
+    assert legacy["workflow_templates"] == ["legacy-image"]
+    assert registry.list(availability) == [legacy]
+    assert registry.resolve_workflow("legacy-image").provider_id == "comfyui"
+    assert registry.resolve_workflow("alternate-image").provider_id == "alternate"
+    projection = registry.implementations("image.generate", availability)
+    assert projection["registry_revision"] == 3
+    assert [item["available"] for item in projection["implementations"]] == [False, True]
+    assert "available" not in projection  # health alone does not certify aggregate readiness
+
+
+def test_assignments_are_owned_by_an_exact_implementation():
+    registry = CapabilityRegistry(implementations(), legacy_routes={"image.generate": "comfyui"})
+    registry.assign_workflow("image.generate", "alternate", "second-alternate")
+    assert registry.resolve_workflow("second-alternate").provider_id == "alternate"
+    assert registry.get("image.generate", {})["workflow_templates"] == ["legacy-image"]
+    with pytest.raises(ValueError, match="another provider"):
+        registry.assign_workflow("image.generate", "alternate", "legacy-image")
+    with pytest.raises(ValueError, match="does not match"):
+        registry.assign_workflow("image.generate", "unknown", "new-image")
+
+
+def test_rejected_registration_preserves_every_route():
+    registry = CapabilityRegistry(implementations(), legacy_routes={"image.generate": "comfyui"})
+    before = registry.implementations("image.generate", {})
+    with pytest.raises(ValueError, match="already assigned"):
+        registry.register(Capability("image.generate", "third", "third", ("legacy-image",)))
+    assert registry.implementations("image.generate", {}) == before
+    with pytest.raises(ValueError, match="Duplicate capability implementation"):
+        registry.register(implementations()[0])
+
+
+def test_parallel_assignments_keep_provider_routes_separate():
+    registry = CapabilityRegistry(implementations(), legacy_routes={"image.generate": "comfyui"})
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(
+            pool.map(
+                lambda i: registry.assign_workflow(
+                    "image.generate", "alternate" if i % 2 else "comfyui", f"workflow-{i}"
+                ),
+                range(32),
+            )
+        )
+    assert all(
+        registry.resolve_workflow(f"workflow-{i}").provider_id
+        == ("alternate" if i % 2 else "comfyui")
+        for i in range(32)
+    )
