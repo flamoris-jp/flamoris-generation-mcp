@@ -15,6 +15,7 @@ TOOL_NAMES = {
     "models.get",
     "workflows.list",
     "workflows.register",
+    "workflows.verify",
     "workflows.build",
     "workflows.save",
     "jobs.submit",

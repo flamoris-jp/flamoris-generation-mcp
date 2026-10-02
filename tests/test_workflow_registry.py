@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 from mcp import Client
+from test_inputs import png
 
 from flamoris_generation_mcp.models import ModelCatalog
 from flamoris_generation_mcp.server import create_server
@@ -416,7 +417,7 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
 
     def handler(request):
         if request.url.path == "/view":
-            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nfixture")
+            return httpx.Response(200, content=png())
         if request.url.path == "/upload/image":
             uploads.append(request.content)
             return httpx.Response(
@@ -482,7 +483,9 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
         assert archived["managed_inputs"] == {"source": expected}
 
 
-@pytest.mark.parametrize("failure", ["wrong_media", "unknown", "deleted", "expired", "upload"])
+@pytest.mark.parametrize(
+    "failure", ["wrong_media", "unknown", "deleted", "expired", "upload", "dimension"]
+)
 async def test_managed_image_submit_failures_release_lease_and_reservation(
     settings, tmp_path, fake, monkeypatch, failure
 ):
@@ -503,7 +506,11 @@ async def test_managed_image_submit_failures_release_lease_and_reservation(
 
     def handler(request):
         if request.url.path == "/view":
-            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nfixture")
+            if failure == "dimension":
+                from test_image_decode import image_bytes
+
+                return httpx.Response(200, content=image_bytes(size=(4097, 16)))
+            return httpx.Response(200, content=png())
         if request.url.path == "/upload/image":
             uploads.append(request.content)
             if reject_upload:

@@ -1,8 +1,11 @@
 """ComfyUI implementation of the provider-neutral generation contract."""
 
+import asyncio
+from contextlib import nullcontext
 from pathlib import Path
 
 from ..comfyui import ComfyUIClient
+from ..image_decode import decode_image
 from ..models import ModelCatalog
 from ..workflows import ExternalRecipe, Recipe, WorkflowStore, build_prompt
 from .base import (
@@ -12,6 +15,7 @@ from .base import (
     ProviderHealth,
     ProviderJob,
     ProviderOutput,
+    SubmissionRejected,
 )
 from .comfyui_retention import ComfyUIRetention
 
@@ -65,70 +69,98 @@ class ComfyUIProvider:
         if request.operation != "image.generate" or not isinstance(
             request.payload, (Recipe, ExternalRecipe)
         ):
-            raise ProviderError("ComfyUI does not support the requested operation")
+            raise SubmissionRejected("ComfyUI does not support the requested operation")
+        definition = request.definition
+        posted = False
         managed_inputs = {}
-        if self.workflows is not None:
-            bindings = self.workflows.managed_input_bindings(request.payload)
-            if bindings:
-                if self.managed_inputs is None:
-                    raise ProviderError("Managed workflow inputs are not configured")
-                refs = {}
-                allowed = {}
-                for name, spec in bindings.items():
-                    try:
-                        refs[name] = request.payload.parameters[name]
-                    except (KeyError, TypeError):
-                        raise ProviderError("Managed workflow input is missing") from None
-                    allowed[name] = set(spec.media_types or ())
-                provider_inputs = {}
-                async with self.managed_inputs.stage(job_id, refs, allowed) as readers:
-                    extensions = {
-                        "image/png": ".png",
-                        "image/jpeg": ".jpg",
-                        "image/webp": ".webp",
+        try:
+            if isinstance(request.payload, ExternalRecipe):
+                if self.workflows is None:
+                    raise ValueError("Workflow definitions are not configured")
+                definition = definition or self.workflows.capture(request.payload)
+            guard = nullcontext()
+            if self.workflows is not None and self.workflows.readiness is not None:
+                guard = self.workflows.readiness.execution_guard(
+                    request.payload, definition, request.runtime_evidence
+                )
+            with guard:
+                if definition is not None:
+                    bindings = {
+                        name: spec
+                        for name, spec in definition.parameters.items()
+                        if spec.type == "managed_input"
                     }
-                    for index, (name, reader) in enumerate(readers.items()):
-                        mime_type = reader.metadata["mime_type"]
-                        extension = extensions.get(mime_type)
-                        if extension is None:
-                            raise ProviderError("Unsupported ComfyUI managed input media type")
-                        content = bytearray()
-                        async for chunk in reader.chunks():
-                            content.extend(chunk)
-                        provider_inputs[name] = await self.client.upload_input(
-                            bytes(content),
-                            mime_type,
-                            f"flamoris-{job_id}-{index:02d}{extension}",
-                        )
-                        managed_inputs[name] = {
-                            key: reader.metadata[key]
-                            for key in (
-                                "input_id",
-                                "source_asset_id",
-                                "sha256",
-                                "mime_type",
-                                "size_bytes",
-                            )
+                else:
+                    bindings = {}
+                if bindings:
+                    if self.managed_inputs is None:
+                        raise ValueError("Managed workflow inputs are not configured")
+                    refs = {name: request.payload.parameters[name] for name in bindings}
+                    allowed = {name: set(spec.media_types) for name, spec in bindings.items()}
+                    provider_inputs = {}
+                    async with self.managed_inputs.stage(job_id, refs, allowed) as readers:
+                        extensions = {
+                            "image/png": ".png",
+                            "image/jpeg": ".jpg",
+                            "image/webp": ".webp",
                         }
-                    prompt = self.workflows.prompt(
-                        request.payload, job_id, provider_inputs=provider_inputs
-                    )
+                        for index, (name, reader) in enumerate(readers.items()):
+                            mime_type = reader.metadata["mime_type"]
+                            content = bytearray()
+                            async for chunk in reader.chunks():
+                                content.extend(chunk)
+                            await asyncio.to_thread(decode_image, bytes(content), mime_type)
+                            provider_inputs[name] = await self.client.upload_input(
+                                bytes(content),
+                                mime_type,
+                                f"flamoris-{job_id}-{index:02d}{extensions[mime_type]}",
+                            )
+                            managed_inputs[name] = {
+                                key: reader.metadata[key]
+                                for key in (
+                                    "input_id",
+                                    "source_asset_id",
+                                    "sha256",
+                                    "mime_type",
+                                    "size_bytes",
+                                )
+                            }
+                        self.workflows.capture(request.payload)
+                        prompt = self.workflows.prompt(
+                            request.payload, job_id, provider_inputs, definition
+                        )
+                        if self.workflows.readiness is not None:
+                            self.workflows.readiness.before_post(
+                                request.payload, definition, request.runtime_evidence
+                            )
+                        posted = True
+                        execution_id = await self.client.submit(prompt, job_id)
+                else:
+                    if self.workflows is not None:
+                        self.workflows.capture(request.payload)
+                        prompt = self.workflows.prompt(
+                            request.payload, job_id, definition=definition
+                        )
+                        if self.workflows.readiness is not None:
+                            self.workflows.readiness.before_post(
+                                request.payload, definition, request.runtime_evidence
+                            )
+                    else:
+                        prompt = build_prompt(request.payload, self.catalog)
+                        prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+                    posted = True
                     execution_id = await self.client.submit(prompt, job_id)
-            else:
-                prompt = self.workflows.prompt(request.payload, job_id)
-                execution_id = await self.client.submit(prompt, job_id)
-        elif isinstance(request.payload, Recipe):
-            prompt = build_prompt(request.payload, self.catalog)
-            prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
-            execution_id = await self.client.submit(prompt, job_id)
-        else:
-            raise ProviderError("Workflow definitions are not configured")
-        if isinstance(request.payload, ExternalRecipe):
-            self._output_nodes[execution_id] = self.workflows.registry.get(
-                request.payload.template, request.payload.definition_version
-            ).output_node
-        else:
-            self._output_nodes[execution_id] = "7"
+        except BaseException as exc:
+            if not posted:
+                detail = (
+                    str(exc)[:300]
+                    if isinstance(exc, ValueError)
+                    else "Workflow rejected before generation submission"
+                )
+                raise SubmissionRejected(detail) from exc
+            raise
+        # The accepted execution always retains the graph's captured output identity.
+        self._output_nodes[execution_id] = definition.output_node if definition is not None else "7"
         return ProviderJob(execution_id=execution_id, managed_inputs=managed_inputs)
 
     def _normalize(self, execution_id: str, raw: dict) -> JobSnapshot:

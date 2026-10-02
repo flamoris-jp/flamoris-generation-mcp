@@ -15,10 +15,11 @@ from mcp.client.stdio import StdioServerParameters
 
 async def check_tools(client):
     tools = await client.list_tools()
-    assert len(tools.tools) == 21
+    assert len(tools.tools) == 22
     assert {
         "capabilities.list",
         "workflows.register",
+        "workflows.verify",
         "jobs.submit",
         "assets.get",
         "assets.delete",

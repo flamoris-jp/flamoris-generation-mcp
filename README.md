@@ -9,6 +9,11 @@ Part of the [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai) family.
 
 Shared non-AI foundations remain in [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons).
 
+Automatic registered Image Workflow verification is described in
+[WORKFLOW_VERIFICATION.md](docs/WORKFLOW_VERIFICATION.md). Registration activates a
+validated candidate; exact runtime attestation and the independent infrastructure
+gate control production use.
+
 ## Ecosystem boundary
 
 FLAMORIS Generation MCP owns generative-media and closely related media-analysis execution: workflows, jobs, provider coordination, and generated/materialized assets.
@@ -542,3 +547,4 @@ tools to users. Production workflow file bindings remain fail-closed except for 
 ComfyUI `LoadImage.image` managed-image binding described above. A real-runtime
 smoke is still required before enabling a production Reference Image workflow.
 This does not advertise transcription, TTS, video-input, or arbitrary file capabilities.
+

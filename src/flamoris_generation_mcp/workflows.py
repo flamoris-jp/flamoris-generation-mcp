@@ -1,5 +1,6 @@
 """Trusted template builders and saved parameter recipes, not a raw node editing API."""
 
+import copy
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from .workflow_registry import WorkflowRegistry
 
 Template = Literal["text-to-image", "text-to-image-lora"]
 MAX_RECIPE_BYTES = 256 * 1024
+MAX_DISCOVERY_BYTES = 256 * 1024
 TEMPLATES = [
     {"id": "text-to-image", "description": "Checkpoint-based text-to-image; no LoRAs"},
     {"id": "text-to-image-lora", "description": "Text-to-image with an ordered LoRA chain"},
@@ -60,10 +62,79 @@ class ExternalRecipe(BaseModel):
     schema_version: Literal[2] = 2
     template: str
     definition_version: int
+    definition_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    require_ready: bool = Field(default=False, strict=True)
     parameters: dict[str, Any]
 
 
 AnyRecipe = Recipe | ExternalRecipe
+
+
+def builtin_descriptors() -> list[dict]:
+    """Graph-free descriptions of the existing builtin contracts."""
+    properties = Parameters.model_json_schema()["properties"]
+    parameters = {}
+    for name, schema in properties.items():
+        if name == "loras":
+            continue
+        spec = {
+            k: v
+            for k, v in schema.items()
+            if k in {"type", "default", "minimum", "maximum", "minLength", "maxLength", "pattern"}
+        }
+        for source, target in (("minLength", "min_length"), ("maxLength", "max_length")):
+            if source in spec:
+                spec[target] = spec.pop(source)
+        if "multipleOf" in schema:
+            spec["multiple_of"] = int(schema["multipleOf"])
+        parameters[name] = {
+            **spec,
+            "role": name,
+            "required": name in properties and "default" not in schema,
+        }
+    parameters["checkpoint"]["model_kind"] = "checkpoint"
+    loras = {
+        "type": "ordered_loras",
+        "role": "loras",
+        "max_items": 16,
+        "model_kind": "lora",
+        "items": {
+            "name": {"type": "string", "model_kind": "lora"},
+            "strength_model": {"type": "number", "minimum": -20, "maximum": 20, "default": 1},
+            "strength_clip": {"type": "number", "minimum": -20, "maximum": 20, "default": 1},
+        },
+    }
+    return [
+        {
+            **template,
+            "kind": "builtin",
+            "metadata_schema_version": 2,
+            "version": 1,
+            "name": template["id"],
+            "provider_id": "comfyui",
+            "capability_id": "image.generate",
+            "image": {
+                "profile": "image-v1",
+                "mode": "txt2img",
+                "dimensions": {"mode": "parameters"},
+            },
+            "readiness": {
+                "state": "ready",
+                "basis": "builtin_compatibility",
+                "descriptor_revision": 1,
+            },
+            "parameters": {
+                **parameters,
+                "loras": {
+                    **loras,
+                    "min_items": 1 if template["id"].endswith("-lora") else 0,
+                    "max_items": 16 if template["id"].endswith("-lora") else 0,
+                    "required": template["id"].endswith("-lora"),
+                },
+            },
+        }
+        for template in TEMPLATES
+    ]
 
 
 def build_prompt(recipe: Recipe, catalog: ModelCatalog) -> dict:
@@ -151,6 +222,7 @@ class WorkflowStore:
         self.directory = directory
         self.registry = WorkflowRegistry(definition_dir, catalog) if definition_dir else None
         self._recipes: dict[str, AnyRecipe] = {}
+        self.readiness = None
 
     def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
         if self.registry is None:
@@ -159,8 +231,23 @@ class WorkflowStore:
             raise ValueError("Built-in workflow template IDs are reserved")
         return self.registry.register(definition)
 
-    def build(self, template: str, parameters: Parameters | dict[str, Any]) -> dict:
+    def build(
+        self,
+        template: str,
+        parameters: Parameters | dict[str, Any],
+        definition_version: int | None = None,
+        definition_digest: str | None = None,
+        require_ready: bool = False,
+    ) -> dict:
+        if definition_digest is not None and definition_version is None:
+            raise ValueError("Definition digest requires a paired version")
+        if type(require_ready) is not bool or (
+            definition_version is not None and type(definition_version) is not int
+        ):
+            raise ValueError("Invalid build preconditions")
         if template in ("text-to-image", "text-to-image-lora"):
+            if definition_version is not None or definition_digest is not None:
+                raise ValueError("Definition preconditions cannot target a builtin")
             recipe: AnyRecipe = Recipe(
                 template=template, parameters=Parameters.model_validate(parameters)
             )
@@ -168,14 +255,21 @@ class WorkflowStore:
         else:
             if self.registry is None:
                 raise ValueError("Unknown workflow definition ID")
-            definition = self.registry.get(template)
+            definition = self.registry.get(template, definition_version)
+            if definition_digest is not None and definition.digest != definition_digest:
+                raise ValueError("Stale workflow definition digest")
             values = parameters.model_dump() if isinstance(parameters, Parameters) else parameters
             normalized, prompt = self.registry.materialize(
                 definition.id, definition.version, values
             )
             recipe = ExternalRecipe(
-                template=template, definition_version=definition.version, parameters=normalized
+                template=template,
+                definition_version=definition.version,
+                definition_digest=definition.digest,
+                require_ready=require_ready,
+                parameters=normalized,
             )
+            self.capture(recipe)
         if len(self._recipes) >= 1024:
             raise ValueError("Workflow session is full; save needed workflows and restart")
         workflow_id = uuid4().hex
@@ -202,6 +296,25 @@ class WorkflowStore:
             return ExternalRecipe.model_validate(data)
         return Recipe.model_validate(data)
 
+    def capture(self, recipe: AnyRecipe):
+        """Recheck identity/policy and capture output identity before provider awaits."""
+        if not isinstance(recipe, ExternalRecipe):
+            return None
+        if self.registry is None:
+            raise ValueError("Workflow definitions are not configured")
+        with self.registry._register_lock:
+            definition = self.registry.get(recipe.template, recipe.definition_version)
+            if (
+                recipe.definition_digest is not None
+                and recipe.definition_digest != definition.digest
+            ):
+                raise ValueError("Stale workflow definition digest")
+            if recipe.require_ready:
+                if self.readiness is None:
+                    raise ValueError("Workflow production readiness is unavailable")
+                self.readiness.require(definition, recipe.parameters)
+            return copy.deepcopy(definition)
+
     def managed_input_bindings(self, recipe: AnyRecipe) -> dict[str, object]:
         if not isinstance(recipe, ExternalRecipe):
             return {}
@@ -214,13 +327,14 @@ class WorkflowStore:
         recipe: AnyRecipe,
         job_id: str | None = None,
         provider_inputs: dict[str, str] | None = None,
+        definition=None,
     ) -> dict:
         if isinstance(recipe, ExternalRecipe):
             if self.registry is None:
                 raise ValueError("Workflow definitions are not configured")
-            _, prompt = self.registry.materialize(
-                recipe.template,
-                recipe.definition_version,
+            definition = definition or self.capture(recipe)
+            _, prompt = self.registry.materialize_definition(
+                definition,
                 recipe.parameters,
                 job_id,
                 provider_inputs,
@@ -233,7 +347,7 @@ class WorkflowStore:
 
     def routing(self, recipe: AnyRecipe) -> tuple[str, str]:
         if isinstance(recipe, ExternalRecipe):
-            definition = self.registry.get(recipe.template, recipe.definition_version)
+            definition = self.capture(recipe)
             return definition.provider_id, definition.capability_id
         return "comfyui", "image.generate"
 
@@ -247,17 +361,29 @@ class WorkflowStore:
         return {"workflow_id": workflow_id, "file": str(path), "saved": True}
 
     def list(self) -> dict:
+        definitions = (
+            [
+                self.readiness.descriptor(item) if self.readiness else item.metadata()
+                for item in self.registry.definitions.values()
+            ]
+            if self.registry
+            else []
+        )
+        descriptors = builtin_descriptors() + definitions
+        if len(descriptors) > 128:
+            raise ValueError("Workflow discovery exceeds entry limit")
         saved = []
         for path in sorted(self.directory.glob("*.json")):
             if re.fullmatch(r"[0-9a-f]{32}", path.stem) and not path.is_symlink():
                 saved.append(path.stem)
-        return {
+        result = {
             "templates": TEMPLATES,
-            "definitions": (
-                [item.metadata() for item in self.registry.definitions.values()]
-                if self.registry
-                else []
-            ),
+            "descriptors": descriptors,
+            "definitions": definitions,
             "built_workflows": list(self._recipes),
             "saved_workflows": saved,
         }
+        # Include legacy aliases and recipe IDs; bound the full public response.
+        if len(json.dumps(result, indent=2).encode("utf-8")) > MAX_DISCOVERY_BYTES:
+            raise ValueError("Workflow discovery exceeds byte limit")
+        return result
