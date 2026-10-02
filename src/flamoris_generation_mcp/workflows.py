@@ -217,12 +217,53 @@ def atomic_write(path: Path, content: bytes) -> None:
 
 
 class WorkflowStore:
-    def __init__(self, catalog: ModelCatalog, directory: Path, definition_dir: Path | None = None):
+    def __init__(
+        self,
+        catalog: ModelCatalog,
+        directory: Path,
+        definition_dir: Path | None = None,
+        *,
+        v3_enabled=False,
+    ):
         self.catalog = catalog
         self.directory = directory
         self.registry = WorkflowRegistry(definition_dir, catalog) if definition_dir else None
         self._recipes: dict[str, AnyRecipe] = {}
         self.readiness = None
+        self.v3 = None
+        if v3_enabled:
+            if self.registry is None:
+                raise ValueError("Image v3 requires the existing definition registry")
+            from .image_v3 import ImageV3
+
+            self.v3 = ImageV3(self)
+
+    def definition_lock(self, recipe):
+        if recipe.schema_version == 3:
+            if self.v3 is None:
+                raise ValueError("Workflow v3 is disabled")
+            return self.v3.versions.lock
+        return self.registry._register_lock
+
+    def build_v3(self, workflow_id, version, digest, parameters, require_ready=True):
+        if self.v3 is None or type(version) is not int or type(require_ready) is not bool:
+            raise ValueError("Image v3 is disabled or its exact build contract is invalid")
+        from .image_v3 import Identity
+
+        Identity(id=workflow_id, version=version, digest=digest)
+        with self.v3.versions.lock:
+            recipe, definition = self.v3.materialize(workflow_id, version, digest, parameters)
+            recipe = recipe.model_copy(update={"require_ready": require_ready})
+            self.capture(recipe)
+            if len(self._recipes) >= 1024:
+                raise ValueError("Workflow session is full; save needed workflows and restart")
+            handle = uuid4().hex
+            self._recipes[handle] = recipe
+            return {
+                "workflow_id": handle,
+                **recipe.model_dump(mode="json"),
+                "prompt": definition.graph,
+            }
 
     def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
         if self.registry is None:
@@ -287,11 +328,19 @@ class WorkflowStore:
             raise ValueError("Saved workflow is too large")
         content = path.read_bytes()
         try:
-            data = json.loads(content)
+            from .workflow_v3 import decode_definition
+
+            data = decode_definition(content)
         except (ValueError, UnicodeError) as exc:
             raise ValueError("Invalid saved workflow recipe") from exc
         if not isinstance(data, dict):
             raise ValueError("Invalid saved workflow recipe")
+        if data.get("schema_version") == 3:
+            from .image_v3 import ImageRecipe
+
+            if self.v3 is None:
+                raise ValueError("Workflow v3 is disabled")
+            return ImageRecipe.model_validate(data)
         if data.get("schema_version", 1) == 2:
             return ExternalRecipe.model_validate(data)
         return Recipe.model_validate(data)
@@ -300,6 +349,11 @@ class WorkflowStore:
         """Recheck identity/policy and capture output identity before provider awaits."""
         if not isinstance(recipe, ExternalRecipe):
             return None
+        if recipe.schema_version == 3:
+            if self.v3 is None:
+                raise ValueError("Workflow v3 is disabled")
+            with self.v3.versions.lock:
+                return self.v3.capture(recipe)
         if self.registry is None:
             raise ValueError("Workflow definitions are not configured")
         with self.registry._register_lock:
@@ -316,6 +370,9 @@ class WorkflowStore:
             return copy.deepcopy(definition)
 
     def managed_input_bindings(self, recipe: AnyRecipe) -> dict[str, object]:
+        if recipe.schema_version == 3:
+            self.capture(recipe)
+            return {}
         if not isinstance(recipe, ExternalRecipe):
             return {}
         if self.registry is None:

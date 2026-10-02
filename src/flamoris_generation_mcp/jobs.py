@@ -3,7 +3,9 @@
 import asyncio
 import json
 import logging
+import math
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
@@ -52,6 +54,8 @@ class Job:
     deleted_outputs: set[int] = field(default_factory=set)
     definition: object | None = None
     verification: dict = field(default_factory=dict)
+    execution_deadline: float | None = None
+    deadline_cancelled: bool = False
 
 
 class JobStore:
@@ -74,6 +78,7 @@ class JobStore:
         self._active_job_id: str | None = None
         self._authority = Records(output_dir, "job-authority")
         self.verifier = None
+        self._watchers = set()
         self._recover()
 
     def _recover(self):
@@ -87,7 +92,29 @@ class JobStore:
             raw = record["active"]
             job_id = checked_id(raw["job_id"])
             recipe_type = ExternalRecipe if raw["recipe"]["schema_version"] == 2 else Recipe
+            if raw["recipe"]["schema_version"] == 3:
+                from .image_v3 import ImageDefinition, ImageRecipe
+
+                if self.workflows.v3 is None:
+                    raise ValueError("V3 reservation requires compatible v3 code/configuration")
+                recipe_type = ImageRecipe
+                WorkflowDefinition = ImageDefinition
             recipe = recipe_type.model_validate(raw["recipe"])
+            deadline = raw.get("execution_deadline")
+            cancelled = raw.get("deadline_cancelled", False)
+            if (
+                (
+                    deadline is not None
+                    and (
+                        type(deadline) not in (int, float)
+                        or not math.isfinite(deadline)
+                        or deadline <= 0
+                    )
+                )
+                or type(cancelled) is not bool
+                or (recipe.schema_version == 3 and deadline is None)
+            ):
+                raise ValueError("Invalid execution deadline reservation")
             definition = (
                 WorkflowDefinition.model_validate(raw["definition"]) if raw["definition"] else None
             )
@@ -102,11 +129,15 @@ class JobStore:
                 definition=definition,
                 verification=raw.get("verification", {}),
                 snapshot=JobSnapshot(status="unknown"),
+                execution_deadline=raw.get("execution_deadline"),
+                deadline_cancelled=raw.get("deadline_cancelled", False),
             )
             if job.provider_execution_id and hasattr(provider, "_output_nodes"):
                 provider._output_nodes[job.provider_execution_id] = (
                     definition.output_node if definition else "7"
                 )
+                if hasattr(provider, "capture_output_contract"):
+                    provider.capture_output_contract(job.provider_execution_id, definition)
             self._jobs[job_id] = job
             self._active_job_id = job_id
         except (KeyError, TypeError, ValueError) as exc:
@@ -127,6 +158,8 @@ class JobStore:
                     if job.definition
                     else None,
                     "verification": job.verification,
+                    "execution_deadline": job.execution_deadline,
+                    "deadline_cancelled": job.deadline_cancelled,
                 }
             },
         )
@@ -148,16 +181,24 @@ class JobStore:
     async def submit(self, workflow_id: str, *, verification=None) -> dict:
         recipe = self.workflows.get(workflow_id)
         definition = self.workflows.capture(recipe)
-        capability = self.capabilities.resolve_workflow(recipe.template)
+        if recipe.schema_version == 3:
+            if verification is None and not recipe.require_ready:
+                raise ValueError("V3 execution requires attestation; use workflows.v3.verify first")
+            # No registration in the legacy discovery projection or implicit selection.
+            self.capabilities.validate_workflow("image.generate", "comfyui", recipe.template)
+            provider_id, operation = self.workflows.routing(recipe)
+            if (provider_id, operation) != ("comfyui", "image.generate"):
+                raise ValueError("Unsupported v3 execution route")
+        else:
+            capability = self.capabilities.resolve_workflow(recipe.template)
+            provider_id, operation = capability.provider_id, capability.capability_id
         if isinstance(recipe, ExternalRecipe):
             routed_provider, routed_operation = self.workflows.routing(recipe)
-            if (capability.provider_id, capability.capability_id) != (
+            if (provider_id, operation) != (
                 routed_provider,
                 routed_operation,
             ):
                 raise ValueError("Workflow provider/capability registration mismatch")
-        operation = capability.capability_id
-        provider_id = capability.provider_id
         provider = self.providers.get(provider_id)
         async with self._submit_lock:
             active = self._active_job()
@@ -180,6 +221,7 @@ class JobStore:
                 "",
                 definition=definition,
                 snapshot=JobSnapshot(status="submitting"),
+                execution_deadline=time.time() + 300 if recipe.schema_version == 3 else None,
             )
             # Journal the ordinary reservation before any provider await. Restart is
             # never proof that work vanished, including the accepted-POST crash window.
@@ -246,7 +288,28 @@ class JobStore:
             if verification is not None:
                 self.verifier.fail(job, "submission_unknown")
             raise SubmissionUnknown("submission_unknown: accepted job journal failed") from None
+        if recipe.schema_version == 3 and verification is None:
+            task = asyncio.create_task(self._watch_deadline(job_id))
+            self._watchers.add(task)
+            task.add_done_callback(self._watchers.discard)
         return self._metadata(job)
+
+    async def _watch_deadline(self, job_id):
+        job = self._get(job_id)
+        while job.snapshot.status not in TERMINAL:
+            try:
+                async with asyncio.timeout(30):
+                    await self.status(job_id)
+            except Exception:
+                pass  # Unknown observations retain the ordinary reservation.
+            if job.deadline_cancelled:
+                return  # No repeated cancellation/replay; later explicit polls reconcile.
+            await asyncio.sleep(1)
+
+    async def close(self):
+        for task in self._watchers:
+            task.cancel()
+        await asyncio.gather(*self._watchers, return_exceptions=True)
 
     def _get(self, job_id: str) -> Job:
         checked_id(job_id)
@@ -274,7 +337,29 @@ class JobStore:
     async def _refresh(self, job_id: str, job: Job) -> None:
         if job.snapshot.status not in TERMINAL and job.provider_execution_id:
             provider = self.providers.get(job.provider_id)
-            job.snapshot = await provider.inspect(job.provider_execution_id)
+            if (
+                job.execution_deadline is not None
+                and time.time() > job.execution_deadline
+                and not job.deadline_cancelled
+            ):
+                job.deadline_cancelled = True
+                # Persist the cancellation fence before a bounded targeted request.
+                self._persist_active(job)
+                try:
+                    async with asyncio.timeout(30):
+                        cancelled = await provider.cancel(job.provider_execution_id)
+                    if cancelled.status in TERMINAL:
+                        job.snapshot = cancelled
+                except Exception:
+                    pass
+            if job.snapshot.status not in TERMINAL:
+                job.snapshot = await provider.inspect(job.provider_execution_id)
+            if (
+                job.execution_deadline is not None
+                and time.time() > job.execution_deadline
+                and job.snapshot.status == "completed"
+            ):
+                job.snapshot = JobSnapshot(status="failed", error={"code": "execution_deadline"})
         if self.verifier is not None and job.verification:
             await self.verifier.refresh(job)
         await self._release_if_terminal(job_id, job)
