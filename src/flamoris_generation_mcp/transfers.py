@@ -105,6 +105,7 @@ class AssetTransfers:
                 media_kind=kind,
                 mime_type=mime,
                 output_index=index,
+                **self.jobs._archived_roles(files, index),
             )
         return asset, path, job
 

@@ -1,8 +1,8 @@
 # Workflow v3 static foundation
 
 Implemented scope: the first internal delivery of #45. The public MCP contracts,
-saved recipes, v1/v2 definitions, Image verification, JobStore and provider
-execution are unchanged. This delivery does **not** register production Music,
+saved recipes, v1/v2 definitions, Image verification and provider execution retain
+their existing behavior. This delivery does **not** register production Music,
 Speech or Video profiles or advertise compositions as ready.
 
 ## Internal contracts
@@ -55,6 +55,22 @@ registry projection, not a public negotiated catalog or aggregate ready predicat
 the concrete invocation hash. It does not authorize an asset handle or implement
 ABC/JSON format semantics: these require the registered profile validator.
 
+## Durable output roles
+
+Reviewed adapters may attach an explicit `OutputRole(port, role, index)` to a
+provider output. These bounded identifiers are carried into job results, asset
+catalogs, selected retrieval and transfer metadata, and survive archive restart.
+Collection indices distinguish multiple assets on the same declared port/role;
+duplicate identities and conflicting port/role mappings reject before archive
+publication. Malformed archived roles also reject at read/transfer time. Tombstones
+continue to exclude deleted outputs without renumbering surviving identities.
+
+Legacy outputs omit the role fields and remain unclassified. No filename-derived
+primary role is fabricated. Roles describe adapter-assigned provenance; they are
+not proof of format, declared cardinality, ownership or composition qualification.
+Profile-specific semantic metadata and required-output validation remain pending.
+Existing ComfyUI output behavior and media/transfer quotas remain unchanged.
+
 ## Remaining execution gates
 
 This code is an internal static compiler, not another scheduler. A manifest is
@@ -65,7 +81,8 @@ Next #45 deliveries must connect a version-negotiated catalog and saved-recipe
 contract to reviewed adapters; implement one-provider artifact lowering and whole
 composition automatic smoke/attestation through the existing JobStore; validate
 concrete intermediate content/ownership immediately before handoff; and extend
-media output role metadata. Cross-provider work additionally requires Runtime #19.
+profile-specific semantic output metadata. Cross-provider work additionally
+requires Runtime #19.
 No exact production profile or provider API is inferred from these test fixtures.
 
 ## Verification

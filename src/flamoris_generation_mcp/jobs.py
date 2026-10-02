@@ -12,7 +12,7 @@ from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
 from .durable import CommitUnknown, Records
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
-from .providers.base import SubmissionRejected, SubmissionUnknown
+from .providers.base import SubmissionRejected, SubmissionUnknown, output_roles
 from .retention import RetentionStore
 from .workflows import AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
 
@@ -290,6 +290,7 @@ class JobStore:
     def _archive_metadata(self, job: Job) -> None:
         """Persist identities without downloading media or restoring execution authority."""
         record = self._metadata(job)
+        output_roles(record["outputs"])
         record["files"] = []
         for index in range(len(job.snapshot.outputs)):
             if index in job.deleted_outputs:
@@ -398,6 +399,18 @@ class JobStore:
             raise ValueError("Unknown archived asset ID")
         return (paths[0] if paths else None), index in deleted
 
+    @staticmethod
+    def _archived_roles(files: AssetFiles, index: int) -> dict:
+        raw = files.read("metadata.json", 1024 * 1024)
+        try:
+            record = json.loads(raw) if raw is not None else None
+            # Very old archives may have no output vector. Absence is unclassified.
+            outputs = record.get("outputs", [])
+            roles = output_roles(outputs)
+            return roles[index] if index < len(roles) else {}
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("Invalid archived output role manifest") from None
+
     async def _archived_get(self, job_id: str, index: int) -> tuple[dict, bytes, str]:
         async with self._archived_lock(job_id):
             with AssetFiles(self.output_dir, job_id, create=False) as files:
@@ -409,6 +422,7 @@ class JobStore:
                 data = files.read(path.name, MAX_ASSET_BYTES)
                 if data is None:
                     raise ValueError("Unknown archived asset ID")
+                roles = self._archived_roles(files, index)
             kind, mime, media_format = MEDIA_TYPES[path.suffix.lower()]
             size = len(data)
             asset = {
@@ -420,6 +434,7 @@ class JobStore:
                 "size_bytes": size,
                 "materialized": True,
                 "output_index": index,
+                **roles,
             }
             return asset, data, media_format
 
@@ -458,6 +473,7 @@ class JobStore:
         if index >= len(job.snapshot.outputs):
             raise ValueError("Unknown asset ID")
         output = job.snapshot.outputs[index]
+        roles = output_roles([item.as_dict() for item in job.snapshot.outputs])[index]
         suffix = Path(output.filename).suffix.lower()
         media_kind, mime_type, _ = MEDIA_TYPES.get(suffix, (None, None, None))
         if media_kind is None:
@@ -477,6 +493,7 @@ class JobStore:
             "size_bytes": size,
             "materialized": materialized,
             "output_index": index,
+            **roles,
         }
         return asset, path
 
@@ -526,6 +543,7 @@ class JobStore:
                         continue
                     kind, mime, _ = MEDIA_TYPES[path.suffix.lower()]
                     size = files.size(path.name)
+                    roles = self._archived_roles(files, index)
                     assets.append(
                         {
                             "asset_id": self._asset_id(job_id, index),
@@ -536,6 +554,7 @@ class JobStore:
                             "size_bytes": size,
                             "materialized": size is not None,
                             "output_index": index,
+                            **roles,
                         }
                     )
             return {"job_id": job_id, "assets": assets}
