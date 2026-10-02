@@ -14,6 +14,10 @@ Automatic registered Image Workflow verification is described in
 validated candidate; exact runtime attestation and the independent infrastructure
 gate control production use.
 
+The [pinned Music provider contract research](docs/MUSIC_PROVIDER_CONTRACT_RESEARCH.md)
+records verified upstream API/CLI shapes and the remaining deployed-runtime entry gates.
+It does not enable Music capabilities.
+
 ## Proposed integration design
 
 The internal [v3 static foundation](docs/WORKFLOW_V3_FOUNDATION.md) implements strict
