@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .workflow_v3 import Definition, Port, ProviderExecution, canonical, digest
 
-COMPILER_REVISION = 1
+COMPILER_REVISION = 2
 MAX_OCCURRENCES = 64
 MAX_DEPTH = 8
 MAX_EDGES = 1024
@@ -109,6 +109,9 @@ class Compiler:
                     "adapter_revision": definition.execution.adapter_revision,
                     "profile": definition.profile.model_dump(),
                     "inputs": assigned,
+                    "input_ports": {
+                        k: v.model_dump(mode="json") for k, v in definition.inputs.items()
+                    },
                     "artifact": definition.execution.artifact,
                     "outputs": {
                         k: v.model_dump(mode="json") for k, v in definition.outputs.items()
