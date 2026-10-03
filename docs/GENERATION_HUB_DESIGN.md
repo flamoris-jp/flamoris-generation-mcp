@@ -466,9 +466,12 @@ Do not use arbitrary shell execution.
 
 ### IrodoriProvider
 
-May initially use the same bounded subprocess-provider pattern.
+Implemented as an opt-in, fixed local subprocess provider for no-reference speech.
+The [native Speech contract](IRODORI_PROVIDER.md) pins the reviewed source, schema-4
+scalar recipe, shared JobStore reservation, owned process-group cancellation and
+validated WAV output. Local resource checks do not attest real-model readiness.
 
-Future capability:
+Configured capability:
 
 ```text
 speech.generate
@@ -703,4 +706,3 @@ video.motion_reference
 ```
 
 without depending on whether the implementation is AnimeGen, another future video runtime, or a different provider transport.
-

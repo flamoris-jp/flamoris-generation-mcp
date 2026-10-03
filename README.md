@@ -3,7 +3,9 @@
 A small Python MCP-native Generation Hub. It currently generates images through
 an existing ComfyUI service using trusted templates and user-facing parameters,
 while keeping Hub jobs, capabilities and assets independent from provider HTTP
-details. No .NET runtime or `flamoris-mcp-core` package is required.
+details. An opt-in local [Irodori native Speech provider](docs/IRODORI_PROVIDER.md)
+also uses the same shared job/asset authority. No .NET runtime or
+`flamoris-mcp-core` package is required.
 
 Part of the [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai) family.
 
@@ -52,14 +54,16 @@ single-generation reservation; providers execute work and normalize their own
 execution IDs, states, errors and outputs behind a small provider interface.
 Each workflow template maps to exactly one capability, whose explicit provider ID
 is resolved at submission time; there is no automatic provider selection.
-ComfyUI is the only registered provider in this phase, but it is not the identity
-of the Hub.
+ComfyUI is registered by default. `FLAMORIS_IRODORI_CONFIG` explicitly adds the
+fixed `speech-no-reference` native profile; missing optional runtime resources
+make that provider unavailable independently of Image and process liveness.
 
 `system.health` reports Hub process health separately from provider availability.
 A stopped ComfyUI instance makes the `comfyui` provider and its capabilities
 unavailable, but does not make the Hub process unhealthy. `capabilities.list` and
 `capabilities.get` expose the provider-independent operation `image.generate`
-without automatically selecting a provider.
+without automatically selecting a provider. Configured native Speech also exposes
+`speech.generate`; local-resource availability is not real-model readiness.
 
 ## Setup
 
@@ -94,10 +98,11 @@ asset archives do not restore execution authority, and missing provider history
 does not prove accepted work stopped. Multi-instance support would require a
 separate coordination design; it is not enabled by scaling Compose.
 
-Requires Python 3.11+ and an independently installed ComfyUI instance. No GPU or
-ComfyUI installation is needed on the MCP host, but the host must be able to scan
-the configured model directories. Model weights are neither downloaded nor loaded
-by this server.
+Requires Python 3.11+. Image execution needs an independently installed ComfyUI
+instance; the MCP host scans the configured model directories without loading
+Image weights. Opt-in native Speech instead needs the separately installed local
+Irodori environment and resources visible to the configured subprocess, including
+its selected GPU/backend. Neither path downloads model weights automatically.
 
 ```sh
 python -m venv .venv

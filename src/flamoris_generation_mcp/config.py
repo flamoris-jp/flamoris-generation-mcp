@@ -67,6 +67,7 @@ class Settings(BaseModel):
     provenance_issuer: str | None = Field(
         default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
+    irodori_config: Path | None = None
 
     @model_validator(mode="after")
     def validate_provenance_configuration(self):
@@ -123,6 +124,7 @@ class Settings(BaseModel):
             "MCP_PATH": "mcp_path",
             "PROVENANCE_SECRET": "provenance_secret",
             "PROVENANCE_ISSUER": "provenance_issuer",
+            "IRODORI_CONFIG": "irodori_config",
         }
         values = {
             field: os.environ["FLAMORIS_" + suffix]

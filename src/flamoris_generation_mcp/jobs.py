@@ -17,6 +17,7 @@ from .provenance import ExternalProvenance, archived_provenance, provenance_meta
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
 from .providers.base import SubmissionRejected, SubmissionUnknown, output_roles
 from .retention import RetentionStore
+from .speech import SpeechRecipe
 from .workflows import AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -98,6 +99,12 @@ class JobStore:
             raw = record["active"]
             job_id = checked_id(raw["job_id"])
             recipe_type = ExternalRecipe if raw["recipe"]["schema_version"] == 2 else Recipe
+            if raw["recipe"]["schema_version"] == 4:
+                if not self.workflows.speech_enabled:
+                    raise ValueError("Speech reservation requires compatible configuration")
+                recipe_type = SpeechRecipe
+                if raw["definition"] is not None:
+                    raise ValueError("Native speech reservation cannot contain a graph")
             if raw["recipe"]["schema_version"] == 3:
                 from .image_v3 import ImageDefinition, ImageRecipe
 
@@ -106,6 +113,10 @@ class JobStore:
                 recipe_type = ImageRecipe
                 WorkflowDefinition = ImageDefinition
             recipe = recipe_type.model_validate(raw["recipe"])
+            if isinstance(recipe, SpeechRecipe) and (
+                (raw["provider_id"], raw["operation"]) != self.workflows.routing(recipe)
+            ):
+                raise ValueError("Invalid native speech reservation route")
             deadline = raw.get("execution_deadline")
             cancelled = raw.get("deadline_cancelled", False)
             if (
@@ -216,7 +227,7 @@ class JobStore:
         else:
             capability = self.capabilities.resolve_workflow(recipe.template)
             provider_id, operation = capability.provider_id, capability.capability_id
-        if isinstance(recipe, ExternalRecipe):
+        if isinstance(recipe, (ExternalRecipe, SpeechRecipe)):
             routed_provider, routed_operation = self.workflows.routing(recipe)
             if (provider_id, operation) != (
                 routed_provider,
@@ -233,7 +244,7 @@ class JobStore:
         )
 
     def _provider_route(self, request: GenerationRequest) -> str:
-        if isinstance(request.payload, ExternalRecipe):
+        if isinstance(request.payload, (ExternalRecipe, SpeechRecipe)):
             return self.workflows.routing(request.payload)[0]
         return self.capabilities.resolve_workflow(request.payload.template).provider_id
 
