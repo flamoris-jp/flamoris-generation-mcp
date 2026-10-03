@@ -111,6 +111,50 @@ async def test_revocation_after_prompt_construction_blocks_post(execution, fake,
     assert not jobs.activity()["busy"]
 
 
+async def test_runtime_delegation_retains_v3_before_post_guard(execution, fake, monkeypatch):
+    from test_runtime_delegation import admit, bundle, invoke
+
+    store, jobs, _, _, _, client = execution
+    await ready(execution, fake)
+    production = build(execution)
+    bridge, workflow_id, scope = bundle(
+        (store, jobs, client), workflow_id=production["workflow_id"]
+    )
+    handle = await admit(bridge, workflow_id, scope)
+    original = store.prompt
+
+    def revoke(*args, **kwargs):
+        prompt = original(*args, **kwargs)
+        store.v3.versions.revoke("image-leaf", 1, Definition.model_validate(leaf()).digest)
+        return prompt
+
+    monkeypatch.setattr(store, "prompt", revoke)
+    with pytest.raises(ValueError, match="revoked"):
+        await invoke(bridge, handle, scope)
+    assert len(fake.prompts) == 1  # Only the earlier normal attestation smoke reached HTTP.
+    assert (await invoke(bridge, handle, scope))["state"] == "rejected"
+    assert jobs.activity()["busy"]  # The accepted Runtime Run still owns the media root.
+
+
+async def test_runtime_delegation_checks_generation_media_identity(execution, fake):
+    from test_runtime_delegation import bundle
+
+    from flamoris_generation_mcp.runtime_delegation import DelegationScope
+
+    store, jobs, _, _, _, client = execution
+    await ready(execution, fake)
+    production = build(execution)
+    bridge, workflow_id, scope = bundle(
+        (store, jobs, client), workflow_id=production["workflow_id"]
+    )
+    changed = DelegationScope.model_validate(
+        scope.model_dump() | {"closure_digest": "sha256:" + "f" * 64}
+    )
+    with pytest.raises(ValueError, match="media relation"):
+        await bridge.prepare(workflow_id, changed)
+    assert not jobs.activity()["busy"] and len(fake.prompts) == 1
+
+
 @pytest.mark.parametrize(
     "change", ["missing", "duplicate", "foreign", "mime", "payload", "bytes", "dimensions"]
 )

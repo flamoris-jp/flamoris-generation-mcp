@@ -56,6 +56,7 @@ class Job:
     verification: dict = field(default_factory=dict)
     execution_deadline: float | None = None
     deadline_cancelled: bool = False
+    delegation: object | None = None
 
 
 class JobStore:
@@ -79,6 +80,9 @@ class JobStore:
         self._authority = Records(output_dir, "job-authority")
         self.verifier = None
         self._watchers = set()
+        self._instance = uuid4().hex
+        self._delegation_fenced: set[str] = set()
+        self._delegation_expired: set[str] = set()
         self._recover()
 
     def _recover(self):
@@ -132,6 +136,13 @@ class JobStore:
                 execution_deadline=raw.get("execution_deadline"),
                 deadline_cancelled=raw.get("deadline_cancelled", False),
             )
+            if raw.get("runtime_delegation") is not None:
+                from .runtime_delegation import recover_record
+
+                job.delegation = recover_record(raw["runtime_delegation"])
+                if job.provider_execution_id or job.verification:
+                    raise ValueError("Delegation cannot restore ordinary provider execution")
+                self._delegation_fenced.add(job_id)
             if job.provider_execution_id and hasattr(provider, "_output_nodes"):
                 provider._output_nodes[job.provider_execution_id] = (
                     definition.output_node if definition else "7"
@@ -160,6 +171,11 @@ class JobStore:
                     "verification": job.verification,
                     "execution_deadline": job.execution_deadline,
                     "deadline_cancelled": job.deadline_cancelled,
+                    **(
+                        {"runtime_delegation": job.delegation.model_dump(mode="json")}
+                        if job.delegation is not None
+                        else {}
+                    ),
                 }
             },
         )
@@ -171,6 +187,8 @@ class JobStore:
         return self._active_job_id, job.snapshot.status if job else "submitting"
 
     async def _release_if_terminal(self, job_id: str, job: Job) -> None:
+        if job.delegation is not None:
+            return  # Runtime/provider debt requires the separate trusted settlement path.
         if job.snapshot.status not in TERMINAL:
             return
         async with self._submit_lock:
@@ -178,7 +196,7 @@ class JobStore:
                 self._authority.write("active.json", {"active": None})
                 self._active_job_id = None
 
-    async def submit(self, workflow_id: str, *, verification=None) -> dict:
+    def _validated_request(self, workflow_id: str, *, verification=None) -> GenerationRequest:
         recipe = self.workflows.get(workflow_id)
         definition = self.workflows.capture(recipe)
         if recipe.schema_version == 3:
@@ -199,7 +217,22 @@ class JobStore:
                 routed_operation,
             ):
                 raise ValueError("Workflow provider/capability registration mismatch")
-        provider = self.providers.get(provider_id)
+        self.providers.get(provider_id)
+        return GenerationRequest(
+            operation=operation,
+            workflow_id=workflow_id,
+            payload=recipe,
+            definition=definition,
+            runtime_evidence=verification["runtime"] if verification else None,
+        )
+
+    def _provider_route(self, request: GenerationRequest) -> str:
+        if isinstance(request.payload, ExternalRecipe):
+            return self.workflows.routing(request.payload)[0]
+        return self.capabilities.resolve_workflow(request.payload.template).provider_id
+
+    async def _reserve(self, workflow_id: str, *, verification=None, delegation=None) -> Job:
+        request = self._validated_request(workflow_id, verification=verification)
         async with self._submit_lock:
             active = self._active_job()
             if active is not None:
@@ -211,17 +244,26 @@ class JobStore:
             if len(self._jobs) >= 1024:
                 raise ValueError("Job session is full; retrieve results before restarting")
             job_id = uuid4().hex
-            self.workflows.capture(recipe)
+            request = self._validated_request(workflow_id, verification=verification)
+            if delegation is not None:
+                from .runtime_delegation import validate_root_request
+
+                if verification is not None:
+                    raise ValueError("Verification cannot delegate a Runtime root")
+                validate_root_request(delegation.scope, request)
             job = Job(
                 job_id,
                 workflow_id,
-                operation,
-                recipe,
-                provider_id,
+                request.operation,
+                request.payload,
+                self._provider_route(request),
                 "",
-                definition=definition,
+                definition=request.definition,
                 snapshot=JobSnapshot(status="submitting"),
-                execution_deadline=time.time() + 300 if recipe.schema_version == 3 else None,
+                execution_deadline=time.time() + 300
+                if request.payload.schema_version == 3
+                else None,
+                delegation=delegation,
             )
             # Journal the ordinary reservation before any provider await. Restart is
             # never proof that work vanished, including the accepted-POST crash window.
@@ -248,6 +290,13 @@ class JobStore:
                     self._active_job_id = None
                     del self._jobs[job_id]
                     raise
+        return job
+
+    async def submit(self, workflow_id: str, *, verification=None) -> dict:
+        job = await self._reserve(workflow_id, verification=verification)
+        job_id, recipe, definition = job.job_id, job.recipe, job.definition
+        operation = job.operation
+        provider = self.providers.get(job.provider_id)
 
         try:
             provider_job = await provider.submit(
@@ -317,8 +366,7 @@ class JobStore:
             raise ValueError("Unknown job ID; jobs belong to this server process")
         return self._jobs[job_id]
 
-    @staticmethod
-    def _metadata(job: Job) -> dict:
+    def _metadata(self, job: Job) -> dict:
         return {
             **job.snapshot.as_dict(),
             "job_id": job.job_id,
@@ -331,10 +379,30 @@ class JobStore:
                 name: dict(metadata) for name, metadata in job.managed_inputs.items()
             },
             **({"verification": dict(job.verification)} if job.verification else {}),
+            **(
+                {
+                    "runtime_delegation": {
+                        "state": (
+                            "fenced"
+                            if job.job_id in self._delegation_fenced
+                            else job.delegation.state
+                        ),
+                        "closed": (
+                            job.delegation.closed
+                            or job.job_id in self._delegation_fenced
+                            or job.delegation.nonce_hash in self._delegation_expired
+                        ),
+                    }
+                }
+                if job.delegation is not None
+                else {}
+            ),
             **job.recipe.model_dump(mode="json"),
         }
 
     async def _refresh(self, job_id: str, job: Job) -> None:
+        if job.delegation is not None:
+            return  # No ordinary provider poll, Runtime replay, publication or implicit release.
         if job.snapshot.status not in TERMINAL and job.provider_execution_id:
             provider = self.providers.get(job.provider_id)
             if (
@@ -698,6 +766,24 @@ class JobStore:
     async def cancel(self, job_id: str) -> dict:
         job = self._get(job_id)
         async with job.lock:
+            if job.delegation is not None:
+                if job.snapshot.status in TERMINAL:
+                    return self._metadata(job)
+                job.delegation = job.delegation.model_copy(update={"closed": True})
+                job.snapshot = JobSnapshot(status="cancel_requested")
+                try:
+                    self._persist_active(job)
+                except BaseException:
+                    self._delegation_fenced.add(job_id)
+                    job.snapshot = JobSnapshot(status="unknown")
+                    raise
+                if (
+                    job_id not in self._delegation_fenced
+                    and job.delegation.state in {"prepared", "rejected"}
+                    and not job.delegation.operations
+                ):
+                    await self._release_delegation_unaccepted(job, "cancelled")
+                return self._metadata(job)
             if self.verifier is not None and job.verification:
                 self.verifier.fail(job, "cancelled")
             if job.snapshot.status not in TERMINAL and job.provider_execution_id:
@@ -705,6 +791,30 @@ class JobStore:
                 job.snapshot = await provider.cancel(job.provider_execution_id)
             await self._release_if_terminal(job_id, job)
             return self._metadata(job)
+
+    async def _release_delegation_unaccepted(self, job, status):
+        record = job.delegation
+        if (
+            record is None
+            or record.process != self._instance
+            or job.job_id in self._delegation_fenced
+            or record.state not in {"prepared", "rejected"}
+            or record.operations
+        ):
+            raise ValueError("Possible Runtime/provider handoff retains the root reservation")
+        async with self._submit_lock:
+            if self._active_job_id != job.job_id:
+                raise ValueError("Delegation is not the active root reservation")
+            job.delegation = record.model_copy(update={"closed": True})
+            try:
+                self._persist_active(job)
+                self._authority.write("active.json", {"active": None})
+            except BaseException:
+                self._delegation_fenced.add(job.job_id)
+                job.snapshot = JobSnapshot(status="unknown")
+                raise
+            self._active_job_id = None
+            job.snapshot = JobSnapshot(status=status)
 
     def activity(self) -> dict[str, object]:
         active = self._active_job()
