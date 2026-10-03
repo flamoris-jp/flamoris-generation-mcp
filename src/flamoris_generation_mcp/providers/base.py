@@ -29,6 +29,19 @@ class SubmissionUnknown(ProviderError):
     """Acceptance is uncertain; retain the ordinary JobStore reservation. Never replay."""
 
 
+def execution_identity(value: object, *, allow_empty: bool = False) -> str:
+    """Validate an opaque bounded provider identity before observation or journaling."""
+    if (
+        not isinstance(value, str)
+        or len(value) > 512
+        or (not value and not allow_empty)
+        or value != value.strip()
+        or (value and not value.isprintable())
+    ):
+        raise ValueError("Invalid provider execution identity")
+    return value
+
+
 @dataclass(frozen=True)
 class ProviderHealth:
     available: bool

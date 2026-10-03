@@ -6,13 +6,25 @@ import httpx
 
 from .config import Settings
 from .models import model_name
-from .providers.base import ProviderError, SubmissionRejected, SubmissionUnknown
+from .providers.base import (
+    ProviderError,
+    SubmissionRejected,
+    SubmissionUnknown,
+    execution_identity,
+)
 
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 INPUT_MIME_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
+}
+VALIDATION_REJECTIONS = {
+    "no_prompt",
+    "invalid_prompt_id",
+    "missing_node_type",
+    "prompt_no_outputs",
+    "prompt_outputs_failed_validation",
 }
 
 
@@ -128,28 +140,45 @@ class ComfyUIClient:
     async def submit(self, prompt: dict, client_id: str) -> str:
         # Never retry POST: a timeout can happen after ComfyUI has already accepted the work.
         try:
-            data = await self._request(
+            response = await self.http.request(
                 "POST", "prompt", json={"prompt": prompt, "client_id": client_id}
             )
-        except ProviderError as exc:
-            # ComfyUI's own 400 validation response is a definite rejection. Gateway,
-            # 5xx, transport and malformed-success responses can follow accepted work.
-            if str(exc).startswith("ComfyUI prompt returned HTTP 400"):
-                raise SubmissionRejected(str(exc)) from None
+        except httpx.RequestError:
             raise SubmissionUnknown(
                 "submission_unknown: provider acceptance is uncertain"
             ) from None
-        prompt_id = data.get("prompt_id")
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        # Only ComfyUI's structured validation rejection proves no queue admission.
+        # A gateway 400, a success-body error, or an ID/error conflict proves nothing.
+        error = data.get("error") if isinstance(data, dict) else None
         if (
-            data.get("error")
-            or data.get("node_errors")
-            or not isinstance(prompt_id, str)
-            or not prompt_id
+            response.status_code == 400
+            and isinstance(data, dict)
+            and "prompt_id" not in data
+            and isinstance(error, dict)
+            and isinstance(error.get("type"), str)
+            and error["type"] in VALIDATION_REJECTIONS
+            and isinstance(error.get("message"), str)
+            and bool(error["message"])
+            and isinstance(data.get("node_errors"), dict)
         ):
-            if (data.get("error") or data.get("node_errors")) and not prompt_id:
-                raise SubmissionRejected("ComfyUI rejected the workflow")
-            raise SubmissionUnknown("submission_unknown: provider returned an invalid prompt ID")
-        return prompt_id
+            detail = rejection_detail(response)
+            raise SubmissionRejected(
+                "ComfyUI rejected the workflow" + (f": {detail}" if detail else "")
+            )
+        if response.status_code != 200 or not isinstance(data, dict):
+            raise SubmissionUnknown("submission_unknown: provider acceptance is uncertain")
+        if data.get("error") or data.get("node_errors"):
+            raise SubmissionUnknown("submission_unknown: provider returned conflicting acceptance")
+        try:
+            return execution_identity(data.get("prompt_id"))
+        except ValueError:
+            raise SubmissionUnknown(
+                "submission_unknown: provider returned an invalid prompt ID"
+            ) from None
 
     async def inspect(self, prompt_id: str) -> dict:
         running, pending = await self.queue()

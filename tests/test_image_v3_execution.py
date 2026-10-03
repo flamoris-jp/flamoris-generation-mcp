@@ -6,6 +6,7 @@ import time
 
 import httpx
 import pytest
+from conftest import validation_rejection
 from mcp import Client
 from test_image_v3 import leaf, parent
 from test_mcp import TOOL_NAMES
@@ -274,7 +275,7 @@ async def test_admitted_rejection_supersedes_parent_ready(execution, fake):
     store, jobs, verifier, root, _, client = execution
     await ready(execution, fake)
     client.http._transport = httpx.MockTransport(
-        lambda req: httpx.Response(400) if req.url.path == "/prompt" else fake.handle(req)
+        lambda req: validation_rejection() if req.url.path == "/prompt" else fake.handle(req)
     )
     with pytest.raises(ValueError):
         await verifier.verify(root.id, root.version, root.digest, VALUES, v3=True)

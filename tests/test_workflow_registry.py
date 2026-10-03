@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from conftest import validation_rejection
 from mcp import Client
 from test_inputs import png
 
@@ -355,7 +356,7 @@ async def test_external_provider_rejection_releases_reservation(settings, tmp_pa
     def handler(request):
         nonlocal rejected
         if request.url.path == "/prompt" and rejected:
-            return httpx.Response(400, json={"error": {"message": "invalid workflow"}})
+            return validation_rejection()
         return fake.handle(request)
 
     server = create_server(settings, transport=httpx.MockTransport(handler))

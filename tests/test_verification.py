@@ -6,6 +6,7 @@ import time
 
 import httpx
 import pytest
+from conftest import validation_rejection
 from PIL import Image
 from test_workflow_v2 import definition
 
@@ -15,6 +16,7 @@ from flamoris_generation_mcp.durable import CommitUnknown
 from flamoris_generation_mcp.jobs import GenerationBusyError, JobStore
 from flamoris_generation_mcp.models import ModelCatalog
 from flamoris_generation_mcp.providers import ProviderRegistry
+from flamoris_generation_mcp.providers.base import SubmissionUnknown
 from flamoris_generation_mcp.providers.comfyui import ComfyUIProvider
 from flamoris_generation_mcp.runtime_evidence import RuntimeEvidence
 from flamoris_generation_mcp.verification import WorkflowVerification
@@ -129,11 +131,27 @@ async def test_busy_preserves_ready_admitted_failure_supersedes(verified, fake):
     assert store.list()["definitions"][0]["readiness"]["state"] == "ready"
     fake.finish(active["provider_execution_id"])
     await jobs.status(active["job_id"])
-    client.http._transport = httpx.MockTransport(lambda _: httpx.Response(400))
+    client.http._transport = httpx.MockTransport(lambda _: validation_rejection())
     with pytest.raises(ValueError):
         await run_verify(verified)
     assert store.list()["definitions"][0]["readiness"]["state"] == "validated"
     assert not jobs.activity()["busy"]
+
+
+async def test_gateway_rejection_revokes_ready_and_retains_reservation(verified, fake):
+    store, jobs, _, _, client = verified
+    await make_ready(verified, fake)
+    client.http._transport = httpx.MockTransport(lambda _: httpx.Response(400))
+    with pytest.raises(SubmissionUnknown):
+        await run_verify(verified)
+    assert jobs.activity()["busy"]
+    job_id = jobs.activity()["active_job_id"]
+    result = await jobs.status(job_id)
+    assert result["status"] == "unknown"
+    assert result["verification"]["state"] == "failed"
+    assert store.list()["definitions"][0]["readiness"]["state"] == "validated"
+    with pytest.raises(GenerationBusyError):
+        await run_verify(verified)
 
 
 @pytest.mark.parametrize("change", ["epoch", "nodes", "expired", "output"])
