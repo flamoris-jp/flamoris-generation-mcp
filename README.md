@@ -20,6 +20,11 @@ It does not enable Music capabilities.
 
 ## Proposed integration design
 
+[Scoped Runtime delegation ownership](docs/RUNTIME_DELEGATION.md) implements private
+root reservations and once-only internal provider handoff. Authenticated transport,
+settlement/publication and live host qualification remain required before enabling
+cross-service composition.
+
 The internal [v3 static foundation](docs/WORKFLOW_V3_FOUNDATION.md) implements strict
 contracts, immutable version history and bounded include compilation. The opt-in
 [Image v3 execution profile](docs/IMAGE_V3_EXECUTION.md) connects exact pinned
