@@ -393,7 +393,16 @@ service restart.
   Save recipes before restart; retain completed result files/metadata. Process
   shutdown does not cancel already submitted ComfyUI work.
 - Submission is not idempotent. HTTP POST is never retried automatically. After
-  an ambiguous timeout, inspect the provider queue before manually resubmitting.
+  an ambiguous timeout or invalid acknowledgement, the job becomes `unknown` and
+  keeps its durable reservation, including after restart. Only a structured
+  ComfyUI HTTP 400 validation error without a prompt ID, or an adapter-confirmed
+  failure before generation admission, counts as definite rejection. Gateway
+  errors and conflicting success/error responses never release capacity. With a
+  known execution ID, poll/cancel through the normal job authority until terminal
+  evidence permits release. Without an acknowledged ID, status/cancel retain
+  `unknown`; an empty queue or a restart is not settlement. Stop ingress and
+  reconcile accepted work with the provider before trusted operational recovery;
+  there is no public force-release or automatic replay operation.
 - Queued cancellation deletes only the requested prompt. Running cancellation
   defaults to unsupported because older ComfyUI versions ignore `prompt_id` and
   interrupt globally. Set `FLAMORIS_TARGETED_INTERRUPT=true` only after verifying

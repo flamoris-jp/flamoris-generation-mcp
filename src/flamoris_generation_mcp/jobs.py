@@ -16,7 +16,13 @@ from .durable import CommitUnknown, Records
 from .music import MusicRecipe
 from .provenance import ExternalProvenance, archived_provenance, provenance_metadata
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
-from .providers.base import SubmissionRejected, SubmissionUnknown, output_roles
+from .providers.base import (
+    ProviderJob,
+    SubmissionRejected,
+    SubmissionUnknown,
+    execution_identity,
+    output_roles,
+)
 from .retention import RetentionStore
 from .speech import SpeechRecipe
 from .transcription import TranscriptionRecipe
@@ -144,7 +150,7 @@ class JobStore:
                 raw["operation"],
                 recipe,
                 raw["provider_id"],
-                raw["execution_id"],
+                execution_identity(raw["execution_id"], allow_empty=True),
                 managed_inputs=self._managed_input_metadata(raw.get("managed_inputs", {})),
                 definition=definition,
                 verification=raw.get("verification", {}),
@@ -383,16 +389,22 @@ class JobStore:
                 "submission_unknown: keep reservation; reconcile before retry"
             ) from exc
 
-        job.provider_execution_id = provider_job.execution_id
-        job.snapshot = JobSnapshot(status="queued")
         try:
+            if not isinstance(provider_job, ProviderJob):
+                raise ValueError("Invalid provider submission acknowledgement")
+            job.provider_execution_id = execution_identity(provider_job.execution_id)
+            job.snapshot = JobSnapshot(status="queued")
             job.managed_inputs = self._managed_input_metadata(dict(provider_job.managed_inputs))
             self._persist_active(job)
-        except BaseException:
+        except BaseException as exc:
             job.snapshot = JobSnapshot(status="unknown", error={"code": "submission_unknown"})
             if verification is not None:
                 self.verifier.fail(job, "submission_unknown")
-            raise SubmissionUnknown("submission_unknown: accepted job journal failed") from None
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise SubmissionUnknown(
+                "submission_unknown: invalid acknowledgement or accepted job journal failed"
+            ) from None
         if recipe.schema_version == 3:
             task = asyncio.create_task(self._watch_deadline(job_id))
             self._watchers.add(task)

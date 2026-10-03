@@ -309,7 +309,10 @@ async def test_rejection_contains_actionable_node_error(settings):
         return httpx.Response(
             400,
             json={
-                "error": {"message": "Prompt outputs failed validation"},
+                "error": {
+                    "type": "prompt_outputs_failed_validation",
+                    "message": "Prompt outputs failed validation",
+                },
                 "node_errors": {
                     "5": {"errors": [{"message": "Value not in list", "details": "sampler_name"}]}
                 },

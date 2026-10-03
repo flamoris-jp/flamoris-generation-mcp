@@ -13,6 +13,17 @@ from flamoris_generation_mcp.providers.comfyui import ComfyUIProvider
 from flamoris_generation_mcp.workflows import WorkflowStore
 
 
+def validation_rejection():
+    """The provider's validation response, emitted before queue admission."""
+    return httpx.Response(
+        400,
+        json={
+            "error": {"type": "prompt_outputs_failed_validation", "message": "Invalid workflow"},
+            "node_errors": {},
+        },
+    )
+
+
 @pytest.fixture
 def settings(tmp_path):
     root = tmp_path / "models"
