@@ -71,12 +71,12 @@ and separate stdio servers targeting the same GPU/provider are unsupported.
 For multiple clients, use independent sessions against one Streamable HTTP
 process. Do not start an additional stdio process alongside it.
 
-The single-generation reservation, submission lock, active job state and provider
-execution mappings are **process-local**, not host-wide or distributed. Sharing
-workflow/output directories does not share the reservation. FLAMORIS GPU Node
-Manager owns local GPU/runtime transitions; it does not turn these process-local
-job locks into a distributed generation lock. Direct submissions to ComfyUI also bypass this
-reservation.
+The single-generation reservation is enforced by a **process-owned** submission
+lock, not a host-wide or distributed lock. Its active reservation is also captured
+in a durable journal for conservative recovery after restart. Sharing directories
+does not coordinate simultaneous processes. FLAMORIS GPU Node Manager owns local
+GPU/runtime transitions; it does not turn these job locks into a distributed
+generation lock. Direct submissions to ComfyUI also bypass this reservation.
 
 The supplied CLI starts one process and offers no worker/replica option. It cannot
 reliably discover another process/container using the same resource pool, so no
@@ -87,10 +87,12 @@ it is a contract declaration, not proof that no second instance exists.
 Before restarting/upgrading, stop accepting submissions, finish or explicitly
 cancel active work, and verify provider completion/release. Use stop-then-start
 deployment, not overlapping replacements. After an unexpected restart, inspect
-the provider before resuming submissions: an empty in-memory reservation does not
-prove that previously submitted provider work has stopped. Archived materialized
-assets do not restore active jobs. Multi-instance support would require a separate
-coordination design; it is not enabled by scaling Compose.
+the provider before resuming submissions. A persisted active reservation recovers
+as unknown and retains capacity until reconciliation; private Runtime delegation
+remains fenced rather than replayed. Invalid reservations fail startup. Completed
+asset archives do not restore execution authority, and missing provider history
+does not prove accepted work stopped. Multi-instance support would require a
+separate coordination design; it is not enabled by scaling Compose.
 
 Requires Python 3.11+ and an independently installed ComfyUI instance. No GPU or
 ComfyUI installation is needed on the MCP host, but the host must be able to scan
@@ -158,7 +160,8 @@ connected client can access the same process-owned workflows/jobs. Keep external
 access controlled by the deployment layer. SDK Host/Origin checks remain enabled
 for the default loopback bind; the forwarding runtime must send headers accepted
 by that local endpoint (an external Host/Origin can be rejected). No proxy or
-authentication middleware is added here.
+transport authentication middleware is added here. Optional signed Hub provenance
+is verified separately; it records a client identity and does not grant asset access.
 
 Run one server process with one selected transport. Both startup modes use the
 same `MCPServer` factory, validation, stores and provider registry. HTTP requests and
@@ -175,6 +178,8 @@ ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
 | `FLAMORIS_HTTP_HOST` | `127.0.0.1` | HTTP bind hostname/IP; CLI `--host` |
 | `FLAMORIS_HTTP_PORT` | `8765` | HTTP port (1–65535); CLI `--port` |
 | `FLAMORIS_MCP_PATH` | `/mcp` | Literal HTTP route; CLI `--mcp-path` |
+| `FLAMORIS_PROVENANCE_SECRET` | unset | Independent internal Hub signing secret; configure with the expected issuer |
+| `FLAMORIS_PROVENANCE_ISSUER` | unset | Exact trusted issuer for signed external client provenance |
 | `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | ComfyUI HTTP base URL; path prefixes supported |
 | `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
 | `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
@@ -270,7 +275,7 @@ and actual node/model compatibility on submission.
    content, so remote clients receive the media bytes rather than a host-only
    filesystem path.
 
-`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Completed outputs already materialized by `jobs.result` can be read and deleted by asset ID after a restart using a bounded, validated manifest under the configured output directory. Unmaterialized outputs cannot be reconstructed after restart. Active job status, workflows and provider submissions remain process-local. Provider-original cleanup is not provided.
+`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Completed outputs already materialized by `jobs.result` can be read and deleted by asset ID after a restart using a bounded, validated manifest under the configured output directory. Unmaterialized completed outputs cannot be reconstructed after restart. The active reservation journal supports conservative unknown recovery; unsaved workflows and ordinary session history remain process-owned. Provider-original cleanup is not provided.
 
 The asset layer is intentionally media-oriented rather than filesystem-oriented.
 Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
@@ -361,9 +366,12 @@ service restart.
   successful completion. Errors include node ID/type where available without
   returning provider tracebacks. Transient HTTP failures are MCP tool errors and
   do not overwrite a job's execution state.
-- Jobs and unsaved workflows belong to one server process; there is no persistent
-  job queue or active-job recovery after restart. Previously materialized completed assets
-  can be retrieved and deleted from their validated output manifests. Active jobs and unsaved workflows retain their process-local 1024-entry limits; archived asset access uses a fixed lock pool and has no session count limit.
+- There is no persistent waiting job queue. The durable active reservation journal
+  preserves uncertain work across restart; it is not a full historical execution
+  database or automatic resubmission mechanism. Previously materialized completed
+  assets can be retrieved and deleted from validated output manifests. Session
+  jobs and unsaved workflows retain their process-local 1024-entry limits;
+  archived asset access uses a fixed lock pool and has no session count limit.
   Save recipes before restart; retain completed result files/metadata. Process
   shutdown does not cancel already submitted ComfyUI work.
 - Submission is not idempotent. HTTP POST is never retried automatically. After
@@ -466,7 +474,24 @@ then retrieve only the selected content. The 64 MiB binary bound is unchanged.
 A listed but unmaterialized output cannot be fetched after restart because live
 provider execution mappings are not reconstructed; listing it does not claim the
 binary is available. Such an output can still be removed from the managed catalog.
-This does not restore active jobs or introduce another provider job authority.
+`jobs.status` can return a bounded completed archive summary containing job,
+workflow and provider identity, available output count and optional external
+provenance. It checks the completed manifest and deletion markers without fetching
+bytes or provider HTTP. Missing, incomplete, malformed or wholly deleted catalog
+records fail closed. This summary does not restore execution authority; active
+reservation recovery uses the separate existing JobStore journal.
+
+### Trusted external client provenance
+
+An optional signed per-request Hub context is captured when `jobs.submit`,
+`workflows.verify` or `workflows.v3.verify` admits a job. The immutable non-secret
+`external_provenance: {issuer, subject}` follows job metadata, completed manifests,
+asset listings and transfer metadata, including supported archive reads. Anonymous
+and internal calls omit it. Tool arguments and HTTP headers cannot grant provenance,
+and Generation never maps it to a Studio owner. Configure an independent signing
+secret plus exact expected issuer in both services. See
+[the provenance contract](docs/EXTERNAL_PROVENANCE.md) for signing, replay protection
+and Studio ownership responsibilities.
 
 ### Provider-output retention (explicit maintenance)
 

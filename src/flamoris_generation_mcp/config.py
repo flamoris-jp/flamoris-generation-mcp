@@ -6,7 +6,15 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 ModelKind = Literal[
     "checkpoint",
@@ -33,7 +41,7 @@ MODEL_FOLDERS: dict[str, str] = {
 
 
 class Settings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     comfyui_url: HttpUrl = HttpUrl("http://localhost:8188")
     model_root: Path = Path("models")
@@ -55,6 +63,20 @@ class Settings(BaseModel):
     http_host: str = Field(default="127.0.0.1", min_length=1, max_length=253)
     http_port: int = Field(default=8765, ge=1, le=65535)
     mcp_path: str = Field(default="/mcp", max_length=256)
+    provenance_secret: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    provenance_issuer: str | None = Field(
+        default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    )
+
+    @model_validator(mode="after")
+    def validate_provenance_configuration(self):
+        if (self.provenance_secret is None) != (self.provenance_issuer is None):
+            raise ValueError("Provenance secret and expected issuer must be configured together")
+        if self.provenance_secret is not None:
+            token = self.provenance_secret.get_secret_value()
+            if not 32 <= len(token) <= 512 or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token):
+                raise ValueError("Provenance secret must contain 32-512 credential characters")
+        return self
 
     @field_validator("http_host")
     @classmethod
@@ -99,6 +121,8 @@ class Settings(BaseModel):
             "HTTP_HOST": "http_host",
             "HTTP_PORT": "http_port",
             "MCP_PATH": "mcp_path",
+            "PROVENANCE_SECRET": "provenance_secret",
+            "PROVENANCE_ISSUER": "provenance_issuer",
         }
         values = {
             field: os.environ["FLAMORIS_" + suffix]

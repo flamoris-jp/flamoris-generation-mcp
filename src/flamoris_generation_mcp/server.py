@@ -20,6 +20,7 @@ from .config import ModelKind, Settings
 from .inputs import ManagedInputs
 from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
+from .provenance import ProvenanceIngress, current_provenance
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
 from .retention import RetentionStore
@@ -96,7 +97,12 @@ def create_server(
             await jobs.close()
             await providers.close()
 
-    server = MCPServer("FLAMORIS Generation", version=__version__, lifespan=lifespan)
+    server = MCPServer(
+        "FLAMORIS Generation",
+        version=__version__,
+        lifespan=lifespan,
+        middleware=[ProvenanceIngress(settings)],
+    )
 
     @server.custom_route("/healthz", methods=["GET"])
     async def live(_request: Request) -> JSONResponse:
@@ -231,7 +237,13 @@ def create_server(
         parameters: dict[str, Any],
     ) -> dict[str, Any]:
         """Admit a bounded verification through the normal JobStore; poll its job_id."""
-        return await verifier.verify(workflow_id, definition_version, definition_digest, parameters)
+        return await verifier.verify(
+            workflow_id,
+            definition_version,
+            definition_digest,
+            parameters,
+            provenance=current_provenance(),
+        )
 
     if settings.workflow_v3_enabled:
         # A separate opt-in catalog revision preserves every legacy tool/schema
@@ -322,7 +334,12 @@ def create_server(
             """Smoke the entire exact composed Image plan through the ordinary JobStore once."""
             try:
                 return await verifier.verify(
-                    workflow_id, definition_version, definition_digest, parameters, v3=True
+                    workflow_id,
+                    definition_version,
+                    definition_digest,
+                    parameters,
+                    v3=True,
+                    provenance=current_provenance(),
                 )
             except (ValueError, TypeError, KeyError, OSError):
                 raise ToolError("V3 verification unavailable; no automatic replay") from None
@@ -361,7 +378,7 @@ def create_server(
     async def submit_job(workflow_id: str) -> dict[str, Any]:
         """Submit one workflow when this process has no active generation."""
         try:
-            return await jobs.submit(workflow_id)
+            return await jobs.submit(workflow_id, provenance=current_provenance())
         except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
 
