@@ -88,6 +88,7 @@ class IrodoriConfig(BaseModel):
     source_root: Path
     checkpoint: Path
     codec: Path
+    resource_root: Path | None = None
     source_revision: str
     model_revision: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     model_device: str = Field(default="cuda", pattern=r"^(?:cpu|mps|cuda(?::[0-9]{1,2})?)$")
@@ -128,6 +129,23 @@ def _regular_path(path, *, executable=False):
         raise ValueError("Configured local resource is unavailable")
     if executable and not os.access(path, os.X_OK):
         raise ValueError("Configured Python is not executable")
+
+
+def _model_resource(path, root):
+    """Follow operator-owned cache links only inside an explicitly trusted root."""
+    if root is None:
+        _regular_path(path)
+        return path
+    if not root.is_absolute() or root.is_symlink() or not root.is_dir():
+        raise ValueError("Invalid model resource root")
+    resolved_root = root.resolve(strict=True)
+    if not path.is_absolute() or not path.is_relative_to(root):
+        raise ValueError("Model resource is outside its configured root")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(resolved_root):
+        raise ValueError("Model resource link escapes its configured root")
+    _regular_path(resolved)
+    return resolved
 
 
 def validate_wav(data):
@@ -207,8 +225,9 @@ class IrodoriProvider:
     def _check(self):
         if os.name != "posix" or self.config.source_revision != SOURCE_REVISION:
             raise ValueError("Unsupported Irodori source/platform")
-        for path in (self.config.python, self.config.checkpoint, self.config.codec):
-            _regular_path(path, executable=path == self.config.python)
+        _regular_path(self.config.python, executable=True)
+        for path in (self.config.checkpoint, self.config.codec):
+            _model_resource(path, self.config.resource_root)
         root = self.config.source_root
         if not root.is_absolute() or root.is_symlink() or not root.is_dir():
             raise ValueError("Invalid Irodori source root")
@@ -217,7 +236,11 @@ class IrodoriProvider:
             blob = b"blob " + str(len(data)).encode() + b"\0" + data
             if hashlib.sha1(blob).hexdigest() != expected:
                 raise ValueError("Irodori source contract changed")
-        _regular_bytes(self.config.checkpoint.parent / "tokenizer" / "tokenizer_config.json", 65536)
+        tokenizer_config = _model_resource(
+            self.config.checkpoint.parent / "tokenizer" / "tokenizer_config.json",
+            self.config.resource_root,
+        )
+        _regular_bytes(tokenizer_config, 65536)
 
     async def health(self):
         try:

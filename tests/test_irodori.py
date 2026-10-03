@@ -178,6 +178,68 @@ async def test_hash_mismatch_unavailable_without_spawn(provider):
     assert not provider._runs
 
 
+async def test_explicit_resource_root_supports_cache_snapshot_links(provider):
+    root = provider.config.checkpoint.parent
+    blobs = root / "blobs"
+    blobs.mkdir()
+    resources = (
+        (provider.config.checkpoint, "checkpoint"),
+        (provider.config.codec, "codec"),
+        (root / "tokenizer" / "tokenizer_config.json", "tokenizer-config"),
+    )
+    for resource, name in resources:
+        target = blobs / name
+        resource.rename(target)
+        resource.symlink_to(os.path.relpath(target, resource.parent))
+    assert not (await provider.health()).available
+    provider.config = provider.config.model_copy(update={"resource_root": root})
+    assert (await provider.health()).available
+    # Keep the snapshot checkpoint path: upstream finds tokenizer beside it.
+    argv = provider._argv(request().payload, provider.stage_root / "speech.wav")
+    assert argv[argv.index("--checkpoint") + 1] == str(provider.config.checkpoint)
+    accepted = await provider.submit(request(), "b" * 32)
+    assert (await completed(provider, accepted.execution_id)).status == "completed"
+
+
+@pytest.mark.parametrize("resource", ["checkpoint", "codec", "tokenizer"])
+async def test_configured_resource_links_cannot_escape_root(provider, tmp_path, resource):
+    root = provider.config.checkpoint.parent
+    provider.config = provider.config.model_copy(update={"resource_root": root})
+    path = (
+        root / "tokenizer" / "tokenizer_config.json"
+        if resource == "tokenizer"
+        else getattr(provider.config, resource)
+    )
+    outside = tmp_path / "outside-resource"
+    outside.write_bytes(b"outside")
+    path.unlink()
+    path.symlink_to(outside)
+    assert not (await provider.health()).available
+    with pytest.raises(SubmissionRejected, match="unavailable"):
+        await provider.submit(request(), "b" * 32)
+    assert not provider._runs
+
+
+async def test_configured_resource_rejects_parent_directory_escape(provider, tmp_path):
+    root = provider.config.checkpoint.parent
+    provider.config = provider.config.model_copy(update={"resource_root": root})
+    tokenizer = root / "tokenizer"
+    (tokenizer / "tokenizer_config.json").unlink()
+    tokenizer.rmdir()
+    outside = tmp_path / "outside-tokenizer"
+    outside.mkdir()
+    (outside / "tokenizer_config.json").write_text("{}")
+    tokenizer.symlink_to(outside, target_is_directory=True)
+    assert not (await provider.health()).available
+
+
+async def test_configured_resource_root_rejects_unrelated_regular_checkpoint(provider):
+    provider.config = provider.config.model_copy(
+        update={"resource_root": provider.config.source_root}
+    )
+    assert not (await provider.health()).available
+
+
 async def test_unconfirmed_group_is_unknown(provider, monkeypatch):
     accepted = await provider.submit(request("sleep"), "b" * 32)
     monkeypatch.setattr(provider, "_wait_settled", lambda *_: asyncio.sleep(0, result=False))
