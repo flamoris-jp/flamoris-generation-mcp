@@ -371,6 +371,18 @@ paths have distinct roles. The Generation MCP and Hub schema change for
 updating workflow definitions requires no container rebuild, file release, or
 service restart.
 
+### Installed Workflow qualification client
+
+`python -m flamoris_generation_mcp.qualification` collects bounded observations
+from an already-running Generation MCP or its exact Hub route. It defaults to
+read-only preflight. Explicit `--execute` invokes ordinary `workflows.verify`
+once, polls the normal job and rechecks the exact current ready descriptor.
+It never registers graphs, grants readiness, retries admission, starts a provider
+or cancels uncertain work. Private receipts omit prompts, inputs, credentials,
+provider URLs/paths and runtime manifests. They are evidence-collection aids,
+not a substitute for real-runtime readiness or infrastructure acceptance.
+See [the qualification procedure](docs/WORKFLOW_QUALIFICATION.md).
+
 ## Job behavior and limits
 
 - One server process permits one active generation at a time. While a job is queued,
