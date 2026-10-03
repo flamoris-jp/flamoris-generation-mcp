@@ -26,7 +26,7 @@ pixel/duration limits before use. No other type is accepted by inference yet.
 
 The trusted client first commits a private random canonical 32-hex UUID and its
 owner/quota mapping, then calls `inputs.upload.begin(upload_id, mime_type,
-size_bytes, sha256)`. Only PNG/JPEG/WebP, 1–8 MiB and a lowercase SHA-256 are allowed.
+size_bytes, sha256)`. Only PNG/JPEG/WebP, 1 byte–8 MiB and a lowercase SHA-256 are allowed.
 The returned offset is the durable committed cursor. Send ordered chunks through
 `inputs.upload.write(upload_id, offset, data_base64, chunk_sha256)` with at most
 256 KiB decoded bytes. Exact repeated committed chunks succeed without appending;
