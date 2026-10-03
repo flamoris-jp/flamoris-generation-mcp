@@ -142,20 +142,47 @@ async def test_unknown_failure_and_interrupted(stores, fake):
     assert (await jobs.status(second))["status"] == "cancelled"
 
 
-async def test_queued_cancel_is_scoped_and_releases_exclusivity(stores, fake):
+async def test_queued_cancel_is_scoped_and_absence_retains_exclusivity(stores, fake):
     _, jobs, _ = stores
     key = await submit(stores)
     with pytest.raises(GenerationBusyError, match="Generation is busy"):
         await submit(stores)
 
-    assert (await jobs.cancel(key))["status"] == "cancelled"
-    assert (await jobs.status(key))["status"] == "cancelled"
+    assert (await jobs.cancel(key))["status"] == "unknown"
+    assert (await jobs.status(key))["status"] == "unknown"
     assert ("POST", "/queue", {"delete": ["prompt-1"]}) in fake.calls
     assert not any(call[1] == "/interrupt" for call in fake.calls)
 
+    with pytest.raises(GenerationBusyError, match="is unknown"):
+        await submit(stores)
+    fake.finish(state="error", messages=[["execution_interrupted", {}]])
+    assert (await jobs.status(key))["status"] == "cancelled"
     second = await submit(stores)
     assert second != key
     assert [entry[1] for entry in fake.pending] == ["prompt-2"]
+
+
+async def test_queued_delete_racing_with_lost_history_is_not_settlement(stores, fake, monkeypatch):
+    _, jobs, _ = stores
+    key = await submit(stores)
+    handle = fake.handle
+
+    def lost(request):
+        response = handle(request)
+        if request.method == "POST" and request.url.path == "/queue":
+            fake.running = []
+            fake.pending = []
+            fake.history = {}
+        return response
+
+    # The next queue/history snapshot cannot distinguish removed from running/lost.
+    fake.race_to_running = True
+    monkeypatch.setattr(
+        jobs.providers.get("comfyui").client.http, "_transport", httpx.MockTransport(lost)
+    )
+    assert (await jobs.cancel(key))["status"] == "unknown"
+    assert jobs.activity()["busy"]
+    assert not any(call[1] == "/interrupt" for call in fake.calls)
 
 
 async def test_running_cancel_requires_explicit_capability(stores, fake, settings):

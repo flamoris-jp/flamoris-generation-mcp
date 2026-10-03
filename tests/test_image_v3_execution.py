@@ -1,6 +1,5 @@
 """Actual JobStore/HTTP/attestation boundaries, without a live GPU."""
 
-import asyncio
 import copy
 import json
 import time
@@ -240,8 +239,8 @@ async def test_deadline_is_targeted_once_and_unconfirmed_running_stays_reserved(
     job.execution_deadline = time.time() - 1
     first = await jobs.status(job.job_id)
     await jobs.status(job.job_id)
-    assert first["status"] == ("running" if running else "cancelled")
-    assert jobs.activity()["busy"] is running
+    assert first["status"] == ("running" if running else "unknown")
+    assert jobs.activity()["busy"]
     assert len([c for c in fake.calls if c[0] == "POST" and c[1] == "/queue"]) == (
         0 if running else 1
     )
@@ -265,10 +264,10 @@ async def test_verification_deadline_also_cancels_target_and_never_qualifies(exe
     result = await verifier.verify(root.id, root.version, root.digest, VALUES, v3=True)
     job = jobs._get(result["job_id"])
     job.execution_deadline = time.time() - 1
-    await asyncio.wait_for(jobs._watch_deadline(job.job_id), 3)
-    assert job.snapshot.status == "cancelled"
+    await jobs.status(job.job_id)
+    assert job.snapshot.status == "unknown"
     assert job.verification["state"] == "failed"
-    assert not jobs.activity()["busy"]
+    assert jobs.activity()["busy"]
 
 
 async def test_admitted_rejection_supersedes_parent_ready(execution, fake):
