@@ -258,6 +258,9 @@ and actual node/model compatibility on submission.
 | `assets.list` | `job_id` | Metadata-only stable asset IDs; never downloads payloads |
 | `assets.get` | `asset_id` | MCP-native binary media content for one generated asset |
 | `assets.delete` | `asset_id` | Remove one Hub-managed output; provider originals are unaffected |
+| `inputs.upload.begin` | `upload_id`, `mime_type`, `size_bytes`, `sha256` | Reserve a bounded private image upload |
+| `inputs.upload.write` | `upload_id`, `offset`, `data_base64`, `chunk_sha256` | Commit one ordered chunk, at most 256 KiB |
+| `inputs.upload.finish` | `upload_id` | Decode and publish an immutable managed image |
 
 1. Call `system.health` and optionally `capabilities.list`, then `models.list` for
    `checkpoint` and `lora`.
@@ -618,12 +621,20 @@ checks/download integration are separate review gates; this adds no public URL.
 immutable input, returning `input_id`, source identity, SHA-256 and expiry.
 `inputs.get(input_id)` returns metadata; `inputs.delete(input_id)` refuses inputs
 currently leased by a provider adapter. Source deletion after publication does
-not change the snapshot. No upload, URL, caller path or provider filename is
-accepted. File signatures must agree with the source MIME type.
+not change the snapshot. File signatures must agree with the source MIME type.
+
+Local image uploads use `inputs.upload.begin/write/finish` under a private UUID
+pre-recorded by the trusted client. PNG/JPEG/WebP uploads are limited to 8 MiB,
+256 KiB chunks and a ten-minute pending lifetime. Full size/hash and bounded
+single-frame decoding (4096 pixels per dimension, 16 Mi pixels) must pass before
+publication. Uploaded inputs have `source_kind=upload` and `source_asset_id=null`;
+they are not generated Assets. No URL, caller path or provider filename is accepted.
 
 Inputs expire after 24 hours. Limits are 64 MiB each, 128 retained records and
 512 MiB total under the configured output directory's `managed-inputs` child.
-Create prunes expired and incomplete records. Adapter staging is limited to four
+Create/upload reservation prunes expired and incomplete records, preserving
+unexpired upload reservations and charging their declared bytes across restart.
+Adapter staging is limited to four
 inputs / 128 MiB and requires the existing active job reservation. The internal
 reader API never exposes a caller-selected path.
 

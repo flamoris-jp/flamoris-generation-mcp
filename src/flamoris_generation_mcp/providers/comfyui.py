@@ -137,6 +137,8 @@ class ComfyUIProvider:
                                     "size_bytes",
                                 )
                             }
+                            if reader.metadata.get("source_kind") == "upload":
+                                managed_inputs[name]["source_kind"] = "upload"
                         self.workflows.capture(request.payload)
                         prompt = self.workflows.prompt(
                             request.payload, job_id, provider_inputs, definition

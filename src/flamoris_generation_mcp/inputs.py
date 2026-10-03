@@ -13,6 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .asset_files import AssetFiles
+from .input_uploads import MAX_UPLOAD_BYTES, pending_record
 from .transfers import CHUNK_BYTES, identity, open_asset
 from .workflows import checked_id
 
@@ -86,7 +87,7 @@ class ManagedInputs:
         try:
             record = json.loads(raw) if raw else {}
             if (
-                record["version"] != 1
+                record["version"] not in (1, 2)
                 or record["input_id"] != input_id
                 or record["mime_type"] not in ALLOWED_TYPES
                 or record["media_kind"] != record["mime_type"].split("/")[0]
@@ -101,7 +102,16 @@ class ManagedInputs:
                 or len(record["identity"]) != 5
             ):
                 raise ValueError("Invalid managed input record")
-            self.transfers.jobs._parse_asset_id(record["source_asset_id"])
+            if record["version"] == 2:
+                if (
+                    record.get("source_kind") != "upload"
+                    or record["source_asset_id"] is not None
+                    or record["media_kind"] != "image"
+                    or record["size_bytes"] > MAX_UPLOAD_BYTES
+                ):
+                    raise ValueError("Invalid uploaded input provenance")
+            else:
+                self.transfers.jobs._parse_asset_id(record["source_asset_id"])
             if not expired and record["expires_at"] <= time.time():
                 raise ValueError("Managed input expired")
             return record
@@ -110,7 +120,7 @@ class ManagedInputs:
 
     @staticmethod
     def _public(record):
-        return {
+        result = {
             key: record[key]
             for key in (
                 "input_id",
@@ -123,6 +133,9 @@ class ManagedInputs:
                 "expires_at",
             )
         }
+        if record.get("source_kind") == "upload":
+            result["source_kind"] = "upload"
+        return result
 
     def get(self, input_id):
         checked_id(input_id)
@@ -141,9 +154,11 @@ class ManagedInputs:
                 for count, entry in enumerate(entries):
                     if count >= 8:
                         raise ValueError("Managed input directory contains unexpected files")
-                    if entry.name not in {"content", "metadata.json"} and not re.fullmatch(
-                        r"\.tmp-[a-f0-9]{32}", entry.name
-                    ):
+                    if entry.name not in {
+                        "content",
+                        "metadata.json",
+                        "upload.json",
+                    } and not re.fullmatch(r"\.tmp-[a-f0-9]{32}", entry.name):
                         raise ValueError("Managed input directory contains unexpected files")
                     files.size(entry.name)  # Normalize symlink rejection before opening.
                     with open_asset(files, entry.name):
@@ -182,13 +197,19 @@ class ManagedInputs:
                 with AssetFiles(self.root, key, create=False) as files:
                     raw = files.read("metadata.json", 8192)
                     record = self._record(key, files, expired=True) if raw else None
-                    expired = record is None or record["expires_at"] <= time.time()
+                    pending = pending_record(key, files, expired=True) if record is None else None
+                    retained = record or pending
+                    expired = retained is None or retained["expires_at"] <= time.time()
                     if not expired or key in self._used:
+                        stored = 0
                         with os.scandir(files.fd) as entries:
                             for number, entry in enumerate(entries):
                                 if number >= 8:
                                     raise ValueError("Managed input directory limit exceeded")
-                                total += identity(entry.stat(follow_symlinks=False))[2]
+                                stored += identity(entry.stat(follow_symlinks=False))[2]
+                        # Reserve the whole declared upload before accepting chunks,
+                        # including after restart; other creates cannot consume it.
+                        total += max(stored, pending["size_bytes"] + 8192) if pending else stored
                         count += 1
                 if expired and key not in self._used:
                     self._remove(key)

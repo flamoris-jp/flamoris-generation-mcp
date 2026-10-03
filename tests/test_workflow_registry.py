@@ -1,8 +1,11 @@
 import asyncio
+import base64
+import hashlib
 import json
 import os
 import shutil
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -399,8 +402,9 @@ def test_file_input_binding_fails_closed(settings, tmp_path, spec):
         WorkflowStore(ModelCatalog(settings), settings.workflow_dir, root)
 
 
+@pytest.mark.parametrize("source_kind", ["asset", "upload"])
 async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
-    settings, tmp_path, fake
+    settings, tmp_path, fake, source_kind
 ):
     settings, root = configured(settings, tmp_path)
     path = root / "basic-image.json"
@@ -429,20 +433,44 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
 
     server = create_server(settings, transport=httpx.MockTransport(handler))
     async with Client(server) as client:
-        source = await client.call_tool(
-            "workflows.build",
-            {
-                "template": "text-to-image",
-                "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "source"},
-            },
-        )
-        source_job = await client.call_tool(
-            "jobs.submit", {"workflow_id": source.structured_content["workflow_id"]}
-        )
-        fake.finish()
-        managed = await client.call_tool(
-            "inputs.create", {"asset_id": source_job.structured_content["job_id"] + ":000"}
-        )
+        if source_kind == "asset":
+            source = await client.call_tool(
+                "workflows.build",
+                {
+                    "template": "text-to-image",
+                    "parameters": {"checkpoint": "base.safetensors", "positive_prompt": "source"},
+                },
+            )
+            source_job = await client.call_tool(
+                "jobs.submit", {"workflow_id": source.structured_content["workflow_id"]}
+            )
+            fake.finish()
+            managed = await client.call_tool(
+                "inputs.create", {"asset_id": source_job.structured_content["job_id"] + ":000"}
+            )
+        else:
+            key, content = uuid4().hex, png()
+            digest = hashlib.sha256(content).hexdigest()
+            assert not (
+                await client.call_tool(
+                    "inputs.upload.begin",
+                    dict(
+                        upload_id=key, mime_type="image/png", size_bytes=len(content), sha256=digest
+                    ),
+                )
+            ).is_error
+            assert not (
+                await client.call_tool(
+                    "inputs.upload.write",
+                    dict(
+                        upload_id=key,
+                        offset=0,
+                        data_base64=base64.b64encode(content).decode(),
+                        chunk_sha256=digest,
+                    ),
+                )
+            ).is_error
+            managed = await client.call_tool("inputs.upload.finish", dict(upload_id=key))
         assert not managed.is_error
 
         built = await client.call_tool(
@@ -471,12 +499,15 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
             key: managed.structured_content[key]
             for key in ("input_id", "source_asset_id", "sha256", "mime_type", "size_bytes")
         }
+        if source_kind == "upload":
+            expected["source_kind"] = "upload"
+            assert expected["source_asset_id"] is None
         for tool in ("jobs.status", "jobs.result"):
             response = await client.call_tool(tool, {"job_id": job_id})
             assert not response.is_error
             assert response.structured_content["managed_inputs"] == {"source": expected}
             assert "managed-reference.png" not in json.dumps(response.structured_content)
-        fake.finish("prompt-2")
+        fake.finish("prompt-2" if source_kind == "asset" else "prompt-1")
         result = await client.call_tool("jobs.result", {"job_id": job_id})
         assert result.structured_content["status"] == "completed"
         assert result.structured_content["managed_inputs"] == {"source": expected}
