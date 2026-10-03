@@ -241,6 +241,18 @@ class IrodoriProvider:
             self.config.resource_root,
         )
         _regular_bytes(tokenizer_config, 65536)
+        # AutoTokenizer may read tokenizer.json, vocabulary and additional local
+        # resources. Apply the same boundary to every adjacent tokenizer file.
+        tokenizer_root = self.config.checkpoint.parent / "tokenizer"
+        entries = list(islice(tokenizer_root.iterdir(), 33))
+        if len(entries) > 32:
+            raise ValueError("Too many configured tokenizer resources")
+        total = 0
+        for entry in entries:
+            resource = _model_resource(entry, self.config.resource_root)
+            total += resource.stat().st_size
+            if total > 32 * 1024 * 1024:
+                raise ValueError("Configured tokenizer resources exceed their bound")
 
     async def health(self):
         try:

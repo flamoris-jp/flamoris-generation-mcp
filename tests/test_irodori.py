@@ -201,18 +201,18 @@ async def test_explicit_resource_root_supports_cache_snapshot_links(provider):
     assert (await completed(provider, accepted.execution_id)).status == "completed"
 
 
-@pytest.mark.parametrize("resource", ["checkpoint", "codec", "tokenizer"])
+@pytest.mark.parametrize("resource", ["checkpoint", "codec", "tokenizer", "tokenizer-data"])
 async def test_configured_resource_links_cannot_escape_root(provider, tmp_path, resource):
     root = provider.config.checkpoint.parent
     provider.config = provider.config.model_copy(update={"resource_root": root})
-    path = (
-        root / "tokenizer" / "tokenizer_config.json"
-        if resource == "tokenizer"
-        else getattr(provider.config, resource)
-    )
+    if resource.startswith("tokenizer"):
+        name = "tokenizer_config.json" if resource == "tokenizer" else "tokenizer.json"
+        path = root / "tokenizer" / name
+    else:
+        path = getattr(provider.config, resource)
     outside = tmp_path / "outside-resource"
     outside.write_bytes(b"outside")
-    path.unlink()
+    path.unlink(missing_ok=True)
     path.symlink_to(outside)
     assert not (await provider.health()).available
     with pytest.raises(SubmissionRejected, match="unavailable"):
