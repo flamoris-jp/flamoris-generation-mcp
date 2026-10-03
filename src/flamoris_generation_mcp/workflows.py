@@ -12,6 +12,14 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models import ModelCatalog, model_name
+from .speech import (
+    SPEECH_CAPABILITY,
+    SPEECH_PROVIDER,
+    SPEECH_TEMPLATE,
+    SpeechRecipe,
+    speech_descriptor,
+    speech_profile,
+)
 from .workflow_registry import WorkflowRegistry
 
 Template = Literal["text-to-image", "text-to-image-lora"]
@@ -67,7 +75,7 @@ class ExternalRecipe(BaseModel):
     parameters: dict[str, Any]
 
 
-AnyRecipe = Recipe | ExternalRecipe
+AnyRecipe = Recipe | ExternalRecipe | SpeechRecipe
 
 
 def builtin_descriptors() -> list[dict]:
@@ -224,6 +232,7 @@ class WorkflowStore:
         definition_dir: Path | None = None,
         *,
         v3_enabled=False,
+        speech_enabled=False,
     ):
         self.catalog = catalog
         self.directory = directory
@@ -231,6 +240,7 @@ class WorkflowStore:
         self._recipes: dict[str, AnyRecipe] = {}
         self.readiness = None
         self.v3 = None
+        self.speech_enabled = speech_enabled
         if v3_enabled:
             if self.registry is None:
                 raise ValueError("Image v3 requires the existing definition registry")
@@ -268,7 +278,7 @@ class WorkflowStore:
     def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
         if self.registry is None:
             raise ValueError("Workflow definitions are not configured")
-        if definition.get("id") in {"text-to-image", "text-to-image-lora"}:
+        if definition.get("id") in {"text-to-image", "text-to-image-lora", SPEECH_TEMPLATE}:
             raise ValueError("Built-in workflow template IDs are reserved")
         return self.registry.register(definition)
 
@@ -286,7 +296,14 @@ class WorkflowStore:
             definition_version is not None and type(definition_version) is not int
         ):
             raise ValueError("Invalid build preconditions")
-        if template in ("text-to-image", "text-to-image-lora"):
+        if template == SPEECH_TEMPLATE:
+            if not self.speech_enabled:
+                raise ValueError("Native speech is disabled")
+            if definition_version is not None or definition_digest is not None or require_ready:
+                raise ValueError("Native speech does not accept workflow attestation preconditions")
+            recipe = SpeechRecipe(parameters=parameters)
+            prompt = None
+        elif template in ("text-to-image", "text-to-image-lora"):
             if definition_version is not None or definition_digest is not None:
                 raise ValueError("Definition preconditions cannot target a builtin")
             recipe: AnyRecipe = Recipe(
@@ -315,7 +332,12 @@ class WorkflowStore:
             raise ValueError("Workflow session is full; save needed workflows and restart")
         workflow_id = uuid4().hex
         self._recipes[workflow_id] = recipe
-        return {"workflow_id": workflow_id, **recipe.model_dump(mode="json"), "prompt": prompt}
+        return {
+            "workflow_id": workflow_id,
+            **recipe.model_dump(mode="json"),
+            "prompt": prompt,
+            **({"speech": speech_profile()} if isinstance(recipe, SpeechRecipe) else {}),
+        }
 
     def get(self, workflow_id: str) -> AnyRecipe:
         checked_id(workflow_id)
@@ -335,6 +357,10 @@ class WorkflowStore:
             raise ValueError("Invalid saved workflow recipe") from exc
         if not isinstance(data, dict):
             raise ValueError("Invalid saved workflow recipe")
+        if data.get("schema_version") == 4:
+            if not self.speech_enabled:
+                raise ValueError("Native speech is disabled")
+            return SpeechRecipe.model_validate(data)
         if data.get("schema_version") == 3:
             from .image_v3 import ImageRecipe
 
@@ -347,6 +373,10 @@ class WorkflowStore:
 
     def capture(self, recipe: AnyRecipe):
         """Recheck identity/policy and capture output identity before provider awaits."""
+        if isinstance(recipe, SpeechRecipe):
+            if not self.speech_enabled:
+                raise ValueError("Native speech is disabled")
+            return None
         if not isinstance(recipe, ExternalRecipe):
             return None
         if recipe.schema_version == 3:
@@ -386,6 +416,8 @@ class WorkflowStore:
         provider_inputs: dict[str, str] | None = None,
         definition=None,
     ) -> dict:
+        if isinstance(recipe, SpeechRecipe):
+            raise ValueError("Native speech has no ComfyUI prompt")
         if isinstance(recipe, ExternalRecipe):
             if self.registry is None:
                 raise ValueError("Workflow definitions are not configured")
@@ -403,6 +435,9 @@ class WorkflowStore:
         return prompt
 
     def routing(self, recipe: AnyRecipe) -> tuple[str, str]:
+        if isinstance(recipe, SpeechRecipe):
+            self.capture(recipe)
+            return SPEECH_PROVIDER, SPEECH_CAPABILITY
         if isinstance(recipe, ExternalRecipe):
             definition = self.capture(recipe)
             return definition.provider_id, definition.capability_id
@@ -427,6 +462,8 @@ class WorkflowStore:
             else []
         )
         descriptors = builtin_descriptors() + definitions
+        if self.speech_enabled:
+            descriptors.append(speech_descriptor())
         if len(descriptors) > 128:
             raise ValueError("Workflow discovery exceeds entry limit")
         saved = []

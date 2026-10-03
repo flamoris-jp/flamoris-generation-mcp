@@ -23,8 +23,10 @@ from .models import ModelCatalog
 from .provenance import ProvenanceIngress, current_provenance
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
+from .providers.irodori import IrodoriConfig, IrodoriProvider
 from .retention import RetentionStore
 from .runtime_evidence import RuntimeEvidence
+from .speech import SPEECH_CAPABILITY, SPEECH_PROVIDER, SPEECH_TEMPLATE
 from .transfers import CHUNK_BYTES, AssetTransfers
 from .verification import WorkflowVerification
 from .workflows import WorkflowStore
@@ -42,6 +44,7 @@ def create_server(
         settings.workflow_dir,
         settings.workflow_definition_dir,
         v3_enabled=settings.workflow_v3_enabled,
+        speech_enabled=settings.irodori_config is not None,
     )
     client = ComfyUIClient(settings, transport)
     comfyui = ComfyUIProvider(client, catalog, workflows)
@@ -60,6 +63,20 @@ def create_server(
             ),
         )
     )
+    if settings.irodori_config is not None:
+        providers.register(
+            IrodoriProvider(
+                IrodoriConfig.read(settings.irodori_config), settings.output_dir / "irodori-staging"
+            )
+        )
+        capabilities.register(
+            Capability(
+                capability_id=SPEECH_CAPABILITY,
+                provider_id=SPEECH_PROVIDER,
+                runtime_id="irodori-no-reference-v1",
+                workflow_templates=(SPEECH_TEMPLATE,),
+            )
+        )
     retention = None
     maintenance = comfyui.retention()
     if maintenance is not None:
