@@ -36,8 +36,16 @@ Set `FLAMORIS_IRODORI_CONFIG` to an operator-owned JSON file (maximum 16 KiB):
 ```
 
 All resource paths are fixed absolute operator configuration. The Python interpreter
-may be a virtual-environment symlink; source, checkpoint, codec, configuration and
-output files must be regular files. Keep the checkpoint's bundled `tokenizer`
+may be a virtual-environment symlink; source, configuration and output files must
+be regular files. Checkpoint, codec and tokenizer files reject symlinks by default.
+For an existing Hugging Face snapshot cache, set optional `resource_root` to the
+absolute operator-owned cache root. Both the configured paths and their resolved
+targets must remain inside that root, and targets must be nonempty regular files.
+Escaping links, broken links and unrelated configured resources fail closed. Keep
+this resource tree writable only by trusted operators: source and model checks do
+not establish immutability against concurrent operator changes. The CLI retains
+the snapshot checkpoint path so upstream can locate the adjacent tokenizer.
+Keep the checkpoint's bundled `tokenizer`
 directory beside it, and pre-install the selected PyTorch/backend and upstream
 dependencies. The adapter invokes the configured interpreter directly with fixed
 arguments, a local `--checkpoint`, local codec, `--no-ref`, one sequential candidate,
