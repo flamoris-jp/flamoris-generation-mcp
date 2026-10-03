@@ -215,8 +215,9 @@ class ComfyUIClient:
         if snapshot["status"] == "queued":
             await self._request("POST", "queue", json={"delete": [prompt_id]})
             snapshot = await self.inspect(prompt_id)
-            if snapshot["status"] == "unknown":
-                return {"status": "cancelled", "error": None, "outputs": []}
+            # Queue deletion does not acknowledge which prompt was removed. Absence
+            # can also follow a dispatch race, history loss or another owner action.
+            # Only terminal history proves an execution outcome.
         if snapshot["status"] == "running":
             if not self.settings.targeted_interrupt:
                 return {

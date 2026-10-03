@@ -238,6 +238,24 @@ class ComfyUIProvider:
     async def cancel(self, execution_id: str) -> JobSnapshot:
         return self._normalize(execution_id, await self.client.cancel(execution_id))
 
+    @staticmethod
+    def _owned_observation(raw):
+        """Status only; old identities never restore output publication authority."""
+        status = raw.get("status")
+        supported = raw.get("cancel_supported")
+        if status not in STATUSES or (supported is not None and type(supported) is not bool):
+            raise ProviderError("ComfyUI returned an invalid owned execution observation")
+        return JobSnapshot(
+            status=status,
+            metadata={"cancel_supported": supported} if supported is not None else {},
+        )
+
+    async def inspect_owned(self, execution_id: str) -> JobSnapshot:
+        return self._owned_observation(await self.client.inspect(execution_id))
+
+    async def cancel_owned(self, execution_id: str) -> JobSnapshot:
+        return self._owned_observation(await self.client.cancel(execution_id))
+
     async def materialize(self, execution_id: str, output_id: str) -> bytes:
         try:
             output = self._outputs[(execution_id, output_id)]

@@ -373,7 +373,9 @@ service restart.
   interrupt globally. Set `FLAMORIS_TARGETED_INTERRUPT=true` only after verifying
   your provider supports targeted interruption. There is no global-interrupt
   fallback. An accepted request remains `cancel_requested` until history confirms
-  a terminal state; completion can win a cancellation race.
+  a terminal state; completion can win a cancellation race. If queue deletion is
+  followed by an absent queue/history entry, the result remains `unknown` and the
+  reservation is retained because deletion does not prove which prompt was removed.
 - `jobs.result` copies images from ComfyUI's `/view` into local output storage;
   it does not change the provider's own output directory. Downloads are atomic,
   retryable and reused on subsequent calls, limited to 64 MiB per image and 64

@@ -52,6 +52,115 @@ class RuntimeAdmission(Contract):
         return self
 
 
+class RuntimeStopReceipt(Contract):
+    """Projection of the existing Runtime CommandReceipt, never release evidence."""
+
+    admission: RuntimeAdmission
+    accepted: bool
+    applied: bool
+    terminal: bool
+
+
+class RuntimeObservation(Contract):
+    """Bounded status projection; terminal lifecycle does not prove host settlement."""
+
+    admission: RuntimeAdmission
+    watermark: Counter
+    state: Literal[
+        "created",
+        "queued",
+        "running",
+        "waiting",
+        "paused",
+        "cancelling",
+        "finalizing",
+        "succeeded",
+        "failed",
+        "cancelled",
+    ]
+    dispatch_open: bool
+    child_creation_open: bool
+    execution_in_flight: bool
+    cleanup_pending: bool
+
+    @model_validator(mode="after")
+    def bounded_watermark(self):
+        if int(self.watermark) > 2**64 - 1:
+            raise ValueError("Invalid Runtime observation watermark")
+        return self
+
+
+class ProviderObservation(Contract):
+    status: Literal[
+        "queued", "running", "completed", "failed", "cancel_requested", "cancelled", "unknown"
+    ]
+    cancel_supported: bool | None = None
+
+
+class RuntimeStopRecord(Contract):
+    state: Literal["handoff_possible", "observed", "unknown"]
+    receipt: RuntimeStopReceipt | None = None
+
+    @model_validator(mode="after")
+    def receipt_relation(self):
+        if (self.state == "observed" and self.receipt is None) or (
+            self.state == "handoff_possible" and self.receipt is not None
+        ):
+            raise ValueError("Invalid retained Runtime stop receipt")
+        return self
+
+
+class ProviderStopRecord(Contract):
+    state: Literal["handoff_possible", "observed", "unknown"]
+    receipt: ProviderObservation | None = None
+
+    @model_validator(mode="after")
+    def receipt_relation(self):
+        if (self.state == "observed" and self.receipt is None) or (
+            self.state == "handoff_possible" and self.receipt is not None
+        ):
+            raise ValueError("Invalid retained provider stop receipt")
+        return self
+
+
+class RuntimeCleanupRecord(Contract):
+    stop: RuntimeStopRecord | None = None
+    inspections: int = Field(default=0, ge=0, le=4)
+    observation: RuntimeObservation | None = None
+    last_failure: Literal["unknown", "observation_conflict"] | None = None
+
+    @model_validator(mode="after")
+    def inspected_observation(self):
+        if self.observation is not None and not self.inspections:
+            raise ValueError("Runtime observation requires a claimed inspection")
+        return self
+
+
+class ProviderCleanupRecord(Contract):
+    stop: ProviderStopRecord | None = None
+    inspections: int = Field(default=0, ge=0, le=4)
+    observation: ProviderObservation | None = None
+    last_failure: Literal["unknown", "observation_conflict"] | None = None
+
+    @model_validator(mode="after")
+    def inspected_observation(self):
+        if self.observation is not None and not self.inspections:
+            raise ValueError("Provider observation requires a claimed inspection")
+        return self
+
+
+class CleanupWindow(Contract):
+    started_at: float = Field(gt=0, allow_inf_nan=False)
+    expires_at: float = Field(gt=0, allow_inf_nan=False)
+    closed: bool = False
+
+    @model_validator(mode="after")
+    def bounded_window(self):
+        if self.expires_at - self.started_at != 30:
+            raise ValueError("Owned cleanup requires one fixed 30-second window")
+        return self
+
+
 class Occurrence(Contract):
     path: Path
     workflow_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
@@ -88,7 +197,11 @@ class OperationRecord(Contract):
     provider_job_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
     state: Literal["handoff_possible", "accepted", "rejected", "unknown"]
     execution_id: str = Field(default="", pattern=r"^[A-Za-z0-9_.:-]{0,128}$")
+    # Empty legacy bindings remain fenced; cleanup must not guess their route.
+    provider_id: str = Field(default="", pattern=r"^(?:[a-z][a-z0-9._-]{0,63})?$")
+    operation: str = Field(default="", pattern=r"^(?:[a-z][a-z0-9._-]{0,127})?$")
     managed_inputs: dict[Identifier, "InputReceipt"] = Field(default_factory=dict, max_length=64)
+    cleanup: ProviderCleanupRecord = Field(default_factory=ProviderCleanupRecord)
 
 
 class InputReceipt(Contract):
@@ -108,6 +221,8 @@ class DelegationRecord(Contract):
     admission: RuntimeAdmission | None = None
     closed: bool = False
     operations: dict[Path, OperationRecord] = Field(default_factory=dict, max_length=64)
+    cleanup_window: CleanupWindow | None = None
+    cleanup: RuntimeCleanupRecord = Field(default_factory=RuntimeCleanupRecord)
 
     @model_validator(mode="after")
     def retained_relation(self):
@@ -119,6 +234,14 @@ class DelegationRecord(Contract):
                 raise ValueError("Retained operation input changed")
             if operation.state == "accepted" and not operation.execution_id:
                 raise ValueError("Accepted operation requires a provider identity")
+            if bool(operation.provider_id) != bool(operation.operation):
+                raise ValueError("Incomplete retained provider route")
+            if operation.cleanup != ProviderCleanupRecord() and (
+                not operation.execution_id
+                or not operation.provider_id
+                or self.cleanup_window is None
+            ):
+                raise ValueError("Provider cleanup requires the exact retained identity and window")
         if len({x.key for x in self.operations.values()}) != len(self.operations):
             raise ValueError("Dispatch key cannot name two occurrences")
         if len({x.provider_job_id for x in self.operations.values()}) != len(self.operations):
@@ -135,6 +258,18 @@ class DelegationRecord(Contract):
             raise ValueError("Accepted delegation requires a Run identity")
         if self.operations and self.admission is None:
             raise ValueError("Provider operation requires an accepted Runtime relation")
+        if self.cleanup != RuntimeCleanupRecord() and (
+            self.admission is None or self.cleanup_window is None
+        ):
+            raise ValueError("Runtime cleanup requires the retained admission and window")
+        for receipt in (
+            self.cleanup.observation,
+            self.cleanup.stop.receipt if self.cleanup.stop else None,
+        ):
+            if receipt is not None and receipt.admission != self.admission:
+                raise ValueError("Cleanup Runtime relation changed")
+        if self.cleanup_window is not None and not self.closed:
+            raise ValueError("Cleanup cannot reopen useful dispatch")
         return self
 
 
@@ -160,6 +295,8 @@ class InternalProviderOperation:
     operation: str
     guard: Callable
     purpose: Literal["internal_provider"] = "internal_provider"
+    # Separately admitted owned stop/read authority, never useful dispatch authority.
+    cleanup_guard: Callable | None = None
 
 
 def request_digest(request: GenerationRequest) -> str:
@@ -381,6 +518,8 @@ class RuntimeDelegations:
                 input_digest=input_digest,
                 provider_job_id=uuid4().hex,
                 state="handoff_possible",
+                provider_id=registration.provider_id,
+                operation=registration.operation,
             )
             operations = {**record.operations, path: claim}
             self._commit(job, record.model_copy(update={"operations": operations}))
