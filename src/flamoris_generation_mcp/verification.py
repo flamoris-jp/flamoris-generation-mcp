@@ -166,7 +166,7 @@ class WorkflowVerification:
                 if recipe.require_ready:
                     self.require(definition, recipe.parameters)
 
-    async def verify(self, workflow_id, version, digest, parameters, *, v3=False):
+    async def verify(self, workflow_id, version, digest, parameters, *, v3=False, provenance=None):
         if type(version) is not int or not isinstance(digest, str):
             raise ValueError("Verification requires exact Definition identity")
         built = (
@@ -201,7 +201,9 @@ class WorkflowVerification:
             ),
         }
         async with asyncio.timeout(DEADLINE):
-            result = await self.jobs.submit(built["workflow_id"], verification=attempt)
+            result = await self.jobs.submit(
+                built["workflow_id"], verification=attempt, provenance=provenance
+            )
         task = asyncio.create_task(self._watch(result["job_id"]))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)

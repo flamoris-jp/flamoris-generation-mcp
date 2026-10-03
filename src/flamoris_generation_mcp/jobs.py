@@ -13,6 +13,7 @@ from uuid import uuid4
 from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
 from .durable import CommitUnknown, Records
+from .provenance import ExternalProvenance, archived_provenance, provenance_metadata
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
 from .providers.base import SubmissionRejected, SubmissionUnknown, output_roles
 from .retention import RetentionStore
@@ -57,6 +58,7 @@ class Job:
     execution_deadline: float | None = None
     deadline_cancelled: bool = False
     delegation: object | None = None
+    external_provenance: ExternalProvenance | None = None
 
 
 class JobStore:
@@ -135,6 +137,9 @@ class JobStore:
                 snapshot=JobSnapshot(status="unknown"),
                 execution_deadline=raw.get("execution_deadline"),
                 deadline_cancelled=raw.get("deadline_cancelled", False),
+                external_provenance=ExternalProvenance.model_validate(raw["external_provenance"])
+                if "external_provenance" in raw
+                else None,
             )
             if raw.get("runtime_delegation") is not None:
                 from .runtime_delegation import recover_record
@@ -171,6 +176,7 @@ class JobStore:
                     "verification": job.verification,
                     "execution_deadline": job.execution_deadline,
                     "deadline_cancelled": job.deadline_cancelled,
+                    **provenance_metadata(job.external_provenance),
                     **(
                         {"runtime_delegation": job.delegation.model_dump(mode="json")}
                         if job.delegation is not None
@@ -231,7 +237,11 @@ class JobStore:
             return self.workflows.routing(request.payload)[0]
         return self.capabilities.resolve_workflow(request.payload.template).provider_id
 
-    async def _reserve(self, workflow_id: str, *, verification=None, delegation=None) -> Job:
+    async def _reserve(
+        self, workflow_id: str, *, verification=None, delegation=None, provenance=None
+    ) -> Job:
+        if provenance is not None and not isinstance(provenance, ExternalProvenance):
+            raise ValueError("External provenance must come from trusted ingress")
         request = self._validated_request(workflow_id, verification=verification)
         async with self._submit_lock:
             active = self._active_job()
@@ -264,6 +274,7 @@ class JobStore:
                 if request.payload.schema_version == 3
                 else None,
                 delegation=delegation,
+                external_provenance=provenance,
             )
             # Journal the ordinary reservation before any provider await. Restart is
             # never proof that work vanished, including the accepted-POST crash window.
@@ -292,8 +303,8 @@ class JobStore:
                     raise
         return job
 
-    async def submit(self, workflow_id: str, *, verification=None) -> dict:
-        job = await self._reserve(workflow_id, verification=verification)
+    async def submit(self, workflow_id: str, *, verification=None, provenance=None) -> dict:
+        job = await self._reserve(workflow_id, verification=verification, provenance=provenance)
         job_id, recipe, definition = job.job_id, job.recipe, job.definition
         operation = job.operation
         provider = self.providers.get(job.provider_id)
@@ -367,8 +378,11 @@ class JobStore:
         return self._jobs[job_id]
 
     def _metadata(self, job: Job) -> dict:
+        snapshot = job.snapshot.as_dict()
+        # Provider response metadata is untrusted and cannot grant client provenance.
+        snapshot.pop("external_provenance", None)
         return {
-            **job.snapshot.as_dict(),
+            **snapshot,
             "job_id": job.job_id,
             "operation": job.operation,
             "provider": job.provider_id,
@@ -379,6 +393,7 @@ class JobStore:
                 name: dict(metadata) for name, metadata in job.managed_inputs.items()
             },
             **({"verification": dict(job.verification)} if job.verification else {}),
+            **provenance_metadata(job.external_provenance),
             **(
                 {
                     "runtime_delegation": {
@@ -458,10 +473,62 @@ class JobStore:
             files.write("metadata.json", payload)
 
     async def status(self, job_id: str) -> dict:
-        job = self._get(job_id)
+        checked_id(job_id)
+        job = self._jobs.get(job_id)
+        if job is None:
+            return await self._archived_status(job_id)
         async with job.lock:
             await self._refresh(job_id, job)
             return self._metadata(job)
+
+    async def _archived_status(self, job_id: str) -> dict:
+        """Bounded completed catalog metadata; no execution recovery or materialization."""
+        async with self._archived_lock(job_id):
+            with AssetFiles(self.output_dir, job_id, create=False) as files:
+                raw = files.read("metadata.json", 1024 * 1024)
+                try:
+                    record = json.loads(raw) if raw is not None else None
+                    if not isinstance(record, dict) or record.get("status") != "completed":
+                        raise ValueError
+                    if record.get("job_id") != job_id:
+                        raise ValueError
+                    outputs = record["outputs"]
+                    if not isinstance(outputs, list) or not 1 <= len(outputs) <= 64:
+                        raise ValueError
+                    output_roles(outputs)
+                    provider = record["provider_id"]
+                    operation = record["operation"]
+                    if (
+                        not isinstance(provider, str)
+                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", provider)
+                        or record.get("provider", provider) != provider
+                        or not isinstance(operation, str)
+                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", operation)
+                    ):
+                        raise ValueError
+                    workflow_id = checked_id(record["workflow_id"])
+                    provenance = archived_provenance(record)
+                    available = 0
+                    for index in range(len(outputs)):
+                        path, deleted = self._archived_file(job_id, index, files)
+                        if path is not None and not deleted:
+                            files.size(path.name)  # Reject symlinks without fetching asset bytes.
+                            available += 1
+                    if not available:
+                        raise ValueError
+                except (ValueError, TypeError, KeyError):
+                    raise ValueError("Invalid or unavailable archived completed job") from None
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "provider_id": provider,
+                    "provider": provider,
+                    "operation": operation,
+                    "workflow_id": workflow_id,
+                    "archived": True,
+                    "output_count": available,
+                    **provenance,
+                }
 
     def _local_output_path(self, job_id: str, index: int, suffix: str) -> Path:
         checked_id(job_id)
@@ -564,6 +631,17 @@ class JobStore:
         except (ValueError, TypeError, AttributeError):
             raise ValueError("Invalid archived output role manifest") from None
 
+    @staticmethod
+    def _archived_provenance(files: AssetFiles) -> dict:
+        raw = files.read("metadata.json", 1024 * 1024)
+        try:
+            record = json.loads(raw) if raw is not None else None
+            if not isinstance(record, dict):
+                raise ValueError("Invalid archived external provenance")
+            return archived_provenance(record)
+        except (ValueError, TypeError):
+            raise ValueError("Invalid archived external provenance") from None
+
     async def _archived_get(self, job_id: str, index: int) -> tuple[dict, bytes, str]:
         async with self._archived_lock(job_id):
             with AssetFiles(self.output_dir, job_id, create=False) as files:
@@ -576,6 +654,7 @@ class JobStore:
                 if data is None:
                     raise ValueError("Unknown archived asset ID")
                 roles = self._archived_roles(files, index)
+                provenance = self._archived_provenance(files)
             kind, mime, media_format = MEDIA_TYPES[path.suffix.lower()]
             size = len(data)
             asset = {
@@ -588,6 +667,7 @@ class JobStore:
                 "materialized": True,
                 "output_index": index,
                 **roles,
+                **provenance,
             }
             return asset, data, media_format
 
@@ -647,6 +727,7 @@ class JobStore:
             "materialized": materialized,
             "output_index": index,
             **roles,
+            **provenance_metadata(job.external_provenance),
         }
         return asset, path
 
@@ -697,6 +778,7 @@ class JobStore:
                     kind, mime, _ = MEDIA_TYPES[path.suffix.lower()]
                     size = files.size(path.name)
                     roles = self._archived_roles(files, index)
+                    provenance = self._archived_provenance(files)
                     assets.append(
                         {
                             "asset_id": self._asset_id(job_id, index),
@@ -708,6 +790,7 @@ class JobStore:
                             "materialized": size is not None,
                             "output_index": index,
                             **roles,
+                            **provenance,
                         }
                     )
             return {"job_id": job_id, "assets": assets}

@@ -106,6 +106,7 @@ class AssetTransfers:
                 mime_type=mime,
                 output_index=index,
                 **self.jobs._archived_roles(files, index),
+                **self.jobs._archived_provenance(files),
             )
         return asset, path, job
 
