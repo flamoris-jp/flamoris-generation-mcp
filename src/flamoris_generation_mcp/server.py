@@ -20,13 +20,21 @@ from .config import ModelKind, Settings
 from .inputs import ManagedInputs
 from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
+from .music import MUSIC_CAPABILITY, MUSIC_PROVIDER, MUSIC_TEMPLATE
 from .provenance import ProvenanceIngress, current_provenance
 from .providers import ProviderError, ProviderRegistry
 from .providers.comfyui import ComfyUIProvider
 from .providers.irodori import IrodoriConfig, IrodoriProvider
+from .providers.sheetsage2 import SheetSage2Config, SheetSage2Provider
+from .providers.yue2 import Yue2Config, Yue2Provider
 from .retention import RetentionStore
 from .runtime_evidence import RuntimeEvidence
 from .speech import SPEECH_CAPABILITY, SPEECH_PROVIDER, SPEECH_TEMPLATE
+from .transcription import (
+    TRANSCRIPTION_CAPABILITY,
+    TRANSCRIPTION_PROVIDER,
+    TRANSCRIPTION_TEMPLATE,
+)
 from .transfers import CHUNK_BYTES, AssetTransfers
 from .verification import WorkflowVerification
 from .workflows import WorkflowStore
@@ -45,6 +53,8 @@ def create_server(
         settings.workflow_definition_dir,
         v3_enabled=settings.workflow_v3_enabled,
         speech_enabled=settings.irodori_config is not None,
+        music_enabled=settings.yue2_config is not None,
+        transcription_enabled=settings.sheetsage2_config is not None,
     )
     client = ComfyUIClient(settings, transport)
     comfyui = ComfyUIProvider(client, catalog, workflows)
@@ -77,6 +87,35 @@ def create_server(
                 workflow_templates=(SPEECH_TEMPLATE,),
             )
         )
+    if settings.yue2_config is not None:
+        providers.register(
+            Yue2Provider(
+                Yue2Config.read(settings.yue2_config), settings.output_dir / "yue2-staging"
+            )
+        )
+        capabilities.register(
+            Capability(
+                capability_id=MUSIC_CAPABILITY,
+                provider_id=MUSIC_PROVIDER,
+                runtime_id="yue2-synth-v1",
+                workflow_templates=(MUSIC_TEMPLATE,),
+            )
+        )
+    sheetsage2 = None
+    if settings.sheetsage2_config is not None:
+        sheetsage2 = SheetSage2Provider(
+            SheetSage2Config.read(settings.sheetsage2_config),
+            settings.output_dir / "sheetsage2-staging",
+        )
+        providers.register(sheetsage2)
+        capabilities.register(
+            Capability(
+                capability_id=TRANSCRIPTION_CAPABILITY,
+                provider_id=TRANSCRIPTION_PROVIDER,
+                runtime_id="sheetsage2-cpu-v1",
+                workflow_templates=(TRANSCRIPTION_TEMPLATE,),
+            )
+        )
     retention = None
     maintenance = comfyui.retention()
     if maintenance is not None:
@@ -96,6 +135,8 @@ def create_server(
     # Provider construction precedes JobStore/ManagedInputs because the input lease
     # validates the shared Hub reservation. Wire the adapter only after both exist.
     comfyui.managed_inputs = inputs
+    if sheetsage2 is not None:
+        sheetsage2.managed_inputs = inputs
     verifier = WorkflowVerification(
         workflows,
         jobs,

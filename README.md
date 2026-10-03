@@ -3,8 +3,9 @@
 A small Python MCP-native Generation Hub. It currently generates images through
 an existing ComfyUI service using trusted templates and user-facing parameters,
 while keeping Hub jobs, capabilities and assets independent from provider HTTP
-details. An opt-in local [Irodori native Speech provider](docs/IRODORI_PROVIDER.md)
-also uses the same shared job/asset authority. No .NET runtime or
+details. Opt-in [native Music and transcription providers](docs/MUSIC_PROVIDERS.md)
+and a local [Irodori native Speech provider](docs/IRODORI_PROVIDER.md)
+use the same shared job/asset authority. No .NET runtime or
 `flamoris-mcp-core` package is required.
 
 Part of the [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai) family.
@@ -17,8 +18,9 @@ validated candidate; exact runtime attestation and the independent infrastructur
 gate control production use.
 
 The [pinned Music provider contract research](docs/MUSIC_PROVIDER_CONTRACT_RESEARCH.md)
-records verified upstream API/CLI shapes and the remaining deployed-runtime entry gates.
-It does not enable Music capabilities.
+records the original upstream API/CLI investigation. The native adapters implement
+the separately pinned installed contracts described in [MUSIC_PROVIDERS.md](docs/MUSIC_PROVIDERS.md);
+real-runtime qualification remains a deployment acceptance gate.
 
 ## Proposed integration design
 
@@ -57,6 +59,10 @@ is resolved at submission time; there is no automatic provider selection.
 ComfyUI is registered by default. `FLAMORIS_IRODORI_CONFIG` explicitly adds the
 fixed `speech-no-reference` native profile; missing optional runtime resources
 make that provider unavailable independently of Image and process liveness.
+`FLAMORIS_YUE2_CONFIG` and `FLAMORIS_SHEETSAGE2_CONFIG` independently add the
+fixed `music-generate` and `music-transcribe` profiles. They are disabled when
+these operator-owned configuration paths are unset. None switches a runtime,
+downloads a model or automatically selects an alternative provider.
 
 `system.health` reports Hub process health separately from provider availability.
 A stopped ComfyUI instance makes the `comfyui` provider and its capabilities
@@ -64,6 +70,10 @@ unavailable, but does not make the Hub process unhealthy. `capabilities.list` an
 `capabilities.get` expose the provider-independent operation `image.generate`
 without automatically selecting a provider. Configured native Speech also exposes
 `speech.generate`; local-resource availability is not real-model readiness.
+Configured Music exposes `music.generate` and/or `music.transcribe`; descriptors
+declare their exact native profile and `not-attested` qualification. Production
+consumers must complete the corresponding real-runtime acceptance before enabling
+those profiles. Discovery and offline CI do not attest installed models.
 
 ## Setup
 
@@ -185,6 +195,9 @@ ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
 | `FLAMORIS_MCP_PATH` | `/mcp` | Literal HTTP route; CLI `--mcp-path` |
 | `FLAMORIS_PROVENANCE_SECRET` | unset | Independent internal Hub signing secret; configure with the expected issuer |
 | `FLAMORIS_PROVENANCE_ISSUER` | unset | Exact trusted issuer for signed external client provenance |
+| `FLAMORIS_IRODORI_CONFIG` | unset | Operator-owned local Irodori native Speech configuration |
+| `FLAMORIS_YUE2_CONFIG` | unset | Operator-owned YuE2 HTTP native Music configuration |
+| `FLAMORIS_SHEETSAGE2_CONFIG` | unset | Operator-owned local SheetSage2 native transcription configuration |
 | `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | ComfyUI HTTP base URL; path prefixes supported |
 | `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
 | `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
@@ -598,4 +611,7 @@ source ownership and persist its own input-owner mapping before exposing these
 tools to users. Production workflow file bindings remain fail-closed except for the reviewed
 ComfyUI `LoadImage.image` managed-image binding described above. A real-runtime
 smoke is still required before enabling a production Reference Image workflow.
-This does not advertise transcription, TTS, video-input, or arbitrary file capabilities.
+The opt-in native SheetSage2 profile accepts an existing managed WAV reference and
+stages a separate immutable provider copy; its source identity is persisted with
+the job. See [the native Music contract](docs/MUSIC_PROVIDERS.md). Reference-audio
+TTS, video-input and arbitrary file bindings remain unavailable.
