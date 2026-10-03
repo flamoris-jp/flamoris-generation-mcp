@@ -68,6 +68,8 @@ class Settings(BaseModel):
         default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
     irodori_config: Path | None = None
+    yue2_config: Path | None = None
+    sheetsage2_config: Path | None = None
 
     @model_validator(mode="after")
     def validate_provenance_configuration(self):
@@ -125,6 +127,8 @@ class Settings(BaseModel):
             "PROVENANCE_SECRET": "provenance_secret",
             "PROVENANCE_ISSUER": "provenance_issuer",
             "IRODORI_CONFIG": "irodori_config",
+            "YUE2_CONFIG": "yue2_config",
+            "SHEETSAGE2_CONFIG": "sheetsage2_config",
         }
         values = {
             field: os.environ["FLAMORIS_" + suffix]

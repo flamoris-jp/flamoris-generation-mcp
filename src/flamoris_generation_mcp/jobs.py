@@ -13,12 +13,14 @@ from uuid import uuid4
 from .asset_files import AssetFiles
 from .capabilities import CapabilityRegistry
 from .durable import CommitUnknown, Records
+from .music import MusicRecipe
 from .provenance import ExternalProvenance, archived_provenance, provenance_metadata
 from .providers import GenerationRequest, JobSnapshot, ProviderRegistry
 from .providers.base import SubmissionRejected, SubmissionUnknown, output_roles
 from .retention import RetentionStore
 from .speech import SpeechRecipe
-from .workflows import AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
+from .transcription import TranscriptionRecipe
+from .workflows import NATIVE_RECIPES, AnyRecipe, ExternalRecipe, WorkflowStore, checked_id
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -33,6 +35,7 @@ MEDIA_TYPES = {
     ".mp3": ("audio", "audio/mpeg", "mp3"),
     ".mp4": ("video", "video/mp4", "mp4"),
     ".mid": ("midi", "audio/midi", "midi"),
+    ".abc": ("score", "text/vnd.abc", "abc"),
     ".json": ("metadata", "application/json", "json"),
     ".psd": ("image", "image/vnd.adobe.photoshop", "psd"),
     ".png": ("image", "image/png", "png"),
@@ -99,12 +102,11 @@ class JobStore:
             raw = record["active"]
             job_id = checked_id(raw["job_id"])
             recipe_type = ExternalRecipe if raw["recipe"]["schema_version"] == 2 else Recipe
-            if raw["recipe"]["schema_version"] == 4:
-                if not self.workflows.speech_enabled:
-                    raise ValueError("Speech reservation requires compatible configuration")
-                recipe_type = SpeechRecipe
+            native = {4: SpeechRecipe, 5: MusicRecipe, 6: TranscriptionRecipe}
+            if raw["recipe"]["schema_version"] in native:
+                recipe_type = native[raw["recipe"]["schema_version"]]
                 if raw["definition"] is not None:
-                    raise ValueError("Native speech reservation cannot contain a graph")
+                    raise ValueError("Native reservation cannot contain a graph")
             if raw["recipe"]["schema_version"] == 3:
                 from .image_v3 import ImageDefinition, ImageRecipe
 
@@ -113,10 +115,10 @@ class JobStore:
                 recipe_type = ImageRecipe
                 WorkflowDefinition = ImageDefinition
             recipe = recipe_type.model_validate(raw["recipe"])
-            if isinstance(recipe, SpeechRecipe) and (
+            if isinstance(recipe, NATIVE_RECIPES) and (
                 (raw["provider_id"], raw["operation"]) != self.workflows.routing(recipe)
             ):
-                raise ValueError("Invalid native speech reservation route")
+                raise ValueError("Invalid native reservation route")
             deadline = raw.get("execution_deadline")
             cancelled = raw.get("deadline_cancelled", False)
             if (
@@ -143,6 +145,7 @@ class JobStore:
                 recipe,
                 raw["provider_id"],
                 raw["execution_id"],
+                managed_inputs=self._managed_input_metadata(raw.get("managed_inputs", {})),
                 definition=definition,
                 verification=raw.get("verification", {}),
                 snapshot=JobSnapshot(status="unknown"),
@@ -181,6 +184,7 @@ class JobStore:
                     "provider_id": job.provider_id,
                     "execution_id": job.provider_execution_id,
                     "recipe": job.recipe.model_dump(mode="json"),
+                    "managed_inputs": job.managed_inputs,
                     "definition": job.definition.model_dump(mode="json")
                     if job.definition
                     else None,
@@ -202,6 +206,38 @@ class JobStore:
             return None
         job = self._jobs.get(self._active_job_id)
         return self._active_job_id, job.snapshot.status if job else "submitting"
+
+    @staticmethod
+    def _managed_input_metadata(value):
+        """Persist only bounded immutable identity fields, never adapter staging paths."""
+        if not isinstance(value, dict) or len(value) > 4:
+            raise ValueError("Invalid managed input reproducibility metadata")
+        result = {}
+        for name, metadata in value.items():
+            if (
+                not isinstance(name, str)
+                or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name)
+                or not isinstance(metadata, dict)
+            ):
+                raise ValueError("Invalid managed input reproducibility metadata")
+            keys = ("input_id", "source_asset_id", "sha256", "mime_type", "size_bytes")
+            try:
+                record = {key: metadata[key] for key in keys}
+                checked_id(record["input_id"])
+                JobStore._parse_asset_id(record["source_asset_id"])
+                if (
+                    not isinstance(record["sha256"], str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", record["sha256"])
+                    or record["mime_type"]
+                    not in {"image/png", "image/jpeg", "image/webp", "audio/wav"}
+                    or type(record["size_bytes"]) is not int
+                    or not 1 <= record["size_bytes"] <= 64 * 1024**2
+                ):
+                    raise ValueError("Invalid managed input reproducibility metadata")
+            except (KeyError, TypeError):
+                raise ValueError("Invalid managed input reproducibility metadata") from None
+            result[name] = record
+        return result
 
     async def _release_if_terminal(self, job_id: str, job: Job) -> None:
         if job.delegation is not None:
@@ -227,7 +263,7 @@ class JobStore:
         else:
             capability = self.capabilities.resolve_workflow(recipe.template)
             provider_id, operation = capability.provider_id, capability.capability_id
-        if isinstance(recipe, (ExternalRecipe, SpeechRecipe)):
+        if isinstance(recipe, (ExternalRecipe, *NATIVE_RECIPES)):
             routed_provider, routed_operation = self.workflows.routing(recipe)
             if (provider_id, operation) != (
                 routed_provider,
@@ -244,7 +280,7 @@ class JobStore:
         )
 
     def _provider_route(self, request: GenerationRequest) -> str:
-        if isinstance(request.payload, (ExternalRecipe, SpeechRecipe)):
+        if isinstance(request.payload, (ExternalRecipe, *NATIVE_RECIPES)):
             return self.workflows.routing(request.payload)[0]
         return self.capabilities.resolve_workflow(request.payload.template).provider_id
 
@@ -348,11 +384,9 @@ class JobStore:
             ) from exc
 
         job.provider_execution_id = provider_job.execution_id
-        job.managed_inputs = {
-            name: dict(metadata) for name, metadata in provider_job.managed_inputs.items()
-        }
         job.snapshot = JobSnapshot(status="queued")
         try:
+            job.managed_inputs = self._managed_input_metadata(dict(provider_job.managed_inputs))
             self._persist_active(job)
         except BaseException:
             job.snapshot = JobSnapshot(status="unknown", error={"code": "submission_unknown"})
@@ -519,6 +553,7 @@ class JobStore:
                         raise ValueError
                     workflow_id = checked_id(record["workflow_id"])
                     provenance = archived_provenance(record)
+                    managed_inputs = self._managed_input_metadata(record.get("managed_inputs", {}))
                     available = 0
                     for index in range(len(outputs)):
                         path, deleted = self._archived_file(job_id, index, files)
@@ -538,6 +573,7 @@ class JobStore:
                     "workflow_id": workflow_id,
                     "archived": True,
                     "output_count": available,
+                    **({"managed_inputs": managed_inputs} if managed_inputs else {}),
                     **provenance,
                 }
 
