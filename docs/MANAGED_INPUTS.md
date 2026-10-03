@@ -1,7 +1,8 @@
-# Managed generated-asset inputs (Issue #30)
+# Managed inputs (Issues #30 and #64)
 
-This first contract copies an existing generated asset into an immutable managed
-input. Client uploads, URLs, host paths and provider filenames are not accepted.
+An existing generated asset can be copied into an immutable managed input.
+Trusted clients can also upload bounded local images using the protocol below.
+URLs, host paths and provider filenames are not accepted.
 `inputs.create(asset_id)` returns an opaque input ID, source asset ID, SHA-256,
 media type, size, creation time and expiry. `inputs.get(input_id)` reads metadata;
 `inputs.delete(input_id)` removes a snapshot, refusing while leased to an adapter.
@@ -13,12 +14,44 @@ Generation serves a trusted client group, not individual Studio users. Studio
 must check source ownership before create, persist its own owner/input mapping,
 and authorize get/delete/workflow input use. IDs and hashes grant no user access.
 Do not forward a caller's arbitrary Generation input ID through Studio. Hub must
-register exact schemas after review. Both integrations are separate issues.
+register exact schemas after review. Uploaded originals share the same input
+authority, quota, directory confinement and adapter leases; they are not output Assets.
 
 The initial allowed types are PNG, JPEG, WebP and WAV. Check the actual file
 signature against catalog MIME/kind; this is format identification, not a decoder
 or malware scan. Providers must validate/decode media and enforce their own
 pixel/duration limits before use. No other type is accepted by inference yet.
+
+## Local image upload protocol
+
+The trusted client first commits a private random canonical 32-hex UUID and its
+owner/quota mapping, then calls `inputs.upload.begin(upload_id, mime_type,
+size_bytes, sha256)`. Only PNG/JPEG/WebP, 1 byte–8 MiB and a lowercase SHA-256 are allowed.
+The returned offset is the durable committed cursor. Send ordered chunks through
+`inputs.upload.write(upload_id, offset, data_base64, chunk_sha256)` with at most
+256 KiB decoded bytes. Exact repeated committed chunks succeed without appending;
+conflicting content, out-of-order offsets and changed files fail closed.
+`inputs.upload.finish(upload_id)` verifies total size/hash and fully decodes one
+matching single-frame image, at most 4096 pixels per dimension / 16 Mi pixels,
+before atomically publishing metadata. Repeating begin/finish never changes content
+or extends expiry. Published metadata has `source_kind=upload`,
+`source_asset_id=null`, and the ordinary input identity/digest/expiry fields.
+
+Pending sessions expire ten minutes after begin, including across restart, and
+reserve the full declared payload in the shared 128-record / 512 MiB input quota.
+Finish starts the ordinary 24-hour input lifetime. Unpublished sessions cannot be
+read/staged. `inputs.delete` explicitly aborts a pending upload or deletes a final
+input, refusing an active validation/adapter lease. A crash after content append
+but before the cursor record is committed rejects further use: abort or let it
+expire rather than silently treating uncommitted bytes as valid. Errors from the
+chunk handler do not echo private base64. Generation never selects user filenames.
+Studio bounds its complete body/transfer and persists owner/storage charges before
+any RPC; raw input IDs grant no access. No upload automatically submits a job.
+
+Upload preparation is independent of GPU and Workflow readiness. Actual inference
+still requires the exact qualified img2img definition, managed-input infrastructure
+readiness and provider-side retention protections. Upload acceptance alone does
+not authorize a production reference-image Workflow.
 
 ## Limits and lifecycle
 

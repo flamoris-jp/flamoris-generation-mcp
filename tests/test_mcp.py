@@ -30,6 +30,9 @@ TOOL_NAMES = {
     "inputs.create",
     "inputs.get",
     "inputs.delete",
+    "inputs.upload.begin",
+    "inputs.upload.write",
+    "inputs.upload.finish",
 }
 
 

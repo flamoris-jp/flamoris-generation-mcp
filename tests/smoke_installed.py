@@ -1,21 +1,26 @@
 """Run with an installed wheel's Python, outside the source directory; no provider needed."""
 
 import asyncio
+import base64
+import hashlib
+import io
 import os
 import socket
 import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory, TemporaryFile
+from uuid import uuid4
 
 import httpx
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
+from PIL import Image
 
 
 async def check_tools(client):
     tools = await client.list_tools()
-    assert len(tools.tools) == 22
+    assert len(tools.tools) == 25
     assert {
         "capabilities.list",
         "workflows.register",
@@ -31,6 +36,31 @@ async def check_tools(client):
     } <= {tool.name for tool in tools.tools}
     result = await client.call_tool("models.list")
     assert not result.is_error and result.structured_content == {"models": []}
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1), "red").save(buffer, "PNG")
+    data = buffer.getvalue()
+    key, digest = uuid4().hex, hashlib.sha256(data).hexdigest()
+    for name, arguments in (
+        (
+            "inputs.upload.begin",
+            dict(upload_id=key, mime_type="image/png", size_bytes=len(data), sha256=digest),
+        ),
+        (
+            "inputs.upload.write",
+            dict(
+                upload_id=key,
+                offset=0,
+                data_base64=base64.b64encode(data).decode(),
+                chunk_sha256=digest,
+            ),
+        ),
+        ("inputs.upload.finish", dict(upload_id=key)),
+    ):
+        result = await client.call_tool(name, arguments)
+        assert not result.is_error
+    assert result.structured_content["source_kind"] == "upload"
+    assert result.structured_content["sha256"] == digest
+    assert not (await client.call_tool("inputs.delete", {"input_id": key})).is_error
 
 
 async def smoke():

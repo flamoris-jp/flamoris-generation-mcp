@@ -2,14 +2,14 @@
 
 import argparse
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import StrictBool, StrictInt
+from pydantic import Field, StrictBool, StrictInt
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -17,6 +17,7 @@ from . import __version__
 from .capabilities import Capability, CapabilityRegistry
 from .comfyui import ComfyUIClient
 from .config import ModelKind, Settings
+from .input_uploads import InputUploads
 from .inputs import ManagedInputs
 from .jobs import GenerationBusyError, JobStore
 from .models import ModelCatalog
@@ -132,6 +133,7 @@ def create_server(
     )
 
     inputs = ManagedInputs(transfers, settings.output_dir / "managed-inputs")
+    uploads = InputUploads(inputs)
     # Provider construction precedes JobStore/ManagedInputs because the input lease
     # validates the shared Hub reservation. Wire the adapter only after both exist.
     comfyui.managed_inputs = inputs
@@ -592,6 +594,68 @@ def create_server(
             raise ToolError(
                 str(exc) if isinstance(exc, ValueError) else "Input deletion failed"
             ) from None
+
+    @server.tool(
+        name="inputs.upload.begin",
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )
+    async def begin_input_upload(
+        upload_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$", max_length=32)],
+        mime_type: Literal["image/png", "image/jpeg", "image/webp"],
+        size_bytes: Annotated[StrictInt, Field(ge=1, le=8 * 1024**2)],
+        sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$", max_length=64)],
+    ) -> dict[str, Any]:
+        """Reserve an 8 MiB image upload under a pre-recorded private UUID."""
+        try:
+            return await uploads.begin(upload_id, mime_type, size_bytes, sha256)
+        except (ValueError, OSError, TimeoutError):
+            raise ToolError("Image upload reservation unavailable or invalid") from None
+
+    @server.tool(
+        name="inputs.upload.write",
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )
+    async def write_input_upload(
+        upload_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$", max_length=32)],
+        offset: Annotated[StrictInt, Field(ge=0, lt=8 * 1024**2)],
+        # The handler enforces this bound with a constant error: SDK validation
+        # errors otherwise include a snippet of the private base64 argument.
+        data_base64: Annotated[str, Field(json_schema_extra={"minLength": 1, "maxLength": 349528})],
+        chunk_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$", max_length=64)],
+    ) -> dict[str, Any]:
+        """Write one ordered, digest-checked image chunk of at most 256 KiB."""
+        try:
+            return await uploads.write(upload_id, offset, data_base64, chunk_sha256)
+        except (ValueError, OSError, TimeoutError):
+            raise ToolError("Image upload chunk unavailable or invalid") from None
+
+    @server.tool(
+        name="inputs.upload.finish",
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )
+    async def finish_input_upload(
+        upload_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$", max_length=32)],
+    ) -> dict[str, Any]:
+        """Decode and atomically publish one immutable expiring uploaded image."""
+        try:
+            return await uploads.finish(upload_id)
+        except (ValueError, OSError, TimeoutError):
+            raise ToolError("Image upload publication unavailable or invalid") from None
 
     return server
 
