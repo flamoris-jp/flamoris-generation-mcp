@@ -1,5 +1,8 @@
 # AGENTS.md
 
+> **Architecture correction (2026-10-04):** use **ComfyWorkFlow** for ComfyUI execution definitions/graphs. Do not use bare `Workflow` as new architecture terminology. Existing `workflows.*`, `WorkflowDefinition`, filenames, schemas, and test identifiers below describe the current implementation and are not renamed by this documentation-only change. Generation Controller remains unimplemented. When Generation work is explicitly resumed, the embedded Generation MCP ComfyWorkFlow implementation is to be **removed from this MCP repository rather than migrated into Controller**. FLAMORIS AI is prioritizing Intelligence-boundary cleanup first. See [flamoris-ai#18](https://github.com/flamoris-jp/flamoris-ai/issues/18) and [Generation MCP #67](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/67).
+
+
 ## Scope
 
 These instructions apply to the entire repository.
@@ -77,3 +80,8 @@ These instructions apply to the entire repository.
 - Do not add third-party code, AI models, model weights, datasets, fonts, media, generated assets, or other non-code material unless its license and redistribution terms are compatible and clearly documented.
 - Do not assume that generated media or provider-hosted assets inherit this repository's code license.
 - FLAMORIS does not provide guaranteed individual support. Repository documentation, issues, tests, logs, and source code are the primary support references; AI-assisted self-support is encouraged.
+
+
+## Current terminology and hold
+
+Use `ComfyWorkFlow` for ComfyUI execution definitions in new prose/design. Current `workflows.*` tool names and `WorkflowDefinition` code symbols are legacy implementation identifiers until Generation cleanup is separately authorized. Do not implement Generation Controller or move this repository's ComfyWorkFlow code into it. Do not resume reference-image/ComfyWorkFlow feature work from this file.
