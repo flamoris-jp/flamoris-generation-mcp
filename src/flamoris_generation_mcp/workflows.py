@@ -1,6 +1,5 @@
 """Trusted template builders and saved parameter recipes, not a raw node editing API."""
 
-import copy
 import json
 import os
 import re
@@ -36,7 +35,6 @@ from .transcription import (
     transcription_descriptor,
     transcription_profile,
 )
-from .workflow_registry import WorkflowRegistry
 
 Template = Literal["text-to-image", "text-to-image-lora"]
 MAX_RECIPE_BYTES = 256 * 1024
@@ -81,17 +79,7 @@ class Recipe(BaseModel):
     parameters: Parameters
 
 
-class ExternalRecipe(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    schema_version: Literal[2] = 2
-    template: str
-    definition_version: int
-    definition_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
-    require_ready: bool = Field(default=False, strict=True)
-    parameters: dict[str, Any]
-
-
-AnyRecipe = Recipe | ExternalRecipe | SpeechRecipe | MusicRecipe | TranscriptionRecipe
+AnyRecipe = Recipe | SpeechRecipe | MusicRecipe | TranscriptionRecipe
 NATIVE_RECIPES = (SpeechRecipe, MusicRecipe, TranscriptionRecipe)
 
 
@@ -241,73 +229,45 @@ def atomic_write(path: Path, content: bytes) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
+def decode_recipe(content: bytes) -> dict:
+    """Retain strict JSON parsing independently of retired definition machinery."""
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("Duplicate recipe key")
+            result[key] = value
+        return result
+
+    def constant(_value):
+        raise ValueError("Nonfinite recipe value")
+
+    return json.loads(content, object_pairs_hook=pairs, parse_constant=constant)
+
+
+class RetiredRecipeError(ValueError):
+    """A fixed public rejection; old recipes never fall back to builtin execution."""
+
+
 class WorkflowStore:
+    """Original builtin/native parameter recipes; custom graph definitions are retired."""
+
     def __init__(
         self,
         catalog: ModelCatalog,
         directory: Path,
-        definition_dir: Path | None = None,
         *,
-        v3_enabled=False,
         speech_enabled=False,
         music_enabled=False,
         transcription_enabled=False,
     ):
         self.catalog = catalog
         self.directory = directory
-        self.registry = WorkflowRegistry(definition_dir, catalog) if definition_dir else None
         self._recipes: dict[str, AnyRecipe] = {}
-        self.readiness = None
-        self.v3 = None
         self.speech_enabled = speech_enabled
         self.music_enabled = music_enabled
         self.transcription_enabled = transcription_enabled
-        if v3_enabled:
-            if self.registry is None:
-                raise ValueError("Image v3 requires the existing definition registry")
-            from .image_v3 import ImageV3
-
-            self.v3 = ImageV3(self)
-
-    def definition_lock(self, recipe):
-        if recipe.schema_version == 3:
-            if self.v3 is None:
-                raise ValueError("Workflow v3 is disabled")
-            return self.v3.versions.lock
-        return self.registry._register_lock
-
-    def build_v3(self, workflow_id, version, digest, parameters, require_ready=True):
-        if self.v3 is None or type(version) is not int or type(require_ready) is not bool:
-            raise ValueError("Image v3 is disabled or its exact build contract is invalid")
-        from .image_v3 import Identity
-
-        Identity(id=workflow_id, version=version, digest=digest)
-        with self.v3.versions.lock:
-            recipe, definition = self.v3.materialize(workflow_id, version, digest, parameters)
-            recipe = recipe.model_copy(update={"require_ready": require_ready})
-            self.capture(recipe)
-            if len(self._recipes) >= 1024:
-                raise ValueError("Workflow session is full; save needed workflows and restart")
-            handle = uuid4().hex
-            self._recipes[handle] = recipe
-            return {
-                "workflow_id": handle,
-                **recipe.model_dump(mode="json"),
-                "prompt": definition.graph,
-            }
-
-    def register_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
-        if self.registry is None:
-            raise ValueError("Workflow definitions are not configured")
-        if definition.get("id") in {
-            "text-to-image",
-            "text-to-image-lora",
-            SPEECH_TEMPLATE,
-            MUSIC_TEMPLATE,
-            TRANSCRIPTION_TEMPLATE,
-        }:
-            raise ValueError("Built-in workflow template IDs are reserved")
-        return self.registry.register(definition)
 
     def build(
         self,
@@ -317,12 +277,16 @@ class WorkflowStore:
         definition_digest: str | None = None,
         require_ready: bool = False,
     ) -> dict:
-        if definition_digest is not None and definition_version is None:
-            raise ValueError("Definition digest requires a paired version")
+        # Keep old optional wire arguments so callers receive a clear retirement
+        # error rather than losing readiness gates through silent fallback.
         if type(require_ready) is not bool or (
             definition_version is not None and type(definition_version) is not int
         ):
             raise ValueError("Invalid build preconditions")
+        if definition_version is not None or definition_digest is not None or require_ready:
+            raise RetiredRecipeError(
+                "Custom definitions and attestation are retired; use builtin recipes"
+            )
         native = {
             SPEECH_TEMPLATE: (self.speech_enabled, SpeechRecipe),
             MUSIC_TEMPLATE: (self.music_enabled, MusicRecipe),
@@ -331,40 +295,18 @@ class WorkflowStore:
         if template in native:
             enabled, recipe_type = native[template]
             if not enabled:
-                raise ValueError("Native workflow is disabled")
-            if definition_version is not None or definition_digest is not None or require_ready:
-                raise ValueError(
-                    "Native workflow does not accept workflow attestation preconditions"
-                )
+                raise ValueError("Native recipe is disabled")
             recipe = recipe_type(parameters=parameters)
             prompt = None
         elif template in ("text-to-image", "text-to-image-lora"):
-            if definition_version is not None or definition_digest is not None:
-                raise ValueError("Definition preconditions cannot target a builtin")
-            recipe: AnyRecipe = Recipe(
-                template=template, parameters=Parameters.model_validate(parameters)
-            )
+            recipe = Recipe(template=template, parameters=Parameters.model_validate(parameters))
             prompt = build_prompt(recipe, self.catalog)
         else:
-            if self.registry is None:
-                raise ValueError("Unknown workflow definition ID")
-            definition = self.registry.get(template, definition_version)
-            if definition_digest is not None and definition.digest != definition_digest:
-                raise ValueError("Stale workflow definition digest")
-            values = parameters.model_dump() if isinstance(parameters, Parameters) else parameters
-            normalized, prompt = self.registry.materialize(
-                definition.id, definition.version, values
+            raise RetiredRecipeError(
+                "Custom ComfyWorkFlow definitions are retired; unknown builtin recipe"
             )
-            recipe = ExternalRecipe(
-                template=template,
-                definition_version=definition.version,
-                definition_digest=definition.digest,
-                require_ready=require_ready,
-                parameters=normalized,
-            )
-            self.capture(recipe)
         if len(self._recipes) >= 1024:
-            raise ValueError("Workflow session is full; save needed workflows and restart")
+            raise ValueError("Recipe session is full; save needed recipes and restart")
         workflow_id = uuid4().hex
         self._recipes[workflow_id] = recipe
         return {
@@ -388,38 +330,35 @@ class WorkflowStore:
         if path.is_symlink() or not path.is_file():
             raise ValueError("Unknown workflow ID")
         if path.stat().st_size > MAX_RECIPE_BYTES:
-            raise ValueError("Saved workflow is too large")
-        content = path.read_bytes()
+            raise ValueError("Saved recipe is too large")
         try:
-            from .workflow_v3 import decode_definition
-
-            data = decode_definition(content)
+            data = decode_recipe(path.read_bytes())
         except (ValueError, UnicodeError) as exc:
-            raise ValueError("Invalid saved workflow recipe") from exc
+            raise ValueError("Invalid saved recipe") from exc
+        return self.parse(data)
+
+    def parse(self, data: dict) -> AnyRecipe:
         if not isinstance(data, dict):
-            raise ValueError("Invalid saved workflow recipe")
+            raise ValueError("Invalid saved recipe")
+        schema = data.get("schema_version", 1)
+        if type(schema) is not int:
+            raise ValueError("Invalid recipe schema")
+        if schema in (2, 3):
+            raise RetiredRecipeError("Custom ComfyWorkFlow recipe execution is retired")
         native = {
             4: (self.speech_enabled, SpeechRecipe),
             5: (self.music_enabled, MusicRecipe),
             6: (self.transcription_enabled, TranscriptionRecipe),
         }
-        if data.get("schema_version") in native:
-            enabled, recipe_type = native[data["schema_version"]]
+        if schema in native:
+            enabled, recipe_type = native[schema]
             if not enabled:
-                raise ValueError("Native workflow is disabled")
+                raise ValueError("Native recipe is disabled")
             return recipe_type.model_validate(data)
-        if data.get("schema_version") == 3:
-            from .image_v3 import ImageRecipe
-
-            if self.v3 is None:
-                raise ValueError("Workflow v3 is disabled")
-            return ImageRecipe.model_validate(data)
-        if data.get("schema_version", 1) == 2:
-            return ExternalRecipe.model_validate(data)
         return Recipe.model_validate(data)
 
     def capture(self, recipe: AnyRecipe):
-        """Recheck identity/policy and capture output identity before provider awaits."""
+        """Recheck enabled native routes without mutable provider graph authority."""
         if isinstance(recipe, NATIVE_RECIPES):
             enabled = {
                 SpeechRecipe: self.speech_enabled,
@@ -427,76 +366,28 @@ class WorkflowStore:
                 TranscriptionRecipe: self.transcription_enabled,
             }[type(recipe)]
             if not enabled:
-                raise ValueError("Native workflow is disabled")
-            return None
-        if not isinstance(recipe, ExternalRecipe):
-            return None
-        if recipe.schema_version == 3:
-            if self.v3 is None:
-                raise ValueError("Workflow v3 is disabled")
-            with self.v3.versions.lock:
-                return self.v3.capture(recipe)
-        if self.registry is None:
-            raise ValueError("Workflow definitions are not configured")
-        with self.registry._register_lock:
-            definition = self.registry.get(recipe.template, recipe.definition_version)
-            if (
-                recipe.definition_digest is not None
-                and recipe.definition_digest != definition.digest
-            ):
-                raise ValueError("Stale workflow definition digest")
-            if recipe.require_ready:
-                if self.readiness is None:
-                    raise ValueError("Workflow production readiness is unavailable")
-                self.readiness.require(definition, recipe.parameters)
-            return copy.deepcopy(definition)
+                raise ValueError("Native recipe is disabled")
+        elif not isinstance(recipe, Recipe):
+            raise RetiredRecipeError("Custom ComfyWorkFlow recipe execution is retired")
+        return None
 
-    def managed_input_bindings(self, recipe: AnyRecipe) -> dict[str, object]:
-        if recipe.schema_version == 3:
-            self.capture(recipe)
-            return {}
-        if not isinstance(recipe, ExternalRecipe):
-            return {}
-        if self.registry is None:
-            raise ValueError("Workflow definitions are not configured")
-        return self.registry.managed_input_bindings(recipe.template, recipe.definition_version)
-
-    def prompt(
-        self,
-        recipe: AnyRecipe,
-        job_id: str | None = None,
-        provider_inputs: dict[str, str] | None = None,
-        definition=None,
-    ) -> dict:
+    def prompt(self, recipe: AnyRecipe, job_id: str | None = None) -> dict:
         if isinstance(recipe, NATIVE_RECIPES):
-            raise ValueError("Native workflow has no ComfyUI prompt")
-        if isinstance(recipe, ExternalRecipe):
-            if self.registry is None:
-                raise ValueError("Workflow definitions are not configured")
-            definition = definition or self.capture(recipe)
-            _, prompt = self.registry.materialize_definition(
-                definition,
-                recipe.parameters,
-                job_id,
-                provider_inputs,
-            )
-            return prompt
+            raise ValueError("Native recipe has no ComfyUI prompt")
+        self.capture(recipe)
         prompt = build_prompt(recipe, self.catalog)
         if job_id is not None:
             prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
         return prompt
 
     def routing(self, recipe: AnyRecipe) -> tuple[str, str]:
+        self.capture(recipe)
         if isinstance(recipe, NATIVE_RECIPES):
-            self.capture(recipe)
             return {
                 SpeechRecipe: (SPEECH_PROVIDER, SPEECH_CAPABILITY),
                 MusicRecipe: (MUSIC_PROVIDER, MUSIC_CAPABILITY),
                 TranscriptionRecipe: (TRANSCRIPTION_PROVIDER, TRANSCRIPTION_CAPABILITY),
             }[type(recipe)]
-        if isinstance(recipe, ExternalRecipe):
-            definition = self.capture(recipe)
-            return definition.provider_id, definition.capability_id
         return "comfyui", "image.generate"
 
     def save(self, workflow_id: str) -> dict:
@@ -504,40 +395,31 @@ class WorkflowStore:
         path = self.directory / f"{workflow_id}.json"
         content = recipe.model_dump_json(indent=2).encode()
         if len(content) > MAX_RECIPE_BYTES:
-            raise ValueError("Saved workflow is too large")
+            raise ValueError("Saved recipe is too large")
         atomic_write(path, content)
         return {"workflow_id": workflow_id, "file": str(path), "saved": True}
 
     def list(self) -> dict:
-        definitions = (
-            [
-                self.readiness.descriptor(item) if self.readiness else item.metadata()
-                for item in self.registry.definitions.values()
-            ]
-            if self.registry
-            else []
-        )
-        descriptors = builtin_descriptors() + definitions
+        descriptors = builtin_descriptors()
         if self.speech_enabled:
             descriptors.append(speech_descriptor())
         if self.music_enabled:
             descriptors.append(music_descriptor())
         if self.transcription_enabled:
             descriptors.append(transcription_descriptor())
-        if len(descriptors) > 128:
-            raise ValueError("Workflow discovery exceeds entry limit")
         saved = []
         for path in sorted(self.directory.glob("*.json")):
             if re.fullmatch(r"[0-9a-f]{32}", path.stem) and not path.is_symlink():
                 saved.append(path.stem)
+        # Saved IDs remain discoverable, including retired recipes. Listing never
+        # executes/reinterprets/deletes them; get/build report explicit retirement.
         result = {
             "templates": TEMPLATES,
             "descriptors": descriptors,
-            "definitions": definitions,
+            "definitions": [],
             "built_workflows": list(self._recipes),
             "saved_workflows": saved,
         }
-        # Include legacy aliases and recipe IDs; bound the full public response.
         if len(json.dumps(result, indent=2).encode("utf-8")) > MAX_DISCOVERY_BYTES:
-            raise ValueError("Workflow discovery exceeds byte limit")
+            raise ValueError("Recipe discovery exceeds byte limit")
         return result

@@ -372,32 +372,6 @@ async def test_archived_status_rejects_incomplete_or_malformed_records(
     assert fake.download_count == 0
 
 
-async def test_verify_admission_receives_trusted_provenance(settings, fake, monkeypatch):
-    from unittest.mock import AsyncMock
-
-    from flamoris_generation_mcp import server as server_module
-
-    settings = configured(settings)
-    settings.workflow_v3_enabled = True
-    capture = AsyncMock(return_value={"job_id": "a" * 32})
-    monkeypatch.setattr(server_module.WorkflowVerification, "verify", capture)
-    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
-    async with Client(server) as client:
-        args = {
-            "workflow_id": "exact-image",
-            "definition_version": 1,
-            "definition_digest": "sha256:" + "a" * 64,
-            "parameters": {},
-        }
-        for tool in ("workflows.verify", "workflows.v3.verify"):
-            await client.session.call_tool(tool, args, meta=signed(tool, args))
-            assert capture.call_args.kwargs["provenance"] == ExternalProvenance(
-                issuer=ISSUER, subject="client-a"
-            )
-        await client.call_tool("workflows.verify", args)
-        assert capture.call_args.kwargs["provenance"] is None
-
-
 async def test_public_arguments_and_headers_cannot_supply_provenance(settings, fake):
     server = create_server(configured(settings), transport=httpx.MockTransport(fake.handle))
     async with Client(server) as client:

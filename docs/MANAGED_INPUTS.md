@@ -1,5 +1,7 @@
 # Managed inputs (Issues #30 and #64)
 
+After [custom ComfyWorkFlow retirement](LEGACY_RETIREMENT.md), immutable input/upload APIs, leases and retention remain. Image builtin recipes do not consume managed references; references to custom Image binding or verification below describe historical use. Native transcription keeps its separately reviewed input contract. Existing input snapshots and active debt are not deleted or replayed.
+
 An existing generated asset can be copied into an immutable managed input.
 Trusted clients can also upload bounded local images using the protocol below.
 URLs, host paths and provider filenames are not accepted.

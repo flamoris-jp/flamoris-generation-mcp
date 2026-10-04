@@ -9,7 +9,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import Field, StrictBool, StrictInt
+from pydantic import Field, StrictInt
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -29,7 +29,6 @@ from .providers.irodori import IrodoriConfig, IrodoriProvider
 from .providers.sheetsage2 import SheetSage2Config, SheetSage2Provider
 from .providers.yue2 import Yue2Config, Yue2Provider
 from .retention import RetentionStore
-from .runtime_evidence import RuntimeEvidence
 from .speech import SPEECH_CAPABILITY, SPEECH_PROVIDER, SPEECH_TEMPLATE
 from .transcription import (
     TRANSCRIPTION_CAPABILITY,
@@ -37,8 +36,7 @@ from .transcription import (
     TRANSCRIPTION_TEMPLATE,
 )
 from .transfers import CHUNK_BYTES, AssetTransfers
-from .verification import WorkflowVerification
-from .workflows import WorkflowStore
+from .workflows import RetiredRecipeError, WorkflowStore
 
 
 def create_server(
@@ -51,18 +49,14 @@ def create_server(
     workflows = WorkflowStore(
         catalog,
         settings.workflow_dir,
-        settings.workflow_definition_dir,
-        v3_enabled=settings.workflow_v3_enabled,
         speech_enabled=settings.irodori_config is not None,
         music_enabled=settings.yue2_config is not None,
         transcription_enabled=settings.sheetsage2_config is not None,
     )
     client = ComfyUIClient(settings, transport)
     comfyui = ComfyUIProvider(client, catalog, workflows)
-    managed_input_ready = (
-        settings.managed_input_ready
-        and comfyui.input_copies is not None
-        and comfyui.input_copies.available()
+    retained_copy_store_available = (
+        comfyui.input_copies is not None and comfyui.input_copies.available()
     )
     providers = ProviderRegistry((comfyui,))
     capabilities = CapabilityRegistry(
@@ -74,7 +68,6 @@ def create_server(
                 workflow_templates=(
                     "text-to-image",
                     "text-to-image-lora",
-                    *(workflows.registry.definitions if workflows.registry else ()),
                 ),
             ),
         )
@@ -144,22 +137,12 @@ def create_server(
     comfyui.managed_inputs = inputs
     if sheetsage2 is not None:
         sheetsage2.managed_inputs = inputs
-    verifier = WorkflowVerification(
-        workflows,
-        jobs,
-        RuntimeEvidence(settings.runtime_evidence_file, settings.comfyui_url),
-        managed_input_ready,
-    )
-    workflows.readiness = verifier
-    jobs.verifier = verifier
 
     @asynccontextmanager
     async def lifespan(server):
         try:
             yield None
         finally:
-            await verifier.close()
-            await jobs.close()
             await providers.close()
 
     server = MCPServer(
@@ -195,7 +178,10 @@ def create_server(
             **jobs.activity(),
             "providers": provider_health,
             "managed_input_support": {
-                "ready": managed_input_ready and comfyui.input_copies.available()
+                "ready": False,
+                "reference_execution": "retired",
+                "retained_copy_store_available": retained_copy_store_available
+                and comfyui.input_copies.available(),
             },
             "provider": "comfyui",
             "provider_health": {
@@ -256,24 +242,6 @@ def create_server(
         return workflows.list()
 
     @server.tool(
-        name="workflows.register",
-        annotations=ToolAnnotations(
-            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
-        ),
-    )
-    def register_workflow(definition: dict[str, Any]) -> dict[str, Any]:
-        """Validate, persist, and activate one trusted workflow definition immediately."""
-        # Reject routing conflicts before the definition is published to disk.
-        # The registry still validates the entire definition before writing it.
-        if isinstance(definition, dict):
-            capabilities.validate_workflow(
-                definition.get("capability_id"), definition.get("provider_id"), definition.get("id")
-            )
-        result = workflows.register_definition(definition)
-        capabilities.assign_workflow(result["capability_id"], result["provider_id"], result["id"])
-        return result
-
-    @server.tool(
         name="workflows.build",
         annotations=ToolAnnotations(
             **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
@@ -287,144 +255,12 @@ def create_server(
         require_ready: bool = False,
     ) -> dict[str, Any]:
         """Build a known template with validated parameters; returns a workflow_id."""
-        return workflows.build(
-            template, parameters, definition_version, definition_digest, require_ready
-        )
-
-    @server.tool(
-        name="workflows.verify",
-        annotations=ToolAnnotations(
-            **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
-        ),
-    )
-    async def verify_workflow(
-        workflow_id: str,
-        definition_version: int,
-        definition_digest: str,
-        parameters: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Admit a bounded verification through the normal JobStore; poll its job_id."""
-        return await verifier.verify(
-            workflow_id,
-            definition_version,
-            definition_digest,
-            parameters,
-            provenance=current_provenance(),
-        )
-
-    if settings.workflow_v3_enabled:
-        # A separate opt-in catalog revision preserves every legacy tool/schema
-        # and avoids ambiguous Image descriptor/recipe reinterpretation.
-        from .workflow_v3 import canonical
-
-        def v3_operation(call):
-            try:
-                return call()
-            except (ValueError, TypeError, KeyError, OSError):
-                raise ToolError(
-                    "V3 workflow unavailable; check exact pins/profile/input contract"
-                ) from None
-
-        read_annotations = ToolAnnotations(
-            readOnlyHint=True, destructiveHint=False, openWorldHint=False
-        )
-        write_annotations = ToolAnnotations(
-            readOnlyHint=False, destructiveHint=True, openWorldHint=False
-        )
-
-        @server.tool(name="workflows.v3.register", annotations=write_annotations)
-        def register_v3(definition: dict[str, Any]) -> dict[str, Any]:
-            """Register a strict Image v3 provider or pinned pass-through composition; not ready."""
-            return v3_operation(lambda: workflows.v3.versions.register(definition))
-
-        @server.tool(name="workflows.v3.list", annotations=read_annotations)
-        def list_v3() -> dict[str, Any]:
-            """Return graph-free descriptor revision 3, independent of legacy Image discovery."""
-
-            def project():
-                descriptors = []
-                with workflows.v3.versions.lock:
-                    workflows.v3.versions._current()
-                    for workflow_id, version in sorted(
-                        workflows.v3.versions.state["active"].items()
-                    ):
-                        try:
-                            root = workflows.v3.versions.get(workflow_id, version)
-                            plan = workflows.v3.versions.compile(root.id, root.version, root.digest)
-                            descriptor = verifier.v3_descriptor(root, plan)
-                            descriptors.append(descriptor)
-                        except (ValueError, TypeError, KeyError, OSError):
-                            # Revoked/unsupported aliases remain visible, never executable.
-                            raw = workflows.v3.versions.state["versions"][
-                                workflows.v3.versions.key(workflow_id, version)
-                            ]
-                            from .workflow_v3 import Definition
-
-                            descriptor = Definition.model_validate(raw).descriptor()
-                            descriptor["readiness"].update(
-                                state="validated", reason="verification_unavailable"
-                            )
-                            descriptors.append(descriptor)
-                result = {"descriptor_revision": 3, "descriptors": descriptors}
-                canonical(result, 256 * 1024)
-                return result
-
-            return v3_operation(project)
-
-        @server.tool(
-            name="workflows.v3.build",
-            annotations=ToolAnnotations(
-                readOnlyHint=False, destructiveHint=False, openWorldHint=False
-            ),
-        )
-        def build_v3(
-            workflow_id: str,
-            definition_version: StrictInt,
-            definition_digest: str,
-            parameters: dict[str, Any],
-            require_ready: StrictBool = True,
-        ) -> dict[str, Any]:
-            """Build an exact Image v3 invocation; production requires parent attestation."""
-            return v3_operation(
-                lambda: workflows.build_v3(
-                    workflow_id, definition_version, definition_digest, parameters, require_ready
-                )
+        try:
+            return workflows.build(
+                template, parameters, definition_version, definition_digest, require_ready
             )
-
-        @server.tool(name="workflows.v3.verify", annotations=write_annotations)
-        async def verify_v3(
-            workflow_id: str,
-            definition_version: StrictInt,
-            definition_digest: str,
-            parameters: dict[str, Any],
-        ) -> dict[str, Any]:
-            """Smoke the entire exact composed Image plan through the ordinary JobStore once."""
-            try:
-                return await verifier.verify(
-                    workflow_id,
-                    definition_version,
-                    definition_digest,
-                    parameters,
-                    v3=True,
-                    provenance=current_provenance(),
-                )
-            except (ValueError, TypeError, KeyError, OSError):
-                raise ToolError("V3 verification unavailable; no automatic replay") from None
-
-        @server.tool(name="workflows.v3.revoke", annotations=write_annotations)
-        def revoke_v3(
-            workflow_id: str, definition_version: StrictInt, definition_digest: str
-        ) -> dict[str, Any]:
-            """Administratively revoke an exact retained version and its dependent compositions."""
-
-            def revoke():
-                from .image_v3 import Identity
-
-                Identity(id=workflow_id, version=definition_version, digest=definition_digest)
-                workflows.v3.versions.revoke(workflow_id, definition_version, definition_digest)
-                return {"revoked": True}
-
-            return v3_operation(revoke)
+        except RetiredRecipeError as exc:
+            raise ToolError(str(exc)) from None
 
     @server.tool(
         name="workflows.save",
@@ -434,7 +270,10 @@ def create_server(
     )
     def save_workflow(workflow_id: str) -> dict[str, Any]:
         """Persist the parameter recipe for reuse by workflow_id after restart."""
-        return workflows.save(workflow_id)
+        try:
+            return workflows.save(workflow_id)
+        except RetiredRecipeError as exc:
+            raise ToolError(str(exc)) from None
 
     @server.tool(
         name="jobs.submit",
@@ -467,7 +306,10 @@ def create_server(
     )
     async def job_result(job_id: str) -> dict[str, Any]:
         """Return reproducibility metadata; download completed outputs to configured storage."""
-        return await jobs.result(job_id)
+        try:
+            return await jobs.result(job_id)
+        except RetiredRecipeError as exc:
+            raise ToolError(str(exc)) from None
 
     @server.tool(
         name="jobs.cancel",
@@ -477,7 +319,10 @@ def create_server(
     )
     async def cancel_job(job_id: str) -> dict[str, Any]:
         """Cancel queued work; targeted running interruption requires configured support."""
-        return await jobs.cancel(job_id)
+        try:
+            return await jobs.cancel(job_id)
+        except RetiredRecipeError as exc:
+            raise ToolError(str(exc)) from None
 
     @server.tool(
         name="assets.list",

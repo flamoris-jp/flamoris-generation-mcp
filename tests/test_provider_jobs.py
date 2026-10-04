@@ -5,6 +5,7 @@ import pytest
 from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
 from flamoris_generation_mcp.jobs import GenerationBusyError, JobStore
 from flamoris_generation_mcp.models import ModelCatalog
+from flamoris_generation_mcp.music import MUSIC_TEMPLATE
 from flamoris_generation_mcp.providers import (
     GenerationRequest,
     JobSnapshot,
@@ -15,7 +16,7 @@ from flamoris_generation_mcp.providers import (
     ProviderRegistry,
 )
 from flamoris_generation_mcp.providers.base import SubmissionRejected
-from flamoris_generation_mcp.workflows import Lora, Parameters, WorkflowStore
+from flamoris_generation_mcp.workflows import Parameters, WorkflowStore
 
 
 class FakeProvider:
@@ -63,13 +64,13 @@ class FakeProvider:
 
 def make_store(settings):
     workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
-    provider = FakeProvider()
+    provider = FakeProvider("comfyui")
     providers = ProviderRegistry((provider,))
     capabilities = CapabilityRegistry(
         (
             Capability(
                 capability_id="image.generate",
-                provider_id="fake",
+                provider_id="comfyui",
                 runtime_id="fake-image",
                 workflow_templates=("text-to-image", "text-to-image-lora"),
             ),
@@ -89,7 +90,7 @@ async def test_job_store_tracks_provider_neutral_identity_and_outputs(settings):
     submitted = await jobs.submit(workflow_id)
 
     assert submitted["operation"] == "image.generate"
-    assert submitted["provider"] == submitted["provider_id"] == "fake"
+    assert submitted["provider"] == submitted["provider_id"] == "comfyui"
     assert submitted["provider_execution_id"] == "execution-1"
     request, hub_job_id = provider.requests[0]
     assert hub_job_id == submitted["job_id"]
@@ -111,7 +112,7 @@ async def test_job_store_tracks_provider_neutral_identity_and_outputs(settings):
     result = await jobs.result(submitted["job_id"])
 
     assert result["job_id"] == submitted["job_id"]
-    assert result["provider_id"] == "fake"
+    assert result["provider_id"] == "comfyui"
     assert result["outputs"] == [
         {
             "output_id": "image-0",
@@ -151,23 +152,23 @@ async def test_provider_neutral_submit_reservation_is_race_safe(settings):
 
 
 async def test_capability_routes_two_operations_through_one_job_authority(settings):
-    workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
-    image_provider = FakeProvider("image-provider")
-    music_provider = FakeProvider("music-provider")
+    workflows = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, music_enabled=True)
+    image_provider = FakeProvider("comfyui")
+    music_provider = FakeProvider("yue2")
     providers = ProviderRegistry((image_provider, music_provider))
     capabilities = CapabilityRegistry(
         (
             Capability(
                 capability_id="image.generate",
-                provider_id="image-provider",
+                provider_id="comfyui",
                 runtime_id="image-runtime",
                 workflow_templates=("text-to-image",),
             ),
             Capability(
                 capability_id="music.generate",
-                provider_id="music-provider",
+                provider_id="yue2",
                 runtime_id="music-runtime",
-                workflow_templates=("text-to-image-lora",),
+                workflow_templates=(MUSIC_TEMPLATE,),
             ),
         )
     )
@@ -177,12 +178,8 @@ async def test_capability_routes_two_operations_through_one_job_authority(settin
         Parameters(checkpoint="base.safetensors", positive_prompt="flowers"),
     )["workflow_id"]
     music_workflow = workflows.build(
-        "text-to-image-lora",
-        Parameters(
-            checkpoint="base.safetensors",
-            positive_prompt="melody",
-            loras=(Lora(name="style.safetensors"),),
-        ),
+        MUSIC_TEMPLATE,
+        {"style": "melody"},
     )["workflow_id"]
 
     image_job = await jobs.submit(image_workflow)
@@ -194,10 +191,10 @@ async def test_capability_routes_two_operations_through_one_job_authority(settin
     music_job = await jobs.submit(music_workflow)
 
     assert image_job["operation"] == "image.generate"
-    assert image_job["provider_id"] == "image-provider"
+    assert image_job["provider_id"] == "comfyui"
     assert image_provider.requests[0][0].operation == "image.generate"
     assert music_job["operation"] == "music.generate"
-    assert music_job["provider_id"] == "music-provider"
+    assert music_job["provider_id"] == "yue2"
     assert music_provider.requests[0][0].operation == "music.generate"
 
 

@@ -1,5 +1,7 @@
 # Implementation Work handoff: Workflow + Studio img2img
 
+> Historical and superseded by [the implemented retirement](LEGACY_RETIREMENT.md) under AI #18. Custom graph registration, qualification, composition and Runtime delegation described below are removed or held; these are not current source/configuration or rollout instructions. Retained data and uncertainty fences remain protected.
+
 Prepared 2026-10-01. Design phase only. Recommended model: GPT-6.1 Sol; reasoning: High,
 because the contract crosses Generation, Studio authorization, persistence, provider
 execution, and Hub schemas. Local fixes after the contract is established can use

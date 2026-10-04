@@ -4,11 +4,11 @@ These instructions apply to the repository. Read README.md and [AI #18](https://
 
 ## Current authorization and target
 
-Only documentation review/fixes and explicitly requested documentation merges are in scope now. Do not implement Controller, delegate Generation work to Work, delete/migrate code or data, expand ComfyWorkFlow/reference-image features, change catalogs, deploy, switch runtimes or call providers. Intelligence cleanup elsewhere has priority.
+The subsequent user instruction authorizes deletion-first source cleanup, matched catalogs/callers, deterministic tests, review/fixes and merges. Remove the mistaken custom ComfyWorkFlow/v3/Runtime-delegation subsystem while preserving original builtin/native recipes and retained-data protections. Do not implement Controller, migrate/delete user data, expand reference-image features, deploy, switch runtimes or call live providers.
 
 Generation MCP's target responsibility is the external MCP facade used by ChatGPT through Hub. Internal FLAMORIS service/application calls use non-MCP contracts. The current Python package co-locates generation-domain code; document this as-built fact without making it permanent ownership or pretending it was already removed.
 
-The existing MCP-side ComfyWorkFlow subsystem is for later removal, not transfer into Controller or automatic recreation. Inventory precise source, tests, public tools, Studio callers, retained providers and data before a separately authorized deletion. Do not delete a generic recipe store merely because its name contains workflow; it may support non-ComfyUI providers too.
+The custom MCP-side ComfyWorkFlow subsystem is retired, not transferred into Controller or recreated. Read docs/LEGACY_RETIREMENT.md for the removed source/tools, matched Studio/Hub callers and preserved data/fences. Do not delete a generic recipe store merely because its name contains workflow; it may support non-ComfyUI providers too.
 
 Controller remains documentation-only. Old Generation Hub expansion or Runtime-bridge plans are historical/held, not implementation instructions overriding #18.
 
@@ -16,11 +16,11 @@ Controller remains documentation-only. Old Generation Hub expansion or Runtime-b
 
 Use ComfyWorkFlow for ComfyUI graph/API-format JSON. Use ExecuteFlow for Runtime inference flow and keep the existing compiled ExecutionPlan distinct. Non-ComfyUI generation requests/recipes are not automatically ComfyWorkFlow. Avoid bare Workflow as new FLAMORIS architecture prose.
 
-Preserve exact current `workflows.*`, `workflow_id`, `WorkflowDefinition`, `WorkflowStore`, schemas, configuration keys and file paths until an explicit compatibility-reviewed implementation change. `workflow_id` returned by build is a built recipe handle, not necessarily the registered definition ID. `FLAMORIS_WORKFLOW_DIR` stores recipes; `FLAMORIS_WORKFLOW_DEFINITION_DIR` stores registered definitions. Do not invent a config or API rename in docs.
+Preserve exact current `workflows.*`, `workflow_id`, `WorkflowDefinition`, `WorkflowStore`, schemas, configuration keys and file paths until an explicit compatibility-reviewed implementation change. `workflow_id` returned by build is a built recipe handle, not necessarily the registered definition ID. `FLAMORIS_WORKFLOW_DIR` stores retained recipes; the custom definition directory setting is retired and existing host data is preserved. Do not invent a config or API rename in docs.
 
 ## Retained behavior and authority
 
-Providers execute; current generation code validates/builds/submits/observes and materializes bounded outputs. Keep provider APIs behind adapters, explicit provider selection, trusted ComfyUI definitions and declared parameters, model/catalog checks and ordered LoRA semantics where supported. Do not expose arbitrary raw graph mutation as a shortcut.
+Providers execute; current generation code validates/builds/submits/observes and materializes bounded outputs. Keep provider APIs behind adapters, explicit provider selection, original bounded builtin ComfyUI templates and validated parameters, model/catalog checks and ordered LoRA semantics where supported. Do not expose arbitrary raw graph mutation as a shortcut.
 
 MCP protocol validation/annotations/content mapping belongs to the external facade. Generation jobs, recipes, references and assets have one current authority until a reviewed change. Do not instantiate competing stores/reservations per frontend or equate process locks with host-wide GPU control. GPU Node Manager alone owns configured host lifecycle. Agent is optional personality, products retain document/user authority and Commons owns generic infrastructure.
 
@@ -38,7 +38,7 @@ Provider responses/paths and user-supplied metadata are untrusted. No arbitrary 
 
 The actual issue defines scope. Do not add unrelated UI/auth/database/provider/deployment work. Read exact current source and tests before later cleanup and preserve/version external compatibility deliberately. Normal CI uses fake provider HTTP and bounded fixtures without live GPUs, weights or model services. Validate retained tool mapping, recipe building/identity, model discovery, state, provider errors, cancellation and negative paths. Run lint/format/package smoke when applicable; keep existing PR concurrency behavior.
 
-Review final prose and literal identifiers, not only keyword matches. Explicit user approval is required for merge; documentation merge does not start implementation. Do not claim unrun tests, provider support or live qualification.
+Review final prose and literal identifiers, not only keyword matches. Merge only within the explicit user authorization; source merge does not authorize live deployment or data changes. Do not claim unrun tests, provider support or live qualification.
 
 ## License and support
 

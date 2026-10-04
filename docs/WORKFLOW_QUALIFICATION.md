@@ -1,5 +1,7 @@
 # Bounded Workflow qualification observations
 
+> Historical and superseded by [the implemented retirement](LEGACY_RETIREMENT.md) under AI #18. Custom graph registration, qualification, composition and Runtime delegation described below are removed or held; these are not current source/configuration or rollout instructions. Retained data and uncertainty fences remain protected.
+
 The installed client observes the existing MCP authority; it is not a readiness
 publisher or another Generation process. It does not replace the installed graph,
 mutation-continuity, provider-upload retention and Studio acceptance requirements

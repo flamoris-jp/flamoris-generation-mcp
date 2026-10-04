@@ -1,28 +1,15 @@
 import fcntl
 import json
 import os
-from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-from conftest import validation_rejection
 from mcp import Client
-from test_inputs import png
-from test_workflow_registry import configured
 
-from flamoris_generation_mcp.comfyui import ComfyUIClient
 from flamoris_generation_mcp.config import Settings
 from flamoris_generation_mcp.durable import CommitUnknown
-from flamoris_generation_mcp.models import ModelCatalog
-from flamoris_generation_mcp.providers.base import (
-    GenerationRequest,
-    SubmissionRejected,
-    SubmissionUnknown,
-)
-from flamoris_generation_mcp.providers.comfyui import ComfyUIProvider
 from flamoris_generation_mcp.providers.comfyui_inputs import ComfyUIInputs
 from flamoris_generation_mcp.server import create_server
-from flamoris_generation_mcp.workflows import WorkflowStore
 
 JOB = "a" * 32
 OTHER = "b" * 32
@@ -285,20 +272,23 @@ async def test_readiness_requires_configured_accessible_shared_root(
         root = link
     settings = settings.model_copy(
         update={
-            "managed_input_ready": True,
             "comfyui_input_root": None if root_kind == "unset" else root,
         }
     )
     server = create_server(settings, transport=httpx.MockTransport(fake.handle))
     async with Client(server) as client:
         health = await client.call_tool("system.health")
-        assert health.structured_content["managed_input_support"]["ready"] is (
-            root_kind == "accessible"
-        )
+        support = health.structured_content["managed_input_support"]
+        assert support["ready"] is False
+        assert support["reference_execution"] == "retired"
+        assert support["retained_copy_store_available"] is (root_kind == "accessible")
         if root_kind == "accessible":
             (root / "flamoris-inputs/unrecorded.png").write_bytes(b"keep")
             health = await client.call_tool("system.health")
-            assert health.structured_content["managed_input_support"]["ready"] is False
+            assert (
+                health.structured_content["managed_input_support"]["retained_copy_store_available"]
+                is False
+            )
 
 
 @pytest.mark.parametrize(
@@ -430,137 +420,3 @@ def test_crash_after_payload_before_identity_commit_preserves_copy(tmp_path, mon
     with pytest.raises(ValueError, match="identity changed"):
         copies(tmp_path).rejected(JOB)
     assert next((tmp_path / "flamoris-inputs").glob("*.png")).read_bytes() == b"data"
-
-
-def adapter(settings, tmp_path, handler, *, extra_input=False):
-    settings, definitions = configured(settings, tmp_path)
-    path = definitions / "basic-image.json"
-    data = json.loads(path.read_text())
-    for name, node in [("source", "8"), *([("second", "9")] if extra_input else [])]:
-        data["graph"][node] = {"class_type": "LoadImage", "inputs": {"image": ""}}
-        data["parameters"][name] = {
-            "type": "managed_input",
-            "node": node,
-            "input": "image",
-            "media_types": ["image/png"],
-        }
-    path.write_text(json.dumps(data))
-    input_root = tmp_path / "provider-inputs"
-    input_root.mkdir()
-    settings = settings.model_copy(update={"comfyui_input_root": input_root})
-    catalog = ModelCatalog(settings)
-    workflows = WorkflowStore(catalog, settings.workflow_dir, definitions)
-    values = {"checkpoint": "base.safetensors", "positive_prompt": "reference", "source": JOB}
-    if extra_input:
-        values["second"] = OTHER
-    key = workflows.build("basic-image", values)["workflow_id"]
-    recipe = workflows.get(key)
-
-    class Reader:
-        metadata = {
-            "mime_type": "image/png",
-            "input_id": JOB,
-            "source_asset_id": None,
-            "size_bytes": len(png()),
-            "sha256": "a" * 64,
-            "source_kind": "upload",
-        }
-
-        def __init__(self, content):
-            self.content = content
-
-        async def chunks(self):
-            yield self.content
-
-    class Inputs:
-        @asynccontextmanager
-        async def stage(self, *_args):
-            yield {
-                "source": Reader(png()),
-                **({"second": Reader(b"invalid")} if extra_input else {}),
-            }
-
-    provider = ComfyUIProvider(
-        ComfyUIClient(settings, httpx.MockTransport(handler)), catalog, workflows, Inputs()
-    )
-    return provider, GenerationRequest(operation="image.generate", workflow_id=key, payload=recipe)
-
-
-@pytest.mark.parametrize("outcome", ["lost_ack", "bad_ack", "definite_rejection", "binding_fault"])
-async def test_adapter_post_faults_preserve_unknown_and_release_only_definite_rejection(
-    settings, tmp_path, fake, monkeypatch, outcome
-):
-    def handler(request):
-        assert request.url.path != "/upload/image"
-        if request.url.path == "/prompt":
-            if outcome == "definite_rejection":
-                return validation_rejection()
-            fake.handle(request)
-            if outcome == "lost_ack":
-                raise httpx.ReadTimeout("acknowledgement lost", request=request)
-            if outcome == "bad_ack":
-                return httpx.Response(200, json={"prompt_id": None})
-            return httpx.Response(200, json={"prompt_id": "prompt-1"})
-        return fake.handle(request)
-
-    provider, request = adapter(settings, tmp_path, handler)
-    if outcome == "binding_fault":
-        monkeypatch.setattr(
-            provider.input_copies, "bind", lambda *_: (_ for _ in ()).throw(OSError("fault"))
-        )
-    error = (
-        SubmissionRejected
-        if outcome == "definite_rejection"
-        else OSError
-        if outcome == "binding_fault"
-        else SubmissionUnknown
-    )
-    try:
-        with pytest.raises(error):
-            await provider.submit(request, JOB)
-        input_root = provider.input_copies.root
-        files = list((input_root / "flamoris-inputs").glob("*.png"))
-        assert len(files) == (0 if outcome == "definite_rejection" else 1)
-        if files:
-            fake.finish()
-            copies(input_root, state_root=settings.output_dir).observe("prompt-1", "completed")
-            assert files[0].exists()  # The missing binding never grants cleanup authority.
-        assert len(fake.prompts) == (0 if outcome == "definite_rejection" else 1)
-    finally:
-        await provider.close()
-
-
-async def test_adapter_validation_after_first_copy_releases_batch(settings, tmp_path, fake):
-    provider, request = adapter(settings, tmp_path, fake.handle, extra_input=True)
-    try:
-        with pytest.raises(SubmissionRejected):
-            await provider.submit(request, JOB)
-        assert ledger(provider.input_copies.root) == {}
-        assert not fake.prompts
-    finally:
-        await provider.close()
-
-
-async def test_recovered_adapter_queue_absence_and_cancel_request_never_release(
-    settings, tmp_path, fake
-):
-    provider, request = adapter(settings, tmp_path, fake.handle)
-    try:
-        ack = await provider.submit(request, JOB)
-        copy = next((provider.input_copies.root / "flamoris-inputs").glob("*.png"))
-        # An adapter restored without output publication authority still owns status
-        # observation. Queue deletion/absence has no terminal acknowledgement.
-        assert (await provider.cancel_owned(ack.execution_id)).status == "unknown"
-        assert copy.exists()
-        fake.running = [[1, ack.execution_id]]
-        provider.client.settings.targeted_interrupt = True
-        assert (await provider.cancel_owned(ack.execution_id)).status == "cancel_requested"
-        assert copy.exists()
-        fake.finish(ack.execution_id, "error", [["execution_interrupted", {}]])
-        provider.input_copies = copies(
-            provider.input_copies.root, state_root=settings.output_dir
-        )  # Persistent ledger, new adapter state.
-        assert (await provider.inspect_owned(ack.execution_id)).status == "cancelled"
-        assert not copy.exists()
-    finally:
-        await provider.close()

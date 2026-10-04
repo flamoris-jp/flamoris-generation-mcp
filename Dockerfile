@@ -13,7 +13,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FLAMORIS_HTTP_PORT=8765 \
     FLAMORIS_MODEL_ROOT=/data/models \
     FLAMORIS_WORKFLOW_DIR=/data/workflows \
-    FLAMORIS_WORKFLOW_DEFINITION_DIR=/data/definitions \
     FLAMORIS_OUTPUT_DIR=/data/outputs
 
 COPY --from=build /wheels /wheels
@@ -21,7 +20,7 @@ COPY docker-requirements.txt /tmp/docker-requirements.txt
 RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels \
       -r /tmp/docker-requirements.txt /wheels/flamoris_generation_mcp-*.whl \
     && rm -rf /wheels /tmp/docker-requirements.txt \
-    && mkdir -p /data/models /data/workflows /data/definitions /data/outputs \
+    && mkdir -p /data/models /data/workflows /data/outputs \
     && chown -R 10001:10001 /data
 
 USER 10001:10001

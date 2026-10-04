@@ -47,11 +47,7 @@ class Settings(BaseModel):
     model_root: Path = Path("models")
     model_dirs: dict[ModelKind, list[Path]] = Field(default_factory=dict)
     workflow_dir: Path = Path(".generation/workflows")
-    workflow_definition_dir: Path = Path(".generation/definitions")
     output_dir: Path = Path(".generation/outputs")
-    runtime_evidence_file: Path | None = None
-    managed_input_ready: bool = False
-    workflow_v3_enabled: bool = False
     comfyui_output_root: Path | None = None
     comfyui_input_root: Path | None = None
     provider_input_max_files: int = Field(default=128, ge=1, le=128)
@@ -109,12 +105,8 @@ class Settings(BaseModel):
     def from_env(cls, **overrides) -> "Settings":
         fields = {
             "COMFYUI_URL": "comfyui_url",
-            "RUNTIME_EVIDENCE_FILE": "runtime_evidence_file",
-            "MANAGED_INPUT_READY": "managed_input_ready",
-            "WORKFLOW_V3_ENABLED": "workflow_v3_enabled",
             "MODEL_ROOT": "model_root",
             "WORKFLOW_DIR": "workflow_dir",
-            "WORKFLOW_DEFINITION_DIR": "workflow_definition_dir",
             "OUTPUT_DIR": "output_dir",
             "COMFYUI_OUTPUT_ROOT": "comfyui_output_root",
             "COMFYUI_INPUT_ROOT": "comfyui_input_root",
