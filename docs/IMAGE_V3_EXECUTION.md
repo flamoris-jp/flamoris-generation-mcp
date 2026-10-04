@@ -1,5 +1,8 @@
 # Opt-in Image v3 execution
 
+> **Architecture correction (2026-10-04):** use **ComfyWorkFlow** for ComfyUI execution definitions/graphs. Do not use bare `Workflow` as new architecture terminology. Existing `workflows.*`, `WorkflowDefinition`, filenames, schemas, and test identifiers below describe the current implementation and are not renamed by this documentation-only change. Generation Controller remains unimplemented. When Generation work is explicitly resumed, the embedded Generation MCP ComfyWorkFlow implementation is to be **removed from this MCP repository rather than migrated into Controller**. FLAMORIS AI is prioritizing Intelligence-boundary cleanup first. See [flamoris-ai#18](https://github.com/flamoris-jp/flamoris-ai/issues/18) and [Generation MCP #67](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/67).
+
+
 This delivery advances #45 with a usable MCP path for one reviewed Image leaf,
 including nested pass-through compositions and renamed public ports. It does not
 complete the multimodal umbrella: multiple native components, intermediate media,
