@@ -20,7 +20,7 @@ These instructions apply to the entire repository.
 - Keep provider-specific HTTP/API behavior behind small adapter/client modules.
 - Keep MCP tools provider-neutral where practical.
 - Preserve one clear execution authority: providers execute jobs; this server validates, builds, submits, observes, and returns results.
-- Prefer trusted workflow templates plus validated user-facing parameters over arbitrary raw node mutation.
+- Prefer trusted ComfyWorkFlow templates plus validated user-facing parameters over arbitrary raw node mutation.
 - Do not expose arbitrary ComfyUI graph-editing tools unless a future issue explicitly requires them.
 - Keep model discovery filesystem-based unless a future requirement justifies a registry or database.
 - LoRA support must preserve explicit ordering and separate model/CLIP strengths.
@@ -30,7 +30,7 @@ These instructions apply to the entire repository.
 - This repository is the generative-media and closely related media-analysis execution boundary in the FLAMORIS AI family.
 - `flamoris-ai-agent` owns persistent conversations, memory, prompts, tools, and Agent policy.
 - `flamoris-intelligence-mcp` owns language, reasoning, coding, and related intelligence capabilities exposed through MCP.
-- Media-domain analysis may remain here when it participates in the same capability/workflow/job/provider/asset lifecycle as generative media.
+- Media-domain analysis may remain here when it participates in the same capability/generation-definition/job/provider/asset lifecycle as generative media.
 - Product repositories remain authoritative for their own project/document state and editing behavior.
 - The Generation Hub is the provider-neutral coordination architecture inside this repository, not a separate repository or second authority.
 - Shared non-AI infrastructure belongs in FLAMORIS Commons or its dedicated shared repositories.
@@ -53,7 +53,7 @@ These instructions apply to the entire repository.
 
 - Normal CI must not require a live GPU, live ComfyUI instance, installed model weights, or other local generation services.
 - Mock provider HTTP behavior in normal tests.
-- Add focused tests for tool validation, workflow construction, model discovery, provider response handling, and error paths.
+- Add focused tests for tool validation, ComfyWorkFlow construction, model discovery, provider response handling, and error paths.
 - Keep CI fast enough for normal pull-request iteration.
 - Preserve PR-level concurrency with stale runs cancelled when applicable.
 - Before completing a change, run the relevant tests, lint/format checks, package/build smoke, and installed-package import smoke when packaging is affected.
@@ -61,7 +61,7 @@ These instructions apply to the entire repository.
 ## Safety and robustness
 
 - Treat provider responses and filesystem paths as untrusted input.
-- Reject path traversal, ambiguous model identities, malformed provider responses, and unsafe raw workflow injection.
+- Reject path traversal, ambiguous model identities, malformed provider responses, and unsafe raw ComfyWorkFlow injection.
 - Do not automatically retry non-idempotent generation submissions after ambiguous failures.
 - Keep returned provider errors bounded and actionable; do not expose unnecessary tracebacks or private provider details.
 - Prefer scoped cancellation. Do not fall back to a global provider interrupt when a targeted operation is unavailable.
