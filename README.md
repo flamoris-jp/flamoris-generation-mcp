@@ -1,688 +1,119 @@
 # FLAMORIS Generation MCP
 
-A small Python MCP-native Generation Hub. It currently generates images through
-an existing ComfyUI service using trusted templates and user-facing parameters,
-while keeping Hub jobs, capabilities and assets independent from provider HTTP
-details. Opt-in [native Music and transcription providers](docs/MUSIC_PROVIDERS.md)
-and a local [Irodori native Speech provider](docs/IRODORI_PROVIDER.md)
-use the same shared job/asset authority. No .NET runtime or
-`flamoris-mcp-core` package is required.
+External MCP facade for FLAMORIS generation capabilities. Part of [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai).
 
-Part of the [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai) family.
+## Current correction and as-built implementation
 
-Shared non-AI foundations remain in [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons).
+[AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18) and [Generation #67](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/67) define the corrected target: ChatGPT -> MCP Hub -> Generation MCP -> internal generation capability. Internal Studio/Agent/Runtime calls do not use MCP/Hub in the target architecture.
 
-Automatic registered Image Workflow verification is described in
-[WORKFLOW_VERIFICATION.md](docs/WORKFLOW_VERIFICATION.md). Registration activates a
-validated candidate; exact runtime attestation and the independent infrastructure
-gate control production use.
+The current Python package still co-locates MCP transport with provider registries, generation recipes/jobs, inputs/references and assets. ComfyUI is the initial provider; opt-in Irodori, YuE2 and SheetSage2 paths have separately documented support and acceptance. This documentation does not migrate or remove that implementation.
 
-The [pinned Music provider contract research](docs/MUSIC_PROVIDER_CONTRACT_RESEARCH.md)
-records the original upstream API/CLI investigation. The native adapters implement
-the separately pinned installed contracts described in [MUSIC_PROVIDERS.md](docs/MUSIC_PROVIDERS.md);
-real-runtime qualification remains a deployment acceptance gate.
+**Intelligence cleanup comes first. Generation Controller remains unimplemented.** The existing MCP-side ComfyWorkFlow subsystem is for later removal, not transfer into Controller or automatic recreation there. Exact source/tools/callers/tests and retained data must be inventoried before a separately authorized deletion. Generation/reference-image development and rollout remain paused. Current work is documentation review/fixes and requested documentation merges only.
 
-## Proposed integration design
+## Terminology
 
-[Scoped Runtime delegation ownership](docs/RUNTIME_DELEGATION.md) implements private
-root reservations and once-only internal provider handoff. Authenticated transport,
-settlement/publication and live host qualification remain required before enabling
-cross-service composition.
+`ComfyWorkFlow` means a ComfyUI execution graph/API-format JSON and its declared bindings. `ExecuteFlow` means Runtime inference flow; `ExecutionPlan` remains Runtime's compiled representation. These are distinct. Non-ComfyUI generation requests/recipes are not automatically ComfyWorkFlow.
 
-The internal [v3 static foundation](docs/WORKFLOW_V3_FOUNDATION.md) implements strict
-contracts, immutable version history and bounded include compilation. The opt-in
-[Image v3 execution profile](docs/IMAGE_V3_EXECUTION.md) connects exact pinned
-provider/pass-through compositions to the ordinary jobs and automatic attestation.
-The legacy catalog is unchanged; multiple leaves and other media remain gated.
+Existing literal names such as `workflows.*`, `workflow_id`, `WorkflowDefinition`, `WorkflowStore`, environment variables and WORKFLOW-named files remain unchanged until an explicit compatibility-reviewed implementation change. New architecture prose should not use bare Workflow. Historical design and current wire identifiers must retain their actual names rather than pretending a rename is implemented.
 
-[Multimodal Workflows and pinned includes](docs/MULTIMODAL_WORKFLOWS.md) records the proposed media/Workflow/Agent integration coordinated by [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). It is a design proposal, not a claim that new providers, composed execution or shared-user Agent assistance are implemented. Existing public contracts and readiness gates remain authoritative.
+## Existing definition, recipe and job identities
 
-## Ecosystem boundary
+| Concept | Current meaning |
+| --- | --- |
+| Registered definition identity | Trusted definition ID/version/digest and declared parameter/input bindings |
+| Built recipe handle, returned as `workflow_id` | Result of `workflows.build`; used by `workflows.save` and `jobs.submit` |
+| Generation `job_id` | One admitted generation/verification attempt with its own state and provider mapping |
+| Asset/input identity | Managed output or immutable input reference, not a host path or proof of user authorization |
 
-FLAMORIS Generation MCP owns generative-media and closely related media-analysis execution: workflows, jobs, provider coordination, and generated/materialized assets.
+Do not call the built handle a registered definition ID. A registered definition can be selected as the build `template`, but submit consumes the resulting built recipe handle. Provider-specific graphs are inspectable exports, not caller-mutable submission authority. Versioned recipes retain their definition identity under the current contract.
 
-- [FLAMORIS AI Agent](https://github.com/flamoris-jp/flamoris-ai-agent) owns persistent conversations, memory, prompts, tools, and Agent policy.
-- [FLAMORIS Intelligence MCP](https://github.com/flamoris-jp/flamoris-intelligence-mcp) owns the MCP-facing boundary for language, reasoning, coding, and related intelligence capabilities.
-- FLAMORIS product repositories remain authoritative for their own project/document state and editing behavior.
-- The **Generation Hub** is the provider-neutral coordination architecture inside this repository. It is not a separate repository or a second authority.
+For ComfyUI, the builder applies allowed values/reference bindings and constructs JSON; ComfyUI executes the nodes. JSON construction, submission and production qualification are separate operations. Agent, a generic scheduler and an AI Runtime bridge are not mandatory for simple JSON building.
 
-Media-domain analysis such as music transcription may belong here when it participates in the same capability → workflow → job → provider → asset lifecycle. General language/reasoning/coding intelligence belongs in Intelligence MCP.
+## Existing tool families
 
-## Architecture
+The actual server schemas remain authoritative; this overview is not a newly versioned catalog.
 
-The process owns one `ProviderRegistry`, `CapabilityRegistry`, `WorkflowStore` and
-`JobStore`. `JobStore` is the single authority for Hub job identity and the
-single-generation reservation; providers execute work and normalize their own
-execution IDs, states, errors and outputs behind a small provider interface.
-Each workflow template maps to exactly one capability, whose explicit provider ID
-is resolved at submission time; there is no automatic provider selection.
-ComfyUI is registered by default. `FLAMORIS_IRODORI_CONFIG` explicitly adds the
-fixed `speech-no-reference` native profile; missing optional runtime resources
-make that provider unavailable independently of Image and process liveness.
-`FLAMORIS_YUE2_CONFIG` and `FLAMORIS_SHEETSAGE2_CONFIG` independently add the
-fixed `music-generate` and `music-transcribe` profiles. They are disabled when
-these operator-owned configuration paths are unset. None switches a runtime,
-downloads a model or automatically selects an alternative provider.
+| Family | Existing responsibility |
+| --- | --- |
+| `system.health`, `capabilities.list/get`, `models.list/get` | Process/provider status and configured metadata; discovery is not model readiness |
+| `workflows.list/register/build/save` | Current trusted definitions, validated parameter binding and built/saved recipes |
+| `workflows.verify` | Bounded automatic Image qualification through the normal job authority |
+| `jobs.submit/status/result/cancel` | Admitted generation and truthful terminal/unknown results |
+| `assets.list/get/delete`, `assets.prepare/read` | Metadata, selected bounded content retrieval and managed-copy deletion |
+| `inputs.create/get/delete`, `inputs.upload.begin/write/finish` | Immutable managed references and bounded uploads |
+| Opt-in `workflows.v3.*` | Separately cataloged Image v3 profile; not proof of all-media composition support |
 
-`system.health` reports Hub process health separately from provider availability.
-A stopped ComfyUI instance makes the `comfyui` provider and its capabilities
-unavailable, but does not make the Hub process unhealthy. `capabilities.list` and
-`capabilities.get` expose the provider-independent operation `image.generate`
-without automatically selecting a provider. Configured native Speech also exposes
-`speech.generate`; local-resource availability is not real-model readiness.
-Configured Music exposes `music.generate` and/or `music.transcribe`; descriptors
-declare their exact native profile and `not-attested` qualification. Production
-consumers must complete the corresponding real-runtime acceptance before enabling
-those profiles. Discovery and offline CI do not attest installed models.
+Keep current exact argument/schema/annotation matching between MCP Hub and the upstream. The architecture correction does not change tools, wire IDs or catalog configuration. Current internal consumers are an audit baseline, not an instruction to keep using MCP internally.
 
-## Setup
+## Existing state and safety guarantees
 
-### Single-instance deployment contract
+One active process owns ProviderRegistry, CapabilityRegistry, WorkflowStore and JobStore for its shared resource pool. Do not run parallel workers, overlapping replacements or a second stdio process against that pool. The submission reservation is process-owned with a durable conservative recovery journal, not a distributed/host-wide generation lock. Direct provider submissions bypass it. GPU Node Manager retains host-wide lifecycle control.
 
-Run **exactly one active Generation MCP process per shared provider/resource
-pool**. Horizontal replicas, multiple ASGI workers, overlapping rolling updates,
-and separate stdio servers targeting the same GPU/provider are unsupported.
-For multiple clients, use independent sessions against one Streamable HTTP
-process. Do not start an additional stdio process alongside it.
+Provider availability is separate from process health. Optional providers do not load automatically, switch runtimes, download weights or grant fallback. Capability/model discovery and static definition validity do not prove installed compatibility or production readiness.
 
-The single-generation reservation is enforced by a **process-owned** submission
-lock, not a host-wide or distributed lock. Its active reservation is also captured
-in a durable journal for conservative recovery after restart. Sharing directories
-does not coordinate simultaneous processes. FLAMORIS GPU Node Manager owns local
-GPU/runtime transitions; it does not turn these job locks into a distributed
-generation lock. Direct submissions to ComfyUI also bypass this reservation.
+Keep registered/validated candidate state separate from exact automatic verification and computed ready status. Reference images require their own managed-input infrastructure and semantics in addition to per-definition qualification. Existing verification, evidence continuity and input protections remain applicable to retained paths; feature retirement must not create a bypass or a fabricated ready result.
 
-The supplied CLI starts one process and offers no worker/replica option. It cannot
-reliably discover another process/container using the same resource pool, so no
-startup check claims to enforce cross-process exclusivity. Deployment supervisors
-must enforce a singleton. `system.health` advertises this requirement explicitly;
-it is a contract declaration, not proof that no second instance exists.
+Never retry an ambiguous accepted submission automatically or equate disconnect/cancel with stopped provider work. Retain uncertain reservation until justified reconciliation. Restart/upgrade must drain/reconcile and use one authority; missing queue/history alone does not prove release.
 
-Before restarting/upgrading, stop accepting submissions, finish or explicitly
-cancel active work, and verify provider completion/release. Use stop-then-start
-deployment, not overlapping replacements. After an unexpected restart, inspect
-the provider before resuming submissions. A persisted active reservation recovers
-as unknown and retains capacity until reconciliation; private Runtime delegation
-remains fenced rather than replayed. Invalid reservations fail startup. Completed
-asset archives do not restore execution authority, and missing provider history
-does not prove accepted work stopped. Multi-instance support would require a
-separate coordination design; it is not enabled by scaling Compose.
+Metadata and binary materialization are separate. Completed manifest listing does not guarantee an unmaterialized provider output remains fetchable after restart. `assets.delete` removes the managed copy/catalog entry, not provider originals; original retention is a separate explicit operation. Keep individual asset selection, digest verification, bounded chunks and caller authorization.
 
-Requires Python 3.11+. Image execution needs an independently installed ComfyUI
-instance; the MCP host scans the configured model directories without loading
-Image weights. Opt-in native Speech instead needs the separately installed local
-Irodori environment and resources visible to the configured subprocess, including
-its selected GPU/backend. Neither path downloads model weights automatically.
+Managed input snapshots are immutable and separate from source assets. Source deletion does not revoke a published snapshot automatically; expiry and in-use leases have their own contract. Accept no arbitrary caller URL, host path or provider filename. Preserve bounded decoding, pixel/byte/storage limits, safe staging, exact ownership and crash/uncertain-work accounting. Studio is still its users' authorization boundary; possession of a raw ID or signed provenance alone grants no access.
+
+## Existing installation and configuration reference
+
+Python 3.11+ and the relevant independently configured providers are required. The generation server's filesystem contract is Linux/POSIX. These commands describe current package entry points and are not deployment instructions for this paused correction:
 
 ```sh
 python -m venv .venv
-# Activate the virtual environment for your shell, then:
+# Activate the environment before installing.
 python -m pip install -e '.[dev]'
 flamoris-generation-mcp
 ```
 
-The command starts a **stdio** MCP server; configure your MCP client to launch
-`flamoris-generation-mcp` from the installed environment (or its resolved executable
-path). The default stdio mode opens no HTTP listener. There is no authentication
-system, web UI, or automatic dependency installer. In stdio mode, logs use stderr
-and stdout is reserved for MCP messages.
-
-Example MCP client configuration (adapt the outer format to your client):
-
-```json
-{
-  "mcpServers": {
-    "generation": {
-      "command": "flamoris-generation-mcp",
-      "env": {
-        "FLAMORIS_COMFYUI_URL": "http://localhost:8188",
-        "FLAMORIS_MODEL_ROOT": "./models",
-        "FLAMORIS_WORKFLOW_DIR": "./.generation/workflows",
-        "FLAMORIS_WORKFLOW_DEFINITION_DIR": "./.generation/definitions",
-        "FLAMORIS_OUTPUT_DIR": "./.generation/outputs"
-      }
-    }
-  }
-}
-```
-
-Relative paths resolve against the MCP process's working directory, which clients
-may choose differently. Set these variables to your own accessible directories.
-Do not commit local configuration or weights. Use only a trusted ComfyUI endpoint;
-provider redirects and environment HTTP proxies are disabled.
-
-## Streamable HTTP
-
-Select HTTP explicitly to serve the same tools on a local endpoint:
+stdio is the default. Explicit HTTP example:
 
 ```sh
-flamoris-generation-mcp --transport streamable-http
-# Explicit equivalent, with configurable bind address, port and route:
 flamoris-generation-mcp --transport streamable-http --host 127.0.0.1 --port 8765 --mcp-path /mcp
 ```
 
-The default endpoint is `http://127.0.0.1:8765/mcp`. CLI options override the
-corresponding environment variables below; otherwise defaults apply. With no
-options or transport environment override, the command remains stdio-compatible.
-The MCP path is a literal absolute URL path, such as `/mcp` or `/api/generation`,
-without query parameters, fragments, route placeholders or a trailing slash
-(except `/` itself). The module entrypoint accepts the same options.
+The current HTTP surface has no application-level authentication. Keep SDK Host/Origin checks and an operator-controlled authenticated/network boundary. A proxy/tunnel is separately configured; the package does not manage it. Provider requests use configured trusted endpoints without redirects/environment proxies. No runtime operations are performed in this documentation pass.
 
-A tunnel/reverse-proxy runtime may target this loopback HTTP endpoint. Install,
-configure and authenticate that runtime separately; the Python package does not
-manage tunnels or credentials. HTTP has no application authentication and every
-connected client can access the same process-owned workflows/jobs. Keep external
-access controlled by the deployment layer. SDK Host/Origin checks remain enabled
-for the default loopback bind; the forwarding runtime must send headers accepted
-by that local endpoint (an external Host/Origin can be rejected). No proxy or
-transport authentication middleware is added here. Optional signed Hub provenance
-is verified separately; it records a client identity and does not grant asset access.
+Important current paths are **not interchangeable**:
 
-Run one server process with one selected transport. Both startup modes use the
-same `MCPServer` factory, validation, stores and provider registry. HTTP requests and
-client sessions share that process's state; disconnecting a client does not erase
-jobs or close the provider. Separate processes do not share in-memory state, so
-multiple workers/replicas and simultaneous stdio/HTTP listeners are not provided.
-ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
-
-## Configuration
-
-| Environment variable | Default | Purpose |
+| Variable | Default | Meaning |
 | --- | --- | --- |
-| `FLAMORIS_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http`; CLI `--transport` |
-| `FLAMORIS_HTTP_HOST` | `127.0.0.1` | HTTP bind hostname/IP; CLI `--host` |
-| `FLAMORIS_HTTP_PORT` | `8765` | HTTP port (1–65535); CLI `--port` |
-| `FLAMORIS_MCP_PATH` | `/mcp` | Literal HTTP route; CLI `--mcp-path` |
-| `FLAMORIS_PROVENANCE_SECRET` | unset | Independent internal Hub signing secret; configure with the expected issuer |
-| `FLAMORIS_PROVENANCE_ISSUER` | unset | Exact trusted issuer for signed external client provenance |
-| `FLAMORIS_IRODORI_CONFIG` | unset | Operator-owned local Irodori native Speech configuration |
-| `FLAMORIS_YUE2_CONFIG` | unset | Operator-owned YuE2 HTTP native Music configuration |
-| `FLAMORIS_SHEETSAGE2_CONFIG` | unset | Operator-owned local SheetSage2 native transcription configuration |
-| `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | ComfyUI HTTP base URL; path prefixes supported |
-| `FLAMORIS_MODEL_ROOT` | `models` | Root containing the model-kind subdirectories below |
-| `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
-| `FLAMORIS_WORKFLOW_V3_ENABLED` | `false` | Add the separate Image v3 tool/descriptor catalog; enable with its matching Hub template |
-| `FLAMORIS_WORKFLOW_DIR` | `.generation/workflows` | Saved parameter recipes |
-| `FLAMORIS_WORKFLOW_DEFINITION_DIR` | `.generation/definitions` | Trusted API-format ComfyUI workflow definitions, read at startup |
-| `FLAMORIS_OUTPUT_DIR` | `.generation/outputs` | Downloaded outputs and metadata, grouped by job ID |
-| `FLAMORIS_REQUEST_TIMEOUT` | `30` | HTTP timeout in seconds (greater than 0, at most 300) |
-| `FLAMORIS_TARGETED_INTERRUPT` | `false` | Enable running cancellation only for a provider with prompt-ID-scoped `/interrupt` |
+| `FLAMORIS_MODEL_ROOT` | `models` | Model metadata scan root |
+| `FLAMORIS_WORKFLOW_DIR` | `.generation/workflows` | Saved parameter recipes, not registered definitions |
+| `FLAMORIS_WORKFLOW_DEFINITION_DIR` | `.generation/definitions` | Trusted registered definitions, not the saved-recipe directory |
+| `FLAMORIS_OUTPUT_DIR` | `.generation/outputs` | Managed outputs and state |
+| `FLAMORIS_COMFYUI_URL` | `http://localhost:8188` | Independently configured ComfyUI endpoint |
+| `FLAMORIS_WORKFLOW_V3_ENABLED` | `false` | Opt-in v3 catalog/profile flag |
 
-Model kinds map to these subdirectories:
+Current Docker mappings use `/data/workflows` for recipes and `/data/definitions` for definitions. Do not rename variables or point one storage role at another because terminology changed.
 
-| Kind | Subdirectory |
-| --- | --- |
-| `checkpoint` | `checkpoints` |
-| `lora` | `loras` |
-| `vae` | `vae` |
-| `controlnet` | `controlnet` |
-| `clip` | `clip` |
-| `clip_vision` | `clip_vision` |
-| `diffusion_model` | `diffusion_models` |
-| `text_encoder` | `text_encoders` |
-| `unet` | `unet` |
+The complete [pre-correction README reference](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/b3dab9b72af0dd2bf0b67361639ce3e31688d476/README.md) preserves detailed configuration, CLI examples, singleton/retention caveats and current entry-point behavior. It is an as-built reference, not permission to follow old expansion/rollout instructions during the hold.
 
-For example, `FLAMORIS_MODEL_DIRS='{"lora":["./model-library/styles"]}'`
-overrides the LoRA directory. Missing directories are treated as empty. Recursive
-scans recognize `.safetensors`, `.ckpt`, `.pt`, `.pth`, `.bin`, and `.gguf` files.
-Names are relative POSIX paths; IDs are `kind:name`. Duplicate names across roots
-of the same kind are rejected as ambiguous. Symlinks escaping a root are ignored;
-configure the actual external directory as a root instead.
+## Current contracts and historical design
 
-**Discovery does not establish model compatibility.** Use checkpoint models that
-work with ComfyUI's built-in `CheckpointLoaderSimple`, `CLIPTextEncode`, and
-`EmptyLatentImage`, with compatible LoRAs. This is suitable for ordinary SD1.x/SDXL
-checkpoint experiments. Separate diffusion/text-encoder models, ControlNet and
-GGUF may be discoverable but have no execution templates in Phase 1. ComfyUI must
-resolve the same relative checkpoint/LoRA names, e.g. through its configured model
-directories or `extra_model_paths.yaml`. Its API validates sampler/scheduler names
-and actual node/model compatibility on submission.
+The following files retain current/historical literal names. Their as-built semantics and acceptance records remain useful, but old implementation/expansion directions do not override #18.
 
-## Tools and first generation
+- [Automatic Image verification](docs/WORKFLOW_VERIFICATION.md) and [installed qualification reference](docs/WORKFLOW_QUALIFICATION.md)
+- [Managed inputs](docs/MANAGED_INPUTS.md) and [bounded asset transfer](docs/ASSET_TRANSFER.md)
+- [Native music providers](docs/MUSIC_PROVIDERS.md) and [Irodori profile](docs/IRODORI_PROVIDER.md)
+- [External provenance](docs/EXTERNAL_PROVENANCE.md)
+- [Image v3 execution](docs/IMAGE_V3_EXECUTION.md) and [historical v3 foundation](docs/WORKFLOW_V3_FOUNDATION.md)
+- [Historical Generation Hub design](docs/GENERATION_HUB_DESIGN.md), [multimodal proposal](docs/MULTIMODAL_WORKFLOWS.md) and [existing Runtime delegation](docs/RUNTIME_DELEGATION.md)
 
-| Tool | Arguments | Result |
-| --- | --- | --- |
-| `system.health` | none | Process health and separate provider availability/queue counts |
-| `capabilities.list` | none | Provider-independent operations and current availability |
-| `capabilities.get` | `capability_id` | One capability, runtime/provider identity and workflow templates |
-| `models.list` | optional `kind` | Installed file metadata; no weight deserialization |
-| `models.get` | `model_id` | One installed model |
-| `workflows.list` | none | Templates, registered definitions, and built/saved workflow IDs |
-| `workflows.register` | `definition` | Validate, atomically persist, and immediately activate a trusted definition |
-| `workflows.build` | `template`, `parameters` | Workflow ID, normalized recipe and executable prompt |
-| `workflows.save` | `workflow_id` | Persist a recipe, preserving its ID |
-| `jobs.submit` | `workflow_id` | New job ID, or a busy error while another generation is active |
-| `jobs.status` | `job_id` | Poll execution state |
-| `jobs.result` | `job_id` | Metadata; when complete, local output files and metadata JSON |
-| `jobs.cancel` | `job_id` | Cancellation result or an explicit running-cancellation limitation |
-| `assets.list` | `job_id` | Metadata-only stable asset IDs; never downloads payloads |
-| `assets.get` | `asset_id` | MCP-native binary media content for one generated asset |
-| `assets.delete` | `asset_id` | Remove one Hub-managed output; provider originals are unaffected |
-| `inputs.upload.begin` | `upload_id`, `mime_type`, `size_bytes`, `sha256` | Reserve a bounded private image upload |
-| `inputs.upload.write` | `upload_id`, `offset`, `data_base64`, `chunk_sha256` | Commit one ordered chunk, at most 256 KiB |
-| `inputs.upload.finish` | `upload_id` | Decode and publish an immutable managed image |
+Historical generic media composition must not be relabeled ComfyWorkFlow indiscriminately. Neither it nor Runtime delegation is a prerequisite for Intelligence cleanup or a simple ComfyUI JSON builder.
 
-1. Call `system.health` and optionally `capabilities.list`, then `models.list` for
-   `checkpoint` and `lora`.
-2. Call `workflows.build` with installed relative names, for example:
-
-```json
-{
-  "template": "text-to-image-lora",
-  "parameters": {
-    "checkpoint": "example.safetensors",
-    "positive_prompt": "watercolor flowers on a quiet windowsill",
-    "negative_prompt": "blurry",
-    "width": 512,
-    "height": 512,
-    "seed": 42,
-    "steps": 20,
-    "cfg": 7,
-    "sampler": "euler",
-    "scheduler": "normal",
-    "denoise": 1,
-    "loras": [
-      {"name": "style.safetensors", "strength_model": 0.8, "strength_clip": 0.6},
-      {"name": "detail.safetensors", "strength_model": 0.4, "strength_clip": 0.3}
-    ]
-  }
-}
-```
-
-3. Optionally call `workflows.save` with the returned `workflow_id`.
-4. Call `jobs.submit` with that ID, poll `jobs.status`, then call `jobs.result`.
-5. For a completed job, call `assets.list` with the job ID, then pass one returned
-   `asset_id` to `assets.get`. PNG/JPEG/WebP outputs are returned as MCP image
-   content, so remote clients receive the media bytes rather than a host-only
-   filesystem path.
-
-`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Completed outputs already materialized by `jobs.result` can be read and deleted by asset ID after a restart using a bounded, validated manifest under the configured output directory. Unmaterialized completed outputs cannot be reconstructed after restart. The active reservation journal supports conservative unknown recovery; unsaved workflows and ordinary session history remain process-owned. Provider-original cleanup is not provided.
-
-The asset layer is intentionally media-oriented rather than filesystem-oriented.
-Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
-supply arbitrary file paths. `assets.list` is metadata-only: an output that has not
-been downloaded reports `size_bytes: null` and `materialized: false`.
-`assets.get` materializes only the requested asset. The current provider emits
-images, while the same `assets.list` / `assets.get` surface can be extended later
-for video and audio content without exposing the output filesystem.
-
-Use `text-to-image` with no LoRAs for a plain checkpoint workflow. The LoRA
-template requires at least one LoRA, preserves order, and chains both model and
-CLIP through every entry. Seed is an explicit nonnegative integer (default 0),
-not a randomized sentinel. Width/height must be multiples of 8 from 64 to 4096;
-steps range from 1 to 150; at most 16 LoRAs are accepted. These bounds do not
-guarantee sufficient provider VRAM.
-
-Returned raw prompts are inspectable exports, **not mutable submission inputs**.
-`jobs.submit` accepts only a workflow ID and rebuilds the known template from its
-recipe, rechecking installed models. Saved files contain only versioned recipes.
-
-### Trusted external workflows
-
-The Generation MCP server currently targets Linux. Its asset and provider
-filesystem boundaries use Linux/POSIX directory file descriptors; a Windows
-server runtime is not supported yet.
-
-Trusted MCP clients can register a complete definition at runtime with
-`workflows.register(definition)`. The server validates the same strict
-`WorkflowDefinition` contract, atomically persists `<id>.json` under
-`FLAMORIS_WORKFLOW_DEFINITION_DIR`, and activates it immediately without a
-service restart. Updating an existing ID requires a strictly greater version.
-Definitions already present in that directory are still loaded at startup, so
-runtime registrations survive restarts. The directory remains separate from
-`FLAMORIS_WORKFLOW_DIR`, which holds saved invocation recipes.
-`workflows.list` includes a `definitions` array with IDs, versions, descriptions,
-provider/capability and public parameter rules. It does not return raw graphs.
-Build by passing the definition ID as `template` and public values as `parameters`;
-then save/submit the returned workflow ID in the usual way. Missing required,
-unknown and invalid parameters fail before submission. Saved recipes pin the
-definition version and fail closed if that version is no longer installed.
-
-An example API-format graph and its parameter bindings are shipped at
-`src/flamoris_generation_mcp/example_definitions/basic-image.json`. It is a
-test fixture, not a production model preset. For a real definition, author and
-test the graph against the target ComfyUI API format, verify the node IDs and
-installed model names, then add explicit bindings to existing literal node
-inputs. Give it a stable lowercase ID and increment its version when changing
-the graph. A trusted MCP client may register the validated definition directly;
-Git/file deployment is not required for each workflow. Each definition currently declares
-one `SaveImage` output node with a `filename_prefix` input. The server sets
-that output prefix per job; clients cannot override it. Additional Save/Preview
-nodes are rejected, and only images reported under the declared node become
-Hub assets. Review custom nodes for other filesystem side effects.
-
-Free-form string parameters are currently allowed only on the audited
-`CLIPTextEncode.text` input. Model selectors are checked against the installed
-model catalog; other string selectors require a definition-owned enum.
-Trusted image inputs may bind a required `managed_input` parameter only to
-`LoadImage.image`, with an explicit PNG/JPEG/WebP media allowlist. The value must
-be a Generation-managed `input_id`; the ComfyUI adapter stages that immutable
-snapshot under the active Hub reservation, uploads it with a generated provider
-filename, and rewrites only the declared binding before submission. Raw provider
-filenames, caller filesystem paths and URLs are never accepted. Other file/audio/
-video bindings remain fail-closed. The definition metadata uses separate provider
-and capability IDs, while the current executor supports only
-`comfyui` / `image.generate` and `SaveImage` outputs; adding video or other
-media requires a reviewed adapter extension.
-
-For Docker Compose, create `./definitions` (or set `DEFINITION_ROOT`) before
-starting the service and make it writable by the container service UID. It is
-mounted read/write at `/data/definitions` so validated runtime registrations can
-be persisted atomically. Keep `./workflows` writable for saved recipes; the two
-paths have distinct roles. The Generation MCP and Hub schema change for
-`workflows.register` is a one-time deployment. After that, registering or
-updating workflow definitions requires no container rebuild, file release, or
-service restart.
-
-### Installed Workflow qualification client
-
-`python -m flamoris_generation_mcp.qualification` collects bounded observations
-from an already-running Generation MCP or its exact Hub route. It defaults to
-read-only preflight. Explicit `--execute` invokes ordinary `workflows.verify`
-once, polls the normal job and rechecks the exact current ready descriptor.
-It never registers graphs, grants readiness, retries admission, starts a provider
-or cancels uncertain work. Private receipts omit prompts, inputs, credentials,
-provider URLs/paths and runtime manifests. They are evidence-collection aids,
-not a substitute for real-runtime readiness or infrastructure acceptance.
-See [the qualification procedure](docs/WORKFLOW_QUALIFICATION.md).
-
-## Job behavior and limits
-
-- One server process permits one active generation at a time. While a job is queued,
-  running, submitting, or otherwise non-terminal, another `jobs.submit` fails
-  immediately with a bounded busy error. The server does not add a waiting queue.
-  Status, result, cancellation, model and workflow inspection remain available.
-  Capacity is released only after terminal completion, failure or cancellation is
-  observed; stdio and Streamable HTTP share the same process-owned guard.
-- States: `submitting`, `queued`, `running`, `completed`, `failed`, `cancelled`,
-  `cancel_requested`, `unknown`. A missing queue/history entry is `unknown`, not
-  successful completion. Errors include node ID/type where available without
-  returning provider tracebacks. Transient HTTP failures are MCP tool errors and
-  do not overwrite a job's execution state.
-- There is no persistent waiting job queue. The durable active reservation journal
-  preserves uncertain work across restart; it is not a full historical execution
-  database or automatic resubmission mechanism. Previously materialized completed
-  assets can be retrieved and deleted from validated output manifests. Session
-  jobs and unsaved workflows retain their process-local 1024-entry limits;
-  archived asset access uses a fixed lock pool and has no session count limit.
-  Save recipes before restart; retain completed result files/metadata. Process
-  shutdown does not cancel already submitted ComfyUI work.
-- Submission is not idempotent. HTTP POST is never retried automatically. After
-  an ambiguous timeout or invalid acknowledgement, the job becomes `unknown` and
-  keeps its durable reservation, including after restart. Only a structured
-  ComfyUI HTTP 400 validation error without a prompt ID, or an adapter-confirmed
-  failure before generation admission, counts as definite rejection. Gateway
-  errors and conflicting success/error responses never release capacity. With a
-  known execution ID, poll/cancel through the normal job authority until terminal
-  evidence permits release. Without an acknowledged ID, status/cancel retain
-  `unknown`; an empty queue or a restart is not settlement. Stop ingress and
-  reconcile accepted work with the provider before trusted operational recovery;
-  there is no public force-release or automatic replay operation.
-- Queued cancellation deletes only the requested prompt. Running cancellation
-  defaults to unsupported because older ComfyUI versions ignore `prompt_id` and
-  interrupt globally. Set `FLAMORIS_TARGETED_INTERRUPT=true` only after verifying
-  your provider supports targeted interruption. There is no global-interrupt
-  fallback. An accepted request remains `cancel_requested` until history confirms
-  a terminal state; completion can win a cancellation race. If queue deletion is
-  followed by an absent queue/history entry, the result remains `unknown` and the
-  reservation is retained because deletion does not prove which prompt was removed.
-- `jobs.result` copies images from ComfyUI's `/view` into local output storage;
-  it does not change the provider's own output directory. Downloads are atomic,
-  retryable and reused on subsequent calls, limited to 64 MiB per image and 64
-  images per result. Local names are generated, not trusted provider paths. Existing
-  `jobs.result` file-path metadata remains available for local inspection. Remote
-  clients should use `assets.list` / `assets.get` to receive generated media through
-  MCP. Asset reads are limited to completed known jobs, checked against the configured
-  output root, reject symlinks/path escapes, and are bounded to 64 MiB per asset.
-- Reproducibility metadata contains the operation, provider ID, provider-owned
-  execution ID, template, all parameters (including
-  prompts, checkpoint, ordered LoRAs and seed), workflow/job IDs, status and output
-  references. No weight hashes are calculated. Replacing weights under the same
-  filename or changing provider versions can change results.
-
-## Development
-
-```sh
-python -m pytest
-ruff check .
-ruff format --check .
-python -m build
-```
-
-Tests use temporary model files and mocked HTTP, plus real MCP client/server
-protocol calls. CI needs neither live ComfyUI nor a GPU. The official MCP Python
-SDK 2.x owns protocol handling; dependencies are bounded to compatible majors.
-
-To add a template, extend the explicit `Template` type, template descriptions and
-trusted builder in `workflows.py`, add typed parameters where necessary, and test
-the emitted graph and rejection paths. Templates are shipped with the Python
-package; the workflow directory stores recipes only. Do not add dynamic code
-loading or raw node mutation tools. Provider-specific execution belongs behind
-`providers/`; ComfyUI HTTP parsing remains isolated in `comfyui.py`.
-
-API references: [ComfyUI server routes](https://docs.comfy.org/development/comfyui-server/comms_routes),
-[ComfyUI server implementation](https://github.com/Comfy-Org/ComfyUI/blob/master/server.py),
-[official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
-
-
-## License
-
-Code in this repository is licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
-
-Commercial use does not require permission. If you'd like, we'd be happy to hear what you used FLAMORIS for. This is completely optional.
-
-FLAMORIS software is provided as-is and does not include guaranteed individual support. AI-assisted self-support is encouraged.
-
-AI models, model weights, datasets, generated media, and other non-code assets are not automatically covered by this repository's license. Their applicable licenses and usage terms must be checked separately.
-
-If FLAMORIS helps you or you find it interesting, your support helps fund development and keeps the project growing. 🌱  
-<sub>Mostly GPU bills.</sub>
-
----
+Normal CI uses fake providers and bounded fixtures without live GPU, weights or paid APIs. Later changes must validate applicable source/tests, lint/format and package behavior. Real generation, mounted storage, provider qualification, cutover and rollback require separate authorization/evidence. This PR changes only Markdown and runs no providers.
 
 ## 日本語
 
-FLAMORIS Generation MCPは、画像・動画・音楽・音声などの生成と、それに密接なmedia-domain analysisをMCPから扱うprovider-neutralなgatewayを目指す小さなPythonサーバーです。
+MCPは外部入口です。内部の生成制御は別境界ですが、Controllerはまだ実装しません。Intelligence整備を先行し、Generation MCPの既存ComfyWorkFlow実装は後の削除対象として整理します。移植や同じ仕組みの再作成は指示していません。
 
-現行実装はComfyUIによる画像生成から開始しています。複数providerへ拡張するGeneration Hubは、このリポジトリ内部のcoordination architectureであり、別リポジトリではありません。
+ComfyWorkFlowはComfyUI用JSON、ExecuteFlowは推論フロー、ExecutionPlanはRuntimeのコンパイル済み表現です。既存の`workflow_id`はbuild結果のrecipe handleで、登録definition IDとは別です。recipe保存先とdefinition保存先も区別し、名称変更だけで設定や実データを変更しません。
 
-Conversation / Memory / Agent policyは `flamoris-ai-agent`、言語・推論・Coding系のintelligenceは `flamoris-intelligence-mcp`、制作データのauthorityは各FLAMORIS製品が持ちます。
+## License and support
 
-勝手に使ってください。  
-改造しても、組み込んでも、面白いものや変なものを作ってもOKです。
-
-商用作品や製品で使う場合も、許可は不要です。  
-もしよければ「こんなのに使ったよ」と教えてもらえるとうれしいです。もちろん強制ではありません。
-
-FLAMORISのソフトウェアは現状のまま提供され、個別サポートや動作保証はありません。困ったときは、README、Issue、テスト、ソースコードをAIに読ませて自己サポートしてください。
-
-このリポジトリのコードはApache License 2.0です。AIモデル、model weights、データセット、生成物、その他の非コード資産には別のライセンスや利用条件が適用される場合があるため、それぞれ確認してください。
-
-もしお役に立てたり、面白いと思っていただけたなら、開発費用をご支援いただけるとうれしいです。  
-FLAMORISは元気になって育ちます。🌱  
-<sub>主にGPU代とか。</sub>
-
-### Durable metadata and explicit content retrieval
-
-Completed status/asset listing persists the bounded output manifest without
-fetching image bytes. `assets.list` can read this manifest after restart, including
-unmaterialized outputs and deletion tombstones. Retrieving an individual asset
-with `assets.get` no longer requires a preceding `jobs.result` call for its
-materialized copy to remain readable/deletable after restart.
-
-`jobs.result` retains its compatibility behavior of materializing all remaining
-outputs. Metadata-oriented clients should use `jobs.status` and `assets.list`,
-then retrieve only the selected content. The 64 MiB binary bound is unchanged.
-A listed but unmaterialized output cannot be fetched after restart because live
-provider execution mappings are not reconstructed; listing it does not claim the
-binary is available. Such an output can still be removed from the managed catalog.
-`jobs.status` can return a bounded completed archive summary containing job,
-workflow and provider identity, available output count and optional external
-provenance. It checks the completed manifest and deletion markers without fetching
-bytes or provider HTTP. Missing, incomplete, malformed or wholly deleted catalog
-records fail closed. This summary does not restore execution authority; active
-reservation recovery uses the separate existing JobStore journal.
-
-### Trusted external client provenance
-
-An optional signed per-request Hub context is captured when `jobs.submit`,
-`workflows.verify` or `workflows.v3.verify` admits a job. The immutable non-secret
-`external_provenance: {issuer, subject}` follows job metadata, completed manifests,
-asset listings and transfer metadata, including supported archive reads. Anonymous
-and internal calls omit it. Tool arguments and HTTP headers cannot grant provenance,
-and Generation never maps it to a Studio owner. Configure an independent signing
-secret plus exact expected issuer in both services. See
-[the provenance contract](docs/EXTERNAL_PROVENANCE.md) for signing, replay protection
-and Studio ownership responsibilities.
-
-### ComfyUI reference-input storage
-
-Production image-v1/img2img readiness requires an explicit local filesystem view
-of ComfyUI's configured input directory. Generation copies decoded references
-into its own `flamoris-inputs/` subdirectory and binds the resulting relative name
-only to declared managed inputs. This path does not call ComfyUI's HTTP upload
-endpoint, so partial HTTP uploads and renamed responses cannot escape accounting.
-The existing HTTP upload path remains available for schema-1 development workflows
-when the shared root is unset; it does **not** satisfy production input readiness.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `FLAMORIS_COMFYUI_INPUT_ROOT` | unset | Absolute, writable local view of the exact ComfyUI input directory; no symlink components |
-| `FLAMORIS_PROVIDER_INPUT_MAX_FILES` | `128` | Maximum retained provider input reservations (1–128) |
-| `FLAMORIS_PROVIDER_INPUT_MAX_BYTES` | `536870912` | Maximum reserved provider input payload bytes (1–512 MiB) |
-
-The operator must provision the shared mount and permissions so Generation can
-write and ComfyUI can read this private namespace. Generation owns namespace
-writes; a provisioned shared group may read (new directory mode `2750`, image
-mode `0640`, subject to umask; ledger/lock `0600`). Existing namespaces with a
-different owner or group/world write access are rejected. This root is separate from
-managed-input snapshots and output/model storage. No mount or readiness flag is
-enabled by the supplied Compose file. `FLAMORIS_MANAGED_INPUT_READY=true` alone
-cannot advertise readiness without an accessible configured shared input store.
-Runtime evidence and exact Workflow verification are still independent gates.
-
-Reservations are durable before copying, and count protected, incomplete and
-ambiguous submissions across restart. Trusted terminal provider history or a
-definite rejection before queue admission releases copies; queue absence, TTL,
-source deletion and cancellation requests do not. Cleanup checks exact regular
-single-link file identities and retains changed candidates for reconciliation.
-Generation separately persists the input root/namespace/lock identities under
-`OUTPUT_DIR/comfyui-input-authority`; this state must be outside the provider input
-root. Storage replacement or a missing stable lock fails closed across restart.
-Unrecorded entries inside the private namespace stop new staging. Historical
-HTTP-uploaded files outside it are neither counted nor swept: operators must
-inventory/reconcile those separately before production readiness. See
-[managed inputs](docs/MANAGED_INPUTS.md) for crash recovery and rollout evidence.
-
-### Provider-output retention (explicit maintenance)
-
-`assets.delete` still deletes only the managed copy/catalog entry. Provider
-originals are a separate lifecycle. Optional ComfyUI cleanup records identities
-only for declared outputs of jobs submitted by this process, under its fixed
-`flamoris/<job-id>_<counter>_.<image-extension>` namespace. Unrelated files,
-inputs, models, temporary outputs and unrecorded historical files are excluded.
-
-Operator configuration (environment only):
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `FLAMORIS_COMFYUI_OUTPUT_ROOT` | unset | Optional absolute local view of the ComfyUI output directory; all path components must be real directories, not symlinks |
-| `FLAMORIS_PROVIDER_RETENTION_DAYS` | `30` | Minimum age since the original identity was first recorded (0–36500) |
-| `FLAMORIS_PROVIDER_CLEANUP_ENABLED` | `false` | Permit the maintenance command's explicit `--execute` mode |
-
-The MCP process must see the same provider files to record receipts on completed
-status/list/result calls. A remote ComfyUI HTTP endpoint alone does not grant
-filesystem cleanup access. Container deployments need an explicit operator-owned
-mount and environment override; the supplied Compose file intentionally does not
-mount provider originals writable or enable deletion. Do not point this root at
-model/input storage. Run maintenance on the same filesystem view as capture;
-changed mount/device/inode identities fail closed.
-
-Preview first using the same environment as the Generation process:
-
-```sh
-python -m flamoris_generation_mcp.retention --deleted-only --max-jobs 100
-# Only after reviewing the preview, and explicitly enabling cleanup:
-python -m flamoris_generation_mcp.retention --deleted-only --max-jobs 100 --execute
-```
-
-Without `--deleted-only`, all proven outputs older than the configured age are
-eligible, even if their managed catalog reference remains. If the managed binary
-was never materialized, removing its original makes it unrecoverable. Use
-`--deleted-only` for conservative gallery-driven cleanup. No background scheduler
-or automatic deletion is installed.
-
-Each invocation examines at most 100 directory entries by default (maximum 1000),
-and at most 64 recorded outputs per selected job. `scan_limit_reached` means the
-scan was incomplete; do not interpret it as a complete inventory. For larger
-catalogs, use repeated `--job-id <known-job-id>` selections (bounded by `--max-jobs`)
-to target remaining batches. Directory order is not a pagination contract.
-
-The JSON summary reports eligible/deleted/missing files, reclaimed bytes,
-failures and scan completeness. Actions log only job/output identities and safe
-outcomes, never private filenames or credentials. Missing originals are idempotent
-successes. Changed files, symlinks, hardlinks and mismatched job prefixes are
-refused. Failed outputs do not prevent other eligible outputs from being handled.
-Deletion pins the candidate under a random `.cleanup-*` name and checks identity
-again before unlinking. A concurrently changed file is restored without replacing
-a new original; a crash or failed restoration can leave that quarantine file for
-manual inspection. The command never recursively sweeps such files.
-
-Receipts are deliberately not backfilled from arbitrary directory contents. An
-old output without a recorded ownership/identity receipt must be reviewed
-manually. Deploy this feature before relying on automatic eligibility of newly
-completed jobs. The maintenance command does not start/stop a provider or alter
-GPU Node Manager authority.
-
-### Bounded large-asset delivery
-
-Use `assets.prepare(asset_id)` followed by `assets.read(asset_id, sha256, offset,
-length)` for bounded downloads (maximum 256 KiB per chunk). Retry a chunk at the
-same offset and verify its digest and the final SHA-256. Multiple outputs remain
-individually selected through `assets.list`; no bulk binary bundle is created.
-`assets.get` remains the native-image route with its existing 64 MiB bound.
-
-`FLAMORIS_TRANSFER_MAX_BYTES` defaults to 1 GiB (maximum 4 GiB), and
-`FLAMORIS_TRANSFER_DISK_BYTES` to 8 GiB (maximum 64 GiB). One prepare runs at a time;
-its total deadline is 300 seconds and each provider read has a 30-second deadline.
-Unmaterialized assets cannot be downloaded after loss of provider mappings on
-restart. Completed local assets can be prepared and read again. Deletion ends
-future reads, including retries. Only the service may write its managed output
-root; the new path checks its bounded disk budget before materialization.
-
-See [the transfer contract](docs/ASSET_TRANSFER.md) for restart, integrity,
-confinement and downstream adoption. Hub schema registration and Studio ownership
-checks/download integration are separate review gates; this adds no public URL.
-
-### Managed input snapshots
-
-`inputs.create(asset_id)` copies an existing generated PNG/JPEG/WebP/WAV into an
-immutable input, returning `input_id`, source identity, SHA-256 and expiry.
-`inputs.get(input_id)` returns metadata; `inputs.delete(input_id)` refuses inputs
-currently leased by a provider adapter. Source deletion after publication does
-not change the snapshot. File signatures must agree with the source MIME type.
-
-Local image uploads use `inputs.upload.begin/write/finish` under a private UUID
-pre-recorded by the trusted client. PNG/JPEG/WebP uploads are limited to 8 MiB,
-256 KiB chunks and a ten-minute pending lifetime. Full size/hash and bounded
-single-frame decoding (4096 pixels per dimension, 16 Mi pixels) must pass before
-publication. Uploaded inputs have `source_kind=upload` and `source_asset_id=null`;
-they are not generated Assets. No URL, caller path or provider filename is accepted.
-
-Inputs expire after 24 hours. Limits are 64 MiB each, 128 retained records and
-512 MiB total under the configured output directory's `managed-inputs` child.
-Create/upload reservation prunes expired and incomplete records, preserving
-unexpired upload reservations and charging their declared bytes across restart.
-Adapter staging is limited to four
-inputs / 128 MiB and requires the existing active job reservation. The internal
-reader API never exposes a caller-selected path.
-
-See [the managed-input contract](docs/MANAGED_INPUTS.md). Studio must authorize
-source ownership and persist its own input-owner mapping before exposing these
-tools to users. Production workflow file bindings remain fail-closed except for the reviewed
-ComfyUI `LoadImage.image` managed-image binding described above. A real-runtime
-smoke is still required before enabling a production Reference Image workflow.
-The opt-in native SheetSage2 profile accepts an existing managed WAV reference and
-stages a separate immutable provider copy; its source identity is persisted with
-the job. See [the native Music contract](docs/MUSIC_PROVIDERS.md). Reference-audio
-TTS, video-input and arbitrary file bindings remain unavailable.
+Code/docs are [Apache-2.0](LICENSE) unless stated otherwise. Models, weights, datasets, provider assets and generated media may have separate terms. FLAMORIS is provided as-is without guaranteed individual support; repository documentation, Issues, tests and source are the primary self-support references. Generic non-AI foundations belong in [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons).

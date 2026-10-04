@@ -1,79 +1,45 @@
 # AGENTS.md
 
-## Scope
+These instructions apply to the repository. Read README.md and [AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18) / [Generation #67](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/67) before changing generation integration.
 
-These instructions apply to the entire repository.
+## Current authorization and target
 
-## Project direction
+Only documentation review/fixes and explicitly requested documentation merges are in scope now. Do not implement Controller, delegate Generation work to Work, delete/migrate code or data, expand ComfyWorkFlow/reference-image features, change catalogs, deploy, switch runtimes or call providers. Intelligence cleanup elsewhere has priority.
 
-- Keep this project small, practical, and MCP-native.
-- Implement the server in Python.
-- Treat ComfyUI as the first generation provider, not as the identity of the project.
-- Keep room for future image, video, music, and voice providers without implementing speculative abstractions early.
-- Prefer incremental phases that can be exercised with real models quickly.
+Generation MCP's target responsibility is the external MCP facade used by ChatGPT through Hub. Internal FLAMORIS service/application calls use non-MCP contracts. The current Python package co-locates generation-domain code; document this as-built fact without making it permanent ownership or pretending it was already removed.
 
-## Architecture
+The existing MCP-side ComfyWorkFlow subsystem is for later removal, not transfer into Controller or automatic recreation. Inventory precise source, tests, public tools, Studio callers, retained providers and data before a separately authorized deletion. Do not delete a generic recipe store merely because its name contains workflow; it may support non-ComfyUI providers too.
 
-- Keep provider-specific HTTP/API behavior behind small adapter/client modules.
-- Keep MCP tools provider-neutral where practical.
-- Preserve one clear execution authority: providers execute jobs; this server validates, builds, submits, observes, and returns results.
-- Prefer trusted workflow templates plus validated user-facing parameters over arbitrary raw node mutation.
-- Do not expose arbitrary ComfyUI graph-editing tools unless a future issue explicitly requires them.
-- Keep model discovery filesystem-based unless a future requirement justifies a registry or database.
-- LoRA support must preserve explicit ordering and separate model/CLIP strengths.
+Controller remains documentation-only. Old Generation Hub expansion or Runtime-bridge plans are historical/held, not implementation instructions overriding #18.
 
-## FLAMORIS AI boundaries
+## Terminology and identifiers
 
-- This repository is the generative-media and closely related media-analysis execution boundary in the FLAMORIS AI family.
-- `flamoris-ai-agent` owns persistent conversations, memory, prompts, tools, and Agent policy.
-- `flamoris-intelligence-mcp` owns language, reasoning, coding, and related intelligence capabilities exposed through MCP.
-- Media-domain analysis may remain here when it participates in the same capability/workflow/job/provider/asset lifecycle as generative media.
-- Product repositories remain authoritative for their own project/document state and editing behavior.
-- The Generation Hub is the provider-neutral coordination architecture inside this repository, not a separate repository or second authority.
-- Shared non-AI infrastructure belongs in FLAMORIS Commons or its dedicated shared repositories.
+Use ComfyWorkFlow for ComfyUI graph/API-format JSON. Use ExecuteFlow for Runtime inference flow and keep the existing compiled ExecutionPlan distinct. Non-ComfyUI generation requests/recipes are not automatically ComfyWorkFlow. Avoid bare Workflow as new FLAMORIS architecture prose.
 
-## Compatibility and dependencies
+Preserve exact current `workflows.*`, `workflow_id`, `WorkflowDefinition`, `WorkflowStore`, schemas, configuration keys and file paths until an explicit compatibility-reviewed implementation change. `workflow_id` returned by build is a built recipe handle, not necessarily the registered definition ID. `FLAMORIS_WORKFLOW_DIR` stores recipes; `FLAMORIS_WORKFLOW_DEFINITION_DIR` stores registered definitions. Do not invent a config or API rename in docs.
 
-- Do not depend on the .NET implementation or packages from `flamoris-mcp-core`.
-- `flamoris-mcp-core` may be used only as a design reference for MCP boundaries and behavior.
-- Avoid unnecessary frameworks or infrastructure in early phases.
-- Keep dependency ranges bounded and intentional.
+## Retained behavior and authority
 
-## Configuration and documentation
+Providers execute; current generation code validates/builds/submits/observes and materializes bounded outputs. Keep provider APIs behind adapters, explicit provider selection, trusted ComfyUI definitions and declared parameters, model/catalog checks and ordered LoRA semantics where supported. Do not expose arbitrary raw graph mutation as a shortcut.
 
-- Environment-specific values must be configurable through environment variables or equivalent runtime configuration.
-- Do not commit or document personal machine names, usernames, private hostnames, private network topology, secrets, API keys, or developer-specific absolute paths.
-- Public documentation and examples must remain environment-neutral.
-- Do not commit model weights, generated media, local configuration, or credentials.
+MCP protocol validation/annotations/content mapping belongs to the external facade. Generation jobs, recipes, references and assets have one current authority until a reviewed change. Do not instantiate competing stores/reservations per frontend or equate process locks with host-wide GPU control. GPU Node Manager alone owns configured host lifecycle. Agent is optional personality, products retain document/user authority and Commons owns generic infrastructure.
 
-## Testing and CI
+## Safety and cleanup boundaries
 
-- Normal CI must not require a live GPU, live ComfyUI instance, installed model weights, or other local generation services.
-- Mock provider HTTP behavior in normal tests.
-- Add focused tests for tool validation, workflow construction, model discovery, provider response handling, and error paths.
-- Keep CI fast enough for normal pull-request iteration.
-- Preserve PR-level concurrency with stale runs cancelled when applicable.
-- Before completing a change, run the relevant tests, lint/format checks, package/build smoke, and installed-package import smoke when packaging is affected.
+Source deletion is not deletion of saved definitions, assets, inputs, historical evidence, credentials or unresolved provider work. Retained paths preserve authorization, immutable references, decoding/staging/transfer limits, confinement, metadata/provenance and safe errors. Unsupported calls after eventual retirement must fail explicitly, not bypass checks, fabricate success or fall back to a removed path.
 
-## Safety and robustness
+Preserve singleton/drain/restart semantics, durable unknown reservations and no replay after ambiguous submission. A missing queue record does not prove provider work stopped. Prefer scoped cancellation; do not invoke a global interrupt when a targeted operation is unavailable.
 
-- Treat provider responses and filesystem paths as untrusted input.
-- Reject path traversal, ambiguous model identities, malformed provider responses, and unsafe raw workflow injection.
-- Do not automatically retry non-idempotent generation submissions after ambiguous failures.
-- Keep returned provider errors bounded and actionable; do not expose unnecessary tracebacks or private provider details.
-- Prefer scoped cancellation. Do not fall back to a global provider interrupt when a targeted operation is unavailable.
+Static JSON validity, provider availability, infrastructure readiness and generation qualification are distinct. Preserve protections required by retained functionality; retirement of unused feature-only checks is reviewed explicitly, not a blanket requirement to retain every obsolete subsystem forever or to bypass all safety gates.
 
-## Change discipline
+Provider responses/paths and user-supplied metadata are untrusted. No arbitrary URLs, filesystem paths, shell, hidden model downloads, automatic provider fallback or implicit GPU switching. Configuration remains operator-controlled and environment-neutral. Do not publish private topology, hostnames, user paths, secrets, weights or generated private media.
 
-- Follow the current issue as the source of truth for scope.
-- Do not expand a phase with unrelated UI, deployment, authentication, database, download-manager, or provider work unless the issue explicitly requires it.
-- Keep changes reviewable and avoid unrelated refactors.
-- Update README or other public documentation when behavior, configuration, or supported tools change.
+## Tests and review
 
+The actual issue defines scope. Do not add unrelated UI/auth/database/provider/deployment work. Read exact current source and tests before later cleanup and preserve/version external compatibility deliberately. Normal CI uses fake provider HTTP and bounded fixtures without live GPUs, weights or model services. Validate retained tool mapping, recipe building/identity, model discovery, state, provider errors, cancellation and negative paths. Run lint/format/package smoke when applicable; keep existing PR concurrency behavior.
 
-## Licensing and support
+Review final prose and literal identifiers, not only keyword matches. Explicit user approval is required for merge; documentation merge does not start implementation. Do not claim unrun tests, provider support or live qualification.
 
-- Unless stated otherwise, code in this repository is licensed under Apache License 2.0.
-- Do not add third-party code, AI models, model weights, datasets, fonts, media, generated assets, or other non-code material unless its license and redistribution terms are compatible and clearly documented.
-- Do not assume that generated media or provider-hosted assets inherit this repository's code license.
-- FLAMORIS does not provide guaranteed individual support. Repository documentation, issues, tests, logs, and source code are the primary support references; AI-assisted self-support is encouraged.
+## License and support
+
+Code/docs are Apache-2.0 unless otherwise stated. Third-party source, models, weights, data, fonts and media require compatible documented terms; provider/generated assets do not automatically inherit the code license. FLAMORIS has no guaranteed individual support; documentation, Issues, tests, logs and source are primary references.

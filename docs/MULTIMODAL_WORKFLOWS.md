@@ -1,5 +1,8 @@
 # Multimodal media Workflows and pinned composition
 
+> **Architecture correction (2026-10-04):** use **ComfyWorkFlow** for ComfyUI execution definitions/graphs. Do not use bare `Workflow` as new architecture terminology. Existing `workflows.*`, `WorkflowDefinition`, filenames, schemas, and test identifiers below describe the current implementation and are not renamed by this documentation-only change. Generation Controller remains unimplemented. When Generation work is explicitly resumed, the embedded Generation MCP ComfyWorkFlow implementation is to be **removed from this MCP repository rather than migrated into Controller**. FLAMORIS AI is prioritizing Intelligence-boundary cleanup first. See [flamoris-ai#18](https://github.com/flamoris-jp/flamoris-ai/issues/18) and [Generation MCP #67](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/67).
+
+
 Status: proposed contract design, 2026-10-02; no v3 implementation in this change. Cross-repository decisions: [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). Existing `WORKFLOW_SYSTEM_DESIGN.md`, `WORKFLOW_VERIFICATION.md`, `ASSET_TRANSFER.md` and current code remain the implemented contracts.
 
 ## Current constraints and compatibility
