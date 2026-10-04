@@ -17,6 +17,8 @@ from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 from PIL import Image
 
+from flamoris_generation_mcp.providers.comfyui_inputs import ComfyUIInputs
+
 
 async def check_tools(client):
     tools = await client.list_tools()
@@ -71,6 +73,18 @@ async def smoke():
     # All connections in this smoke are loopback, independent of CI proxy settings.
     os.environ["NO_PROXY"] = os.environ["no_proxy"] = "*"
     with TemporaryDirectory() as directory:
+        provider_root = Path(directory) / "provider-inputs"
+        provider_root.mkdir()
+        copy_state = Path(directory) / "copy-state"
+        copies = ComfyUIInputs(provider_root, state_root=copy_state, max_files=1, max_bytes=128)
+        name = copies.stage("e" * 32, b"bounded copy fixture", "image/png")
+        copies.bind("e" * 32, "smoke-execution")
+        copies.observe("smoke-execution", "unknown")
+        assert (provider_root / name).exists()
+        ComfyUIInputs(provider_root, state_root=copy_state, max_files=1, max_bytes=128).observe(
+            "smoke-execution", "completed"
+        )
+        assert not (provider_root / name).exists()
         env = {
             **os.environ,
             "FLAMORIS_MODEL_ROOT": str(Path(directory) / "models"),

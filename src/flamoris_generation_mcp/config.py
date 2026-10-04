@@ -53,6 +53,9 @@ class Settings(BaseModel):
     managed_input_ready: bool = False
     workflow_v3_enabled: bool = False
     comfyui_output_root: Path | None = None
+    comfyui_input_root: Path | None = None
+    provider_input_max_files: int = Field(default=128, ge=1, le=128)
+    provider_input_max_bytes: int = Field(default=512 * 1024**2, ge=1, le=512 * 1024**2)
     provider_cleanup_enabled: bool = False
     provider_retention_days: int = Field(default=30, ge=0, le=36500)
     request_timeout: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)
@@ -114,6 +117,9 @@ class Settings(BaseModel):
             "WORKFLOW_DEFINITION_DIR": "workflow_definition_dir",
             "OUTPUT_DIR": "output_dir",
             "COMFYUI_OUTPUT_ROOT": "comfyui_output_root",
+            "COMFYUI_INPUT_ROOT": "comfyui_input_root",
+            "PROVIDER_INPUT_MAX_FILES": "provider_input_max_files",
+            "PROVIDER_INPUT_MAX_BYTES": "provider_input_max_bytes",
             "PROVIDER_CLEANUP_ENABLED": "provider_cleanup_enabled",
             "PROVIDER_RETENTION_DAYS": "provider_retention_days",
             "REQUEST_TIMEOUT": "request_timeout",

@@ -1,6 +1,7 @@
 """ComfyUI implementation of the provider-neutral generation contract."""
 
 import asyncio
+import logging
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -19,7 +20,10 @@ from .base import (
     ProviderOutput,
     SubmissionRejected,
 )
+from .comfyui_inputs import ComfyUIInputs
 from .comfyui_retention import ComfyUIRetention
+
+logger = logging.getLogger(__name__)
 
 MEDIA_TYPES = {
     ".png": ("image", "image/png"),
@@ -52,6 +56,17 @@ class ComfyUIProvider:
         self.catalog = catalog
         self.workflows = workflows
         self.managed_inputs = managed_inputs
+        settings = client.settings
+        self.input_copies = (
+            ComfyUIInputs(
+                settings.comfyui_input_root,
+                state_root=settings.output_dir,
+                max_files=settings.provider_input_max_files,
+                max_bytes=settings.provider_input_max_bytes,
+            )
+            if settings.comfyui_input_root is not None
+            else None
+        )
         self._outputs: dict[tuple[str, str], dict] = {}
         self._output_nodes: dict[str, str] = {}
         self._output_contracts = {}
@@ -122,11 +137,18 @@ class ComfyUIProvider:
                             async for chunk in reader.chunks():
                                 content.extend(chunk)
                             await asyncio.to_thread(decode_image, bytes(content), mime_type)
-                            provider_inputs[name] = await self.client.upload_input(
-                                bytes(content),
-                                mime_type,
-                                f"flamoris-{job_id}-{index:02d}{extensions[mime_type]}",
-                            )
+                            if self.input_copies is not None:
+                                provider_inputs[name] = self.input_copies.stage(
+                                    job_id, bytes(content), mime_type
+                                )
+                            else:
+                                # Legacy schema-1 development path. Production image-v1
+                                # readiness requires the shared, bounded input store.
+                                provider_inputs[name] = await self.client.upload_input(
+                                    bytes(content),
+                                    mime_type,
+                                    f"flamoris-{job_id}-{index:02d}{extensions[mime_type]}",
+                                )
                             managed_inputs[name] = {
                                 key: reader.metadata[key]
                                 for key in (
@@ -147,8 +169,12 @@ class ComfyUIProvider:
                             self.workflows.readiness.before_post(
                                 request.payload, definition, request.runtime_evidence
                             )
+                        if self.input_copies is not None:
+                            self.input_copies.before_post(job_id)
                         posted = True
                         execution_id = await self.client.submit(prompt, job_id)
+                        if self.input_copies is not None:
+                            self.input_copies.bind(job_id, execution_id)
                 else:
                     if self.workflows is not None:
                         self.workflows.capture(request.payload)
@@ -165,6 +191,13 @@ class ComfyUIProvider:
                     posted = True
                     execution_id = await self.client.submit(prompt, job_id)
         except BaseException as exc:
+            if self.input_copies is not None and (
+                not posted or isinstance(exc, SubmissionRejected)
+            ):
+                try:
+                    self.input_copies.rejected(job_id)
+                except (OSError, ValueError):
+                    logger.warning("ComfyUI input cleanup deferred; storage charge retained")
             if not posted:
                 detail = (
                     str(exc)[:300]
@@ -235,10 +268,23 @@ class ComfyUIProvider:
         )
 
     async def inspect(self, execution_id: str) -> JobSnapshot:
-        return self._normalize(execution_id, await self.client.inspect(execution_id))
+        raw = await self.client.inspect(execution_id)
+        self._release_inputs(execution_id, raw)
+        return self._normalize(execution_id, raw)
 
     async def cancel(self, execution_id: str) -> JobSnapshot:
-        return self._normalize(execution_id, await self.client.cancel(execution_id))
+        raw = await self.client.cancel(execution_id)
+        self._release_inputs(execution_id, raw)
+        return self._normalize(execution_id, raw)
+
+    def _release_inputs(self, execution_id, raw):
+        if self.input_copies is not None:
+            try:
+                self.input_copies.observe(execution_id, raw.get("status"))
+            except (OSError, ValueError):
+                # A storage fault must not erase a known provider outcome. The durable
+                # charge remains until bounded cleanup succeeds on a later observation.
+                logger.warning("ComfyUI input cleanup deferred; reconcile storage")
 
     @staticmethod
     def _owned_observation(raw):
@@ -253,10 +299,14 @@ class ComfyUIProvider:
         )
 
     async def inspect_owned(self, execution_id: str) -> JobSnapshot:
-        return self._owned_observation(await self.client.inspect(execution_id))
+        raw = await self.client.inspect(execution_id)
+        self._release_inputs(execution_id, raw)
+        return self._owned_observation(raw)
 
     async def cancel_owned(self, execution_id: str) -> JobSnapshot:
-        return self._owned_observation(await self.client.cancel(execution_id))
+        raw = await self.client.cancel(execution_id)
+        self._release_inputs(execution_id, raw)
+        return self._owned_observation(raw)
 
     async def materialize(self, execution_id: str, output_id: str) -> bytes:
         try:

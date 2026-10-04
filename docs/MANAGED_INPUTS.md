@@ -84,9 +84,69 @@ bounded readers plus immutable metadata. An adapter owns mapping these readers
 to its runtime's input locations, cleanup and retention across ambiguous submits.
 No second job/GPU authority is created. Runtime lifecycle remains external.
 
-The ComfyUI adapter uploads bounded decoded PNG/JPEG/WebP images, resolves only
-LoadImage.image, and uses ordinary JobStore staging leases. Production img2img
-requires both independent infrastructure readiness and exact automatic Workflow
-attestation; see [verification](WORKFLOW_VERIFICATION.md). Provider upload retention
-is an operational prerequisite, not automatic deletion claimed by this adapter.
-Other provider bindings remain unsupported.
+The ComfyUI adapter stages bounded decoded PNG/JPEG/WebP images, resolves only
+LoadImage.image, and uses ordinary JobStore staging leases. With
+`FLAMORIS_COMFYUI_INPUT_ROOT` configured, copies are written exclusively into
+`flamoris-inputs/` under the exact shared ComfyUI input root; the adapter never
+calls `/upload/image` on this path. Random service-selected filenames avoid
+provider renaming, overwrites and HTTP-upload ambiguity. When unset, the existing
+HTTP upload path remains for schema-1 development; its unmanaged provider copies
+do not satisfy production image-v1 input readiness.
+
+## Shared ComfyUI copies (Issue #62)
+
+The provider's private artifact ledger reserves full payload bytes and a file
+slot **before** writing, then commits the exact file identity after durable copy.
+Defaults are 128 reservations / 512 MiB, configurable only downward. These charges
+are independent of the managed-input snapshot budget. The one-MiB ledger and a
+single atomic-write temporary are additional metadata space; an orphan temporary
+stops admission until operator reconciliation, preventing repeated accumulation.
+The root, namespace and stable-lock device/inode identities are also committed
+under Generation's independent `OUTPUT_DIR/comfyui-input-authority/root.json`.
+This state must remain outside the provider input root, including resolved path
+aliases. Replacing an input mount/namespace/lock cannot silently reset the storage
+budget after restart. An existing namespace's missing lock is never recreated.
+Incomplete or missing protected copies report infrastructure readiness false.
+The ledger carries no job state, does not choose execution/cancellation, and never
+replays a submission: JobStore remains the execution authority.
+
+After a successful generation acknowledgement, the adapter durably binds copies
+to that execution ID. Queued/running/unknown/cancel-requested copies remain charged
+and protected across restart. Only valid terminal ComfyUI history for the bound
+execution, or a definite pre-admission rejection, grants release. Expiring or
+deleting a managed snapshot has no effect on these provider copies. Losing an
+acknowledgement or crashing between acceptance and binding keeps the copies
+protected even if unrelated queue/history entries appear terminal. Recovering an
+owned execution uses the same release path without restoring output authority.
+
+Released copies are deleted with bounded directory-fd-confined work. Root and
+namespace paths reject symlinks; files/ledger/lock must be single-link regular
+files. Before POST, copied bytes are rehashed and identities rechecked. Cleanup
+journals a random quarantine name before rename, verifies identity again there,
+and unlinks only the matching candidate. Crashes during cleanup retain a released
+receipt and retry safely on a later terminal observation or new staging operation.
+Changed, hardlinked, symlinked, unrecorded or incomplete unidentified files are
+retained and block admission rather than silently deleted. Cleanup faults do not
+change a known provider execution outcome or free an unconfirmed storage charge.
+
+The namespace and stable `.lock` inode are owned by Generation's effective UID;
+group/world write access on the namespace is rejected. A provisioned shared group
+may read images through directory `2750` / file `0640` modes (subject to umask);
+the ledger/lock stay `0600`. Verify the actual native provider UID can read the
+copies before rollout. Other writers must not modify these entries. Do not delete
+the ledger/lock, change mounted filesystem identity or manually remove protected
+copies while a submission might still be active. A
+storage-identity mismatch requires restoring the actual old mount/namespace/lock
+or an explicit operator migration after reconciling all charges; do not erase the
+Generation-side authority record to reset storage accounting. Provision the parent
+input root rather than precreating an empty namespace without its stable lock.
+A charged receipt without a committed file identity, a lost execution binding,
+or changed/quarantined entries requires operator reconciliation with JobStore and
+provider execution evidence. Restart, queue absence and old mtime are insufficient
+evidence. Readiness must remain disabled during unresolved reconciliation.
+
+Production rollout requires a shared-path/UID/mount receipt, legacy HTTP-copy
+inventory, actual reference copy/terminal release/storage-bound verification,
+independent trusted runtime evidence and exact automatic Workflow attestation;
+see [verification](WORKFLOW_VERIFICATION.md). Passing offline lifecycle tests is
+not an installed-runtime receipt. Other provider bindings remain unsupported.

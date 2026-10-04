@@ -403,10 +403,15 @@ def test_file_input_binding_fails_closed(settings, tmp_path, spec):
 
 
 @pytest.mark.parametrize("source_kind", ["asset", "upload"])
+@pytest.mark.parametrize("shared_input_root", [False, True])
 async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
-    settings, tmp_path, fake, source_kind
+    settings, tmp_path, fake, source_kind, shared_input_root
 ):
     settings, root = configured(settings, tmp_path)
+    if shared_input_root:
+        input_root = tmp_path / "provider-inputs"
+        input_root.mkdir()
+        settings = settings.model_copy(update={"comfyui_input_root": input_root})
     path = root / "basic-image.json"
     data = json.loads(path.read_text())
     data["graph"]["8"] = {"class_type": "LoadImage", "inputs": {"image": ""}}
@@ -491,9 +496,14 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
             "jobs.submit", {"workflow_id": built.structured_content["workflow_id"]}
         )
         assert not submitted.is_error
-        assert len(uploads) == 1
-        assert fake.prompts[-1]["prompt"]["8"]["inputs"]["image"] == "managed-reference.png"
-        assert managed.structured_content["input_id"].encode() not in uploads[0]
+        assert len(uploads) == (0 if shared_input_root else 1)
+        provider_name = fake.prompts[-1]["prompt"]["8"]["inputs"]["image"]
+        if shared_input_root:
+            assert provider_name.startswith("flamoris-inputs/")
+            assert (input_root / provider_name).read_bytes() == png()
+        else:
+            assert provider_name == "managed-reference.png"
+            assert managed.structured_content["input_id"].encode() not in uploads[0]
         job_id = submitted.structured_content["job_id"]
         expected = {
             key: managed.structured_content[key]
@@ -513,6 +523,10 @@ async def test_managed_image_input_uploads_and_rewrites_only_declared_binding(
         assert result.structured_content["managed_inputs"] == {"source": expected}
         archived = json.loads((settings.output_dir / job_id / "metadata.json").read_text())
         assert archived["managed_inputs"] == {"source": expected}
+        if shared_input_root:
+            assert not (input_root / provider_name).exists()
+            ledger = json.loads((input_root / "flamoris-inputs/.ledger.json").read_text())
+            assert ledger["files"] == {}
 
 
 @pytest.mark.parametrize(
