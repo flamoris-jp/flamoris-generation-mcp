@@ -535,6 +535,42 @@ secret plus exact expected issuer in both services. See
 [the provenance contract](docs/EXTERNAL_PROVENANCE.md) for signing, replay protection
 and Studio ownership responsibilities.
 
+### ComfyUI reference-input storage
+
+Production image-v1/img2img readiness requires an explicit local filesystem view
+of ComfyUI's configured input directory. Generation copies decoded references
+into its own `flamoris-inputs/` subdirectory and binds the resulting relative name
+only to declared managed inputs. This path does not call ComfyUI's HTTP upload
+endpoint, so partial HTTP uploads and renamed responses cannot escape accounting.
+The existing HTTP upload path remains available for schema-1 development workflows
+when the shared root is unset; it does **not** satisfy production input readiness.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FLAMORIS_COMFYUI_INPUT_ROOT` | unset | Absolute, writable local view of the exact ComfyUI input directory; no symlink components |
+| `FLAMORIS_PROVIDER_INPUT_MAX_FILES` | `128` | Maximum retained provider input reservations (1–128) |
+| `FLAMORIS_PROVIDER_INPUT_MAX_BYTES` | `536870912` | Maximum reserved provider input payload bytes (1–512 MiB) |
+
+The operator must provision the shared mount and permissions so Generation can
+write and ComfyUI can read this private namespace. Generation owns namespace
+writes; a provisioned shared group may read (new directory mode `2750`, image
+mode `0640`, subject to umask; ledger/lock `0600`). Existing namespaces with a
+different owner or group/world write access are rejected. This root is separate from
+managed-input snapshots and output/model storage. No mount or readiness flag is
+enabled by the supplied Compose file. `FLAMORIS_MANAGED_INPUT_READY=true` alone
+cannot advertise readiness without an accessible configured shared input store.
+Runtime evidence and exact Workflow verification are still independent gates.
+
+Reservations are durable before copying, and count protected, incomplete and
+ambiguous submissions across restart. Trusted terminal provider history or a
+definite rejection before queue admission releases copies; queue absence, TTL,
+source deletion and cancellation requests do not. Cleanup checks exact regular
+single-link file identities and retains changed candidates for reconciliation.
+Unrecorded entries inside the private namespace stop new staging. Historical
+HTTP-uploaded files outside it are neither counted nor swept: operators must
+inventory/reconcile those separately before production readiness. See
+[managed inputs](docs/MANAGED_INPUTS.md) for crash recovery and rollout evidence.
+
 ### Provider-output retention (explicit maintenance)
 
 `assets.delete` still deletes only the managed copy/catalog entry. Provider

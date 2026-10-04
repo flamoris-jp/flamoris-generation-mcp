@@ -59,6 +59,11 @@ def create_server(
     )
     client = ComfyUIClient(settings, transport)
     comfyui = ComfyUIProvider(client, catalog, workflows)
+    managed_input_ready = (
+        settings.managed_input_ready
+        and comfyui.input_copies is not None
+        and comfyui.input_copies.available()
+    )
     providers = ProviderRegistry((comfyui,))
     capabilities = CapabilityRegistry(
         (
@@ -143,7 +148,7 @@ def create_server(
         workflows,
         jobs,
         RuntimeEvidence(settings.runtime_evidence_file, settings.comfyui_url),
-        settings.managed_input_ready,
+        managed_input_ready,
     )
     workflows.readiness = verifier
     jobs.verifier = verifier
@@ -189,7 +194,9 @@ def create_server(
             "deployment": {"reservation_scope": "process", "single_instance_required": True},
             **jobs.activity(),
             "providers": provider_health,
-            "managed_input_support": {"ready": settings.managed_input_ready},
+            "managed_input_support": {
+                "ready": managed_input_ready and comfyui.input_copies.available()
+            },
             "provider": "comfyui",
             "provider_health": {
                 key: value for key, value in provider_health[0].items() if key != "id"
