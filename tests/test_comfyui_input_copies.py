@@ -28,16 +28,21 @@ JOB = "a" * 32
 OTHER = "b" * 32
 
 
+def copies(root, **kwargs):
+    state_root = kwargs.pop("state_root", root.parent / (root.name + "-generation-state"))
+    return ComfyUIInputs(root, state_root=state_root, **kwargs)
+
+
 def ledger(root):
     return json.loads((root / "flamoris-inputs/.ledger.json").read_text())["files"]
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "unknown", "cancel_requested"])
 def test_restart_and_nonterminal_observation_preserve_charge(tmp_path, status):
-    store = ComfyUIInputs(tmp_path, max_files=1, max_bytes=4)
+    store = copies(tmp_path, max_files=1, max_bytes=4)
     name = store.stage(JOB, b"data", "image/png")
     store.bind(JOB, "execution-1")
-    restarted = ComfyUIInputs(tmp_path, max_files=1, max_bytes=4)
+    restarted = copies(tmp_path, max_files=1, max_bytes=4)
     restarted.observe("execution-1", status)
     assert (tmp_path / name).read_bytes() == b"data"
     with pytest.raises(ValueError, match="budget exhausted"):
@@ -46,29 +51,165 @@ def test_restart_and_nonterminal_observation_preserve_charge(tmp_path, status):
 
 @pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
 def test_only_matching_terminal_execution_releases_multiple_inputs(tmp_path, status):
-    store = ComfyUIInputs(tmp_path, max_files=2, max_bytes=8)
+    store = copies(tmp_path, max_files=2, max_bytes=8)
     names = [store.stage(JOB, b"data", "image/png") for _ in range(2)]
     store.bind(JOB, "execution-1")
     store.observe("unrelated", status)
     assert all((tmp_path / name).exists() for name in names)
-    ComfyUIInputs(tmp_path, max_files=2, max_bytes=8).observe("execution-1", status)
+    copies(tmp_path, max_files=2, max_bytes=8).observe("execution-1", status)
     assert all(not (tmp_path / name).exists() for name in names)
     assert ledger(tmp_path) == {}
     store.stage(OTHER, b"new", "image/png")
 
 
 def test_acceptance_crash_without_binding_stays_protected(tmp_path):
-    store = ComfyUIInputs(tmp_path, max_files=1)
+    store = copies(tmp_path, max_files=1)
     name = store.stage(JOB, b"data", "image/png")
-    restarted = ComfyUIInputs(tmp_path, max_files=1)
+    restarted = copies(tmp_path, max_files=1)
     restarted.observe("unrecoverable-execution", "completed")
     assert (tmp_path / name).exists()
     with pytest.raises(ValueError, match="budget exhausted"):
         restarted.stage(OTHER, b"x", "image/png")
 
 
+@pytest.mark.parametrize("target", ["root", "namespace", "lock"])
+def test_replaced_storage_cannot_reset_protected_charges_after_restart(tmp_path, target):
+    root = tmp_path / "inputs"
+    root.mkdir()
+    state = tmp_path / "generation"
+    store = copies(root, state_root=state, max_files=1)
+    name = store.stage(JOB, b"data", "image/png")
+    store.bind(JOB, "execution-1")
+    old = tmp_path / "old"
+    if target == "root":
+        root.rename(old)
+        root.mkdir()
+        namespace = root / "flamoris-inputs"
+        namespace.mkdir()
+        (namespace / ".lock").touch()
+        saved = old / name
+    elif target == "namespace":
+        (root / "flamoris-inputs").rename(old)
+        namespace = root / "flamoris-inputs"
+        namespace.mkdir()
+        (namespace / ".lock").touch()
+        saved = old / name.split("/")[1]
+    else:
+        (root / "flamoris-inputs/.lock").rename(old)
+        (root / "flamoris-inputs/.lock").touch()
+        saved = root / name
+    restarted = copies(root, state_root=state, max_files=1)
+    assert not restarted.available()
+    with pytest.raises(ValueError, match="storage identity changed"):
+        restarted.stage(OTHER, b"x", "image/png")
+    assert saved.read_bytes() == b"data"
+    # Restoring the actual old identity restores terminal reconciliation, no replay.
+    if target == "root":
+        (root / "flamoris-inputs/.lock").unlink()
+        (root / "flamoris-inputs").rmdir()
+        root.rmdir()
+        old.rename(root)
+    elif target == "namespace":
+        (root / "flamoris-inputs/.lock").unlink()
+        (root / "flamoris-inputs").rmdir()
+        old.rename(root / "flamoris-inputs")
+    else:
+        (root / "flamoris-inputs/.lock").unlink()
+        old.rename(root / "flamoris-inputs/.lock")
+    restarted.observe("execution-1", "completed")
+    assert ledger(root) == {}
+
+
+def test_missing_stable_lock_is_never_recreated(tmp_path):
+    store = copies(tmp_path)
+    name = store.stage(JOB, b"data", "image/png")
+    lock = tmp_path / "flamoris-inputs/.lock"
+    lock.unlink()
+    assert not store.available()
+    assert not lock.exists()
+    assert (tmp_path / name).read_bytes() == b"data"
+
+
+def test_lock_replaced_during_receipt_write_aborts_before_copy(tmp_path, monkeypatch):
+    store = copies(tmp_path)
+    assert store.available()
+    current = store._current
+    called = 0
+
+    def replace_lock(root_fd, fd, lock):
+        nonlocal called
+        called += 1
+        if called == 3:
+            (tmp_path / "flamoris-inputs/.lock").rename(tmp_path / "old-lock")
+            (tmp_path / "flamoris-inputs/.lock").touch()
+        return current(root_fd, fd, lock)
+
+    monkeypatch.setattr(store, "_current", replace_lock)
+    with pytest.raises(ValueError, match="lock changed"):
+        store.stage(JOB, b"data", "image/png")
+    assert not list((tmp_path / "flamoris-inputs").glob("*.png"))
+    assert not (tmp_path / "flamoris-inputs/.ledger.json").exists()
+
+
+def test_input_authority_cannot_be_lost_with_replaced_input_root(tmp_path):
+    with pytest.raises(ValueError, match="outside"):
+        copies(tmp_path, state_root=tmp_path / "state")
+    link = tmp_path.parent / (tmp_path.name + "-alias")
+    link.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError, match="outside"):
+        copies(tmp_path, state_root=link / "state")
+
+
+@pytest.mark.parametrize("kind", ["incomplete", "missing"])
+def test_unresolved_copy_never_reports_ready(tmp_path, kind):
+    store = copies(tmp_path)
+    name = store.stage(JOB, b"data", "image/png")
+    if kind == "incomplete":
+        raw = ledger(tmp_path)
+        raw[name.split("/")[1]]["identity"] = None
+        (tmp_path / "flamoris-inputs/.ledger.json").write_text(
+            json.dumps({"schema_version": 1, "files": raw})
+        )
+    else:
+        (tmp_path / name).unlink()
+    assert not copies(tmp_path).available()
+    assert len(ledger(tmp_path)) == 1
+
+
+def test_uncertain_storage_anchor_never_creates_a_payload(tmp_path, monkeypatch):
+    store = copies(tmp_path)
+    original = store.authority.write
+
+    def uncertain(*args):
+        original(*args)
+        raise CommitUnknown("simulated anchor directory durability fault")
+
+    monkeypatch.setattr(store.authority, "write", uncertain)
+    with pytest.raises(CommitUnknown):
+        store.stage(JOB, b"data", "image/png")
+    assert not list((tmp_path / "flamoris-inputs").glob("*.png"))
+    assert copies(tmp_path).available()
+
+
+@pytest.mark.parametrize("kind", ["boolean_schema", "float_identity", "extra_key"])
+def test_invalid_storage_authority_fails_closed(tmp_path, kind):
+    store = copies(tmp_path)
+    assert store.available()
+    anchor = store.authority.read("root.json")
+    if kind == "boolean_schema":
+        anchor["schema_version"] = True
+    elif kind == "float_identity":
+        anchor["root"][0] = float(anchor["root"][0])
+    else:
+        anchor["unexpected"] = "value"
+    store.authority.write("root.json", anchor)
+    with pytest.raises(ValueError, match="Invalid.*authority"):
+        copies(tmp_path).stage(JOB, b"data", "image/png")
+    assert not list((tmp_path / "flamoris-inputs").glob("*.png"))
+
+
 def test_definite_prepost_rejection_releases_partial_multi_input_batch(tmp_path):
-    store = ComfyUIInputs(tmp_path, max_bytes=5)
+    store = copies(tmp_path, max_bytes=5)
     name = store.stage(JOB, b"data", "image/png")
     with pytest.raises(ValueError, match="budget exhausted"):
         store.stage(JOB, b"data", "image/png")
@@ -79,7 +220,7 @@ def test_definite_prepost_rejection_releases_partial_multi_input_batch(tmp_path)
 
 @pytest.mark.parametrize("kind", ["symlink", "hardlink", "replace", "modify"])
 def test_changed_files_are_never_deleted(tmp_path, kind):
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     name = store.stage(JOB, b"data", "image/png")
     candidate = tmp_path / name
     foreign = tmp_path / "foreign.png"
@@ -102,7 +243,7 @@ def test_changed_files_are_never_deleted(tmp_path, kind):
 
 
 def test_before_post_checks_content_even_with_restored_timestamp(tmp_path):
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     name = store.stage(JOB, b"data", "image/png")
     candidate = tmp_path / name
     info = candidate.stat()
@@ -113,7 +254,7 @@ def test_before_post_checks_content_even_with_restored_timestamp(tmp_path):
 
 
 def test_replacement_during_prepost_read_is_rejected(tmp_path, monkeypatch):
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     name = store.stage(JOB, b"data", "image/png")
     read = os.read
 
@@ -179,7 +320,7 @@ def test_provider_input_env_configuration(monkeypatch, tmp_path):
 
 
 def test_release_recovers_crash_after_quarantine_rename(tmp_path, monkeypatch):
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     name = store.stage(JOB, b"data", "image/png")
     store.bind(JOB, "execution-1")
     unlink = os.unlink
@@ -195,13 +336,13 @@ def test_release_recovers_crash_after_quarantine_rename(tmp_path, monkeypatch):
             store.observe("execution-1", "completed")
     assert not (tmp_path / name).exists()
     assert next(iter(ledger(tmp_path).values()))["state"] == "released"
-    ComfyUIInputs(tmp_path).observe("execution-1", "completed")
+    copies(tmp_path).observe("execution-1", "completed")
     assert ledger(tmp_path) == {}
     assert not list((tmp_path / "flamoris-inputs").glob(".cleanup-*"))
 
 
 def test_replacement_during_cleanup_is_quarantined_not_deleted(tmp_path, monkeypatch):
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     name = store.stage(JOB, b"data", "image/png")
     rename = os.rename
     foreign = tmp_path / "foreign.png"
@@ -222,7 +363,7 @@ def test_replacement_during_cleanup_is_quarantined_not_deleted(tmp_path, monkeyp
 def test_unrecorded_and_old_http_uploads_are_not_swept(tmp_path):
     legacy = tmp_path / "flamoris-old-job.png"
     legacy.write_bytes(b"old")
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     assert store.available()
     unmanaged = tmp_path / "flamoris-inputs/unrecorded.png"
     unmanaged.write_bytes(b"keep")
@@ -236,8 +377,8 @@ def test_symlinked_parent_and_busy_lock_reject_immediately(tmp_path):
     actual.mkdir()
     link = tmp_path / "link"
     link.symlink_to(actual, target_is_directory=True)
-    assert not ComfyUIInputs(link).available()
-    store = ComfyUIInputs(actual)
+    assert not copies(link).available()
+    store = copies(actual)
     assert store.available()
     with (actual / "flamoris-inputs/.lock").open("rb") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -250,12 +391,12 @@ def test_group_writable_namespace_is_not_adopted(tmp_path):
     namespace = tmp_path / "flamoris-inputs"
     namespace.mkdir()
     namespace.chmod(0o770)
-    assert not ComfyUIInputs(tmp_path).available()
+    assert not copies(tmp_path).available()
     assert not list(namespace.iterdir())
 
 
 def test_uncertain_reservation_commit_never_creates_unbudgeted_payload(tmp_path, monkeypatch):
-    store = ComfyUIInputs(tmp_path, max_files=1)
+    store = copies(tmp_path, max_files=1)
     original = store._write
 
     def uncertain(*args):
@@ -268,11 +409,11 @@ def test_uncertain_reservation_commit_never_creates_unbudgeted_payload(tmp_path,
     assert len(ledger(tmp_path)) == 1
     assert not list((tmp_path / "flamoris-inputs").glob("*.png"))
     with pytest.raises(ValueError, match="budget exhausted"):
-        ComfyUIInputs(tmp_path, max_files=1).stage(OTHER, b"x", "image/png")
+        copies(tmp_path, max_files=1).stage(OTHER, b"x", "image/png")
 
 
 def test_crash_after_payload_before_identity_commit_preserves_copy(tmp_path, monkeypatch):
-    store = ComfyUIInputs(tmp_path)
+    store = copies(tmp_path)
     original = store._write
     calls = 0
 
@@ -287,7 +428,7 @@ def test_crash_after_payload_before_identity_commit_preserves_copy(tmp_path, mon
     with pytest.raises(OSError):
         store.stage(JOB, b"data", "image/png")
     with pytest.raises(ValueError, match="identity changed"):
-        ComfyUIInputs(tmp_path).rejected(JOB)
+        copies(tmp_path).rejected(JOB)
     assert next((tmp_path / "flamoris-inputs").glob("*.png")).read_bytes() == b"data"
 
 
@@ -304,7 +445,9 @@ def adapter(settings, tmp_path, handler, *, extra_input=False):
             "media_types": ["image/png"],
         }
     path.write_text(json.dumps(data))
-    settings = settings.model_copy(update={"comfyui_input_root": tmp_path})
+    input_root = tmp_path / "provider-inputs"
+    input_root.mkdir()
+    settings = settings.model_copy(update={"comfyui_input_root": input_root})
     catalog = ModelCatalog(settings)
     workflows = WorkflowStore(catalog, settings.workflow_dir, definitions)
     values = {"checkpoint": "base.safetensors", "positive_prompt": "reference", "source": JOB}
@@ -375,12 +518,13 @@ async def test_adapter_post_faults_preserve_unknown_and_release_only_definite_re
     try:
         with pytest.raises(error):
             await provider.submit(request, JOB)
-        copies = list((tmp_path / "flamoris-inputs").glob("*.png"))
-        assert len(copies) == (0 if outcome == "definite_rejection" else 1)
-        if copies:
+        input_root = provider.input_copies.root
+        files = list((input_root / "flamoris-inputs").glob("*.png"))
+        assert len(files) == (0 if outcome == "definite_rejection" else 1)
+        if files:
             fake.finish()
-            ComfyUIInputs(tmp_path).observe("prompt-1", "completed")
-            assert copies[0].exists()  # The missing binding never grants cleanup authority.
+            copies(input_root, state_root=settings.output_dir).observe("prompt-1", "completed")
+            assert files[0].exists()  # The missing binding never grants cleanup authority.
         assert len(fake.prompts) == (0 if outcome == "definite_rejection" else 1)
     finally:
         await provider.close()
@@ -391,7 +535,7 @@ async def test_adapter_validation_after_first_copy_releases_batch(settings, tmp_
     try:
         with pytest.raises(SubmissionRejected):
             await provider.submit(request, JOB)
-        assert ledger(tmp_path) == {}
+        assert ledger(provider.input_copies.root) == {}
         assert not fake.prompts
     finally:
         await provider.close()
@@ -403,7 +547,7 @@ async def test_recovered_adapter_queue_absence_and_cancel_request_never_release(
     provider, request = adapter(settings, tmp_path, fake.handle)
     try:
         ack = await provider.submit(request, JOB)
-        copy = next((tmp_path / "flamoris-inputs").glob("*.png"))
+        copy = next((provider.input_copies.root / "flamoris-inputs").glob("*.png"))
         # An adapter restored without output publication authority still owns status
         # observation. Queue deletion/absence has no terminal acknowledgement.
         assert (await provider.cancel_owned(ack.execution_id)).status == "unknown"
@@ -413,7 +557,9 @@ async def test_recovered_adapter_queue_absence_and_cancel_request_never_release(
         assert (await provider.cancel_owned(ack.execution_id)).status == "cancel_requested"
         assert copy.exists()
         fake.finish(ack.execution_id, "error", [["execution_interrupted", {}]])
-        provider.input_copies = ComfyUIInputs(tmp_path)  # Persistent ledger, new adapter state.
+        provider.input_copies = copies(
+            provider.input_copies.root, state_root=settings.output_dir
+        )  # Persistent ledger, new adapter state.
         assert (await provider.inspect_owned(ack.execution_id)).status == "cancelled"
         assert not copy.exists()
     finally:

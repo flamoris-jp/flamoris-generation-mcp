@@ -60,6 +60,7 @@ class ComfyUIProvider:
         self.input_copies = (
             ComfyUIInputs(
                 settings.comfyui_input_root,
+                state_root=settings.output_dir,
                 max_files=settings.provider_input_max_files,
                 max_bytes=settings.provider_input_max_bytes,
             )
@@ -196,7 +197,7 @@ class ComfyUIProvider:
                 try:
                     self.input_copies.rejected(job_id)
                 except (OSError, ValueError):
-                    logger.warning("ComfyUI input cleanup deferred; protected receipt retained")
+                    logger.warning("ComfyUI input cleanup deferred; storage charge retained")
             if not posted:
                 detail = (
                     str(exc)[:300]

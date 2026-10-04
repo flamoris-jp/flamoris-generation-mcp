@@ -101,6 +101,12 @@ Defaults are 128 reservations / 512 MiB, configurable only downward. These charg
 are independent of the managed-input snapshot budget. The one-MiB ledger and a
 single atomic-write temporary are additional metadata space; an orphan temporary
 stops admission until operator reconciliation, preventing repeated accumulation.
+The root, namespace and stable-lock device/inode identities are also committed
+under Generation's independent `OUTPUT_DIR/comfyui-input-authority/root.json`.
+This state must remain outside the provider input root, including resolved path
+aliases. Replacing an input mount/namespace/lock cannot silently reset the storage
+budget after restart. An existing namespace's missing lock is never recreated.
+Incomplete or missing protected copies report infrastructure readiness false.
 The ledger carries no job state, does not choose execution/cancellation, and never
 replays a submission: JobStore remains the execution authority.
 
@@ -128,9 +134,13 @@ group/world write access on the namespace is rejected. A provisioned shared grou
 may read images through directory `2750` / file `0640` modes (subject to umask);
 the ledger/lock stay `0600`. Verify the actual native provider UID can read the
 copies before rollout. Other writers must not modify these entries. Do not delete
-the ledger/lock, change mounted filesystem identity or
-manually remove protected copies while a submission might still be active. A
-charged receipt without a committed file identity, a lost execution binding,
+the ledger/lock, change mounted filesystem identity or manually remove protected
+copies while a submission might still be active. A
+storage-identity mismatch requires restoring the actual old mount/namespace/lock
+or an explicit operator migration after reconciling all charges; do not erase the
+Generation-side authority record to reset storage accounting. Provision the parent
+input root rather than precreating an empty namespace without its stable lock.
+A charged receipt without a committed file identity, a lost execution binding,
 or changed/quarantined entries requires operator reconciliation with JobStore and
 provider execution evidence. Restart, queue absence and old mtime are insufficient
 evidence. Readiness must remain disabled during unresolved reconciliation.

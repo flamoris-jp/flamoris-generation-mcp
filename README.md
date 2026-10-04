@@ -566,6 +566,9 @@ ambiguous submissions across restart. Trusted terminal provider history or a
 definite rejection before queue admission releases copies; queue absence, TTL,
 source deletion and cancellation requests do not. Cleanup checks exact regular
 single-link file identities and retains changed candidates for reconciliation.
+Generation separately persists the input root/namespace/lock identities under
+`OUTPUT_DIR/comfyui-input-authority`; this state must be outside the provider input
+root. Storage replacement or a missing stable lock fails closed across restart.
 Unrecorded entries inside the private namespace stop new staging. Historical
 HTTP-uploaded files outside it are neither counted nor swept: operators must
 inventory/reconcile those separately before production readiness. See

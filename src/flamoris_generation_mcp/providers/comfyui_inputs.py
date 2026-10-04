@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from ..durable import CommitUnknown
+from ..durable import CommitUnknown, Records
 from .base import execution_identity
 from .comfyui_retention import identity as file_identity
 
@@ -46,37 +46,65 @@ def input_root(root):
 
 
 class ComfyUIInputs:
-    def __init__(self, root: Path, *, max_files=128, max_bytes=512 * 1024**2):
+    def __init__(self, root: Path, *, state_root: Path, max_files=128, max_bytes=512 * 1024**2):
+        if state_root.resolve().is_relative_to(root.resolve()):
+            raise ValueError("ComfyUI input authority must be outside the provider input root")
         self.root = root
+        self.authority = Records(state_root, "comfyui-input-authority")
         self.max_files = max_files
         self.max_bytes = max_bytes
 
     def available(self):
         try:
-            with self._guard():
+            with self._guard() as (_, fd, records, _lock):
+                for name, record in records.items():
+                    if record["identity"] is None:
+                        return False  # Incomplete copies require reconciliation.
+                    if record["state"] == "protected":
+                        if (
+                            identity(os.stat(name, dir_fd=fd, follow_symlinks=False))
+                            != record["identity"]
+                        ):
+                            return False
                 return True
         except (OSError, ValueError):
             return False
 
     @contextmanager
     def _guard(self):
+        anchor = self.authority.read("root.json")
+        if anchor is not None and (
+            set(anchor) != {"schema_version", "root", "namespace", "lock"}
+            or type(anchor["schema_version"]) is not int
+            or anchor["schema_version"] != 1
+            or any(
+                not isinstance(anchor[key], list)
+                or len(anchor[key]) != 2
+                or any(type(v) is not int or v < 0 for v in anchor[key])
+                for key in ("root", "namespace", "lock")
+            )
+        ):
+            raise ValueError("Invalid ComfyUI input storage authority")
         with input_root(self.root) as root_fd:
+            created = False
             try:
                 # A provisioned shared group can read inputs, but only Generation
                 # owns namespace writes. The parent may supply the setgid group.
-                os.mkdir(NAMESPACE, 0o2750, dir_fd=root_fd)
-                os.fsync(root_fd)
+                if anchor is None:
+                    os.mkdir(NAMESPACE, 0o2750, dir_fd=root_fd)
+                    created = True
+                    os.fsync(root_fd)
             except FileExistsError:
                 pass
             fd = os.open(NAMESPACE, FLAGS, dir_fd=root_fd)
             lock = None
             try:
-                directory = os.fstat(fd)
-                if directory.st_uid != os.geteuid() or directory.st_mode & 0o022:
-                    raise ValueError("ComfyUI input namespace must be owned by Generation only")
                 lock = os.open(
                     ".lock",
-                    os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    os.O_RDWR
+                    | os.O_NOFOLLOW
+                    | os.O_NONBLOCK
+                    | (os.O_CREAT | os.O_EXCL if created else 0),
                     0o600,
                     dir_fd=fd,
                 )
@@ -86,16 +114,34 @@ class ComfyUIInputs:
                     os.fstat(lock)
                 ):
                     raise ValueError("ComfyUI input lock changed")
-                self._current(root_fd, fd)
+                self._current(root_fd, fd, lock)
                 records = self._read(fd)
                 self._inventory(fd, records)
-                yield root_fd, fd, records
+                if created:
+                    os.fsync(fd)  # Persist the stable lock before committing its authority.
+                observed = {
+                    "schema_version": 1,
+                    **{
+                        name: [os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino]
+                        for name, descriptor in (
+                            ("root", root_fd),
+                            ("namespace", fd),
+                            ("lock", lock),
+                        )
+                    },
+                }
+                if anchor is None:
+                    self.authority.write("root.json", observed)
+                elif anchor != observed:
+                    raise ValueError("ComfyUI input storage identity changed; reconcile authority")
+                self._current(root_fd, fd, lock)
+                yield root_fd, fd, records, lock
             finally:
                 if lock is not None:
                     os.close(lock)
                 os.close(fd)
 
-    def _current(self, root_fd, fd):
+    def _current(self, root_fd, fd, lock):
         with input_root(self.root) as current:
             a, b = os.fstat(current), os.fstat(root_fd)
             if (a.st_dev, a.st_ino) != (b.st_dev, b.st_ino):
@@ -104,6 +150,10 @@ class ComfyUIInputs:
         b = os.fstat(fd)
         if (a.st_dev, a.st_ino) != (b.st_dev, b.st_ino):
             raise ValueError("ComfyUI input directory changed")
+        if b.st_uid != os.geteuid() or a.st_mode & 0o022:
+            raise ValueError("ComfyUI input namespace must be owned by Generation only")
+        if identity(os.stat(".lock", dir_fd=fd, follow_symlinks=False)) != identity(os.fstat(lock)):
+            raise ValueError("ComfyUI input lock changed")
 
     def _read(self, fd):
         try:
@@ -123,6 +173,11 @@ class ComfyUIInputs:
                     break
                 raw.extend(chunk)
             if len(raw) != info["size"]:
+                raise ValueError("ComfyUI input ledger changed")
+            if (
+                identity(os.fstat(record_fd)) != info
+                or identity(os.stat(".ledger.json", dir_fd=fd, follow_symlinks=False)) != info
+            ):
                 raise ValueError("ComfyUI input ledger changed")
             data = json.loads(raw)
         finally:
@@ -197,7 +252,7 @@ class ComfyUIInputs:
                     if record["identity"] is not None and info != record["identity"]:
                         raise ValueError("ComfyUI input identity changed; reconcile")
 
-    def _write(self, root_fd, fd, records):
+    def _write(self, root_fd, fd, records, lock):
         raw = json.dumps({"schema_version": 1, "files": records}, sort_keys=True).encode()
         if len(raw) > MAX_RECORD_BYTES:
             raise ValueError("ComfyUI input ledger exceeds size limit")
@@ -211,7 +266,7 @@ class ComfyUIInputs:
                 stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
-            self._current(root_fd, fd)
+            self._current(root_fd, fd, lock)
             os.replace(temp, ".ledger.json", src_dir_fd=fd, dst_dir_fd=fd)
             published = True
             os.fsync(fd)
@@ -235,8 +290,8 @@ class ComfyUIInputs:
             or not 1 <= len(data) <= 64 * 1024**2
         ):
             raise ValueError("Invalid ComfyUI input copy")
-        with self._guard() as (root_fd, fd, records):
-            self._cleanup(root_fd, fd, records)
+        with self._guard() as (root_fd, fd, records, lock):
+            self._cleanup(root_fd, fd, records, lock)
             if (
                 len(records) >= self.max_files
                 or sum(r["size"] for r in records.values()) + len(data) > self.max_bytes
@@ -254,7 +309,7 @@ class ComfyUIInputs:
                 "execution_id": "",
                 "cleanup": "",
             }
-            self._write(root_fd, fd, records)  # Reserve before any provider-visible bytes.
+            self._write(root_fd, fd, records, lock)  # Reserve before any provider-visible bytes.
             descriptor = os.open(
                 name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=fd
             )
@@ -264,11 +319,11 @@ class ComfyUIInputs:
                 os.fsync(stream.fileno())
                 records[name]["identity"] = identity(os.fstat(stream.fileno()))
             os.fsync(fd)
-            self._write(root_fd, fd, records)
+            self._write(root_fd, fd, records, lock)
             return NAMESPACE + "/" + name
 
     def before_post(self, job_id):
-        with self._guard() as (root_fd, fd, records):
+        with self._guard() as (root_fd, fd, records, lock):
             for name, record in records.items():
                 if record["job_id"] != job_id:
                     continue
@@ -293,11 +348,11 @@ class ComfyUIInputs:
                         raise ValueError("ComfyUI input changed before submission")
                 finally:
                     os.close(descriptor)
-            self._current(root_fd, fd)
+            self._current(root_fd, fd, lock)
 
     def bind(self, job_id, execution_id):
         execution_identity(execution_id)
-        with self._guard() as (root_fd, fd, records):
+        with self._guard() as (root_fd, fd, records, lock):
             for record in records.values():
                 if record["job_id"] == job_id:
                     if record["state"] != "protected" or record["execution_id"] not in (
@@ -306,7 +361,7 @@ class ComfyUIInputs:
                     ):
                         raise ValueError("ComfyUI input execution binding changed")
                     record["execution_id"] = execution_id
-            self._write(root_fd, fd, records)
+            self._write(root_fd, fd, records, lock)
 
     def rejected(self, job_id):
         self._release(job_id=job_id)
@@ -317,7 +372,7 @@ class ComfyUIInputs:
             self._release(execution_id=execution_id)
 
     def _release(self, *, job_id=None, execution_id=None):
-        with self._guard() as (root_fd, fd, records):
+        with self._guard() as (root_fd, fd, records, lock):
             for record in records.values():
                 matches = (
                     record["execution_id"] == execution_id
@@ -326,10 +381,10 @@ class ComfyUIInputs:
                 )
                 if matches:
                     record["state"] = "released"
-            self._write(root_fd, fd, records)  # Release evidence survives interrupted cleanup.
-            self._cleanup(root_fd, fd, records)
+            self._write(root_fd, fd, records, lock)  # Persist release before interrupted cleanup.
+            self._cleanup(root_fd, fd, records, lock)
 
-    def _cleanup(self, root_fd, fd, records):
+    def _cleanup(self, root_fd, fd, records, lock):
         for name, record in list(records.items())[: self.max_files]:
             if record["state"] != "released":
                 continue
@@ -352,8 +407,8 @@ class ComfyUIInputs:
                 if not quarantine:
                     quarantine = ".cleanup-" + uuid4().hex
                     record["cleanup"] = quarantine
-                    self._write(root_fd, fd, records)
-                self._current(root_fd, fd)
+                    self._write(root_fd, fd, records, lock)
+                self._current(root_fd, fd, lock)
                 if candidate == name:
                     os.rename(name, quarantine, src_dir_fd=fd, dst_dir_fd=fd)
                 if (
@@ -364,4 +419,4 @@ class ComfyUIInputs:
                 os.unlink(quarantine, dir_fd=fd)
                 os.fsync(fd)
             del records[name]
-            self._write(root_fd, fd, records)
+            self._write(root_fd, fd, records, lock)

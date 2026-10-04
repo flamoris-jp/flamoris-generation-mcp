@@ -75,12 +75,13 @@ async def smoke():
     with TemporaryDirectory() as directory:
         provider_root = Path(directory) / "provider-inputs"
         provider_root.mkdir()
-        copies = ComfyUIInputs(provider_root, max_files=1, max_bytes=128)
+        copy_state = Path(directory) / "copy-state"
+        copies = ComfyUIInputs(provider_root, state_root=copy_state, max_files=1, max_bytes=128)
         name = copies.stage("e" * 32, b"bounded copy fixture", "image/png")
         copies.bind("e" * 32, "smoke-execution")
         copies.observe("smoke-execution", "unknown")
         assert (provider_root / name).exists()
-        ComfyUIInputs(provider_root, max_files=1, max_bytes=128).observe(
+        ComfyUIInputs(provider_root, state_root=copy_state, max_files=1, max_bytes=128).observe(
             "smoke-execution", "completed"
         )
         assert not (provider_root / name).exists()
