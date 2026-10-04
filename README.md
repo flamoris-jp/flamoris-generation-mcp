@@ -15,7 +15,7 @@ Part of the [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai) family.
 
 Shared non-AI foundations remain in [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons).
 
-Automatic registered Image Workflow verification is described in
+Automatic registered Image ComfyWorkFlow verification is described in
 [WORKFLOW_VERIFICATION.md](docs/WORKFLOW_VERIFICATION.md). Registration activates a
 validated candidate; exact runtime attestation and the independent infrastructure
 gate control production use.
@@ -38,11 +38,11 @@ contracts, immutable version history and bounded include compilation. The opt-in
 provider/pass-through compositions to the ordinary jobs and automatic attestation.
 The legacy catalog is unchanged; multiple leaves and other media remain gated.
 
-[Multimodal Workflows and pinned includes](docs/MULTIMODAL_WORKFLOWS.md) records the proposed media/Workflow/Agent integration coordinated by [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). It is a design proposal, not a claim that new providers, composed execution or shared-user Agent assistance are implemented. Existing public contracts and readiness gates remain authoritative.
+[Multimodal Workflows and pinned includes](docs/MULTIMODAL_WORKFLOWS.md) records the proposed media/ComfyWorkFlow/Agent integration coordinated by [FLAMORIS AI #15](https://github.com/flamoris-jp/flamoris-ai/issues/15). It is a design proposal, not a claim that new providers, composed execution or shared-user Agent assistance are implemented. Existing public contracts and readiness gates remain authoritative.
 
 ## Ecosystem boundary
 
-FLAMORIS Generation MCP owns generative-media and closely related media-analysis execution: workflows, jobs, provider coordination, and generated/materialized assets.
+FLAMORIS Generation MCP owns generative-media and closely related media-analysis execution: generation definitions, jobs, provider coordination, and generated/materialized assets.
 
 - [FLAMORIS AI Agent](https://github.com/flamoris-jp/flamoris-ai-agent) owns persistent conversations, memory, prompts, tools, and Agent policy.
 - [FLAMORIS Intelligence MCP](https://github.com/flamoris-jp/flamoris-intelligence-mcp) owns the MCP-facing boundary for language, reasoning, coding, and related intelligence capabilities.
@@ -57,7 +57,7 @@ The process owns one `ProviderRegistry`, `CapabilityRegistry`, `WorkflowStore` a
 `JobStore`. `JobStore` is the single authority for Hub job identity and the
 single-generation reservation; providers execute work and normalize their own
 execution IDs, states, errors and outputs behind a small provider interface.
-Each workflow template maps to exactly one capability, whose explicit provider ID
+Each generation-definition template maps to exactly one capability, whose explicit provider ID
 is resolved at submission time; there is no automatic provider selection.
 ComfyUI is registered by default. `FLAMORIS_IRODORI_CONFIG` explicitly adds the
 fixed `speech-no-reference` native profile; missing optional runtime resources
@@ -206,7 +206,7 @@ ComfyUI's URL remains independently configured by `FLAMORIS_COMFYUI_URL`.
 | `FLAMORIS_MODEL_DIRS` | unset | JSON map from model kind to a list of scan roots; overrides that kind |
 | `FLAMORIS_WORKFLOW_V3_ENABLED` | `false` | Add the separate Image v3 tool/descriptor catalog; enable with its matching Hub template |
 | `FLAMORIS_WORKFLOW_DIR` | `.generation/workflows` | Saved parameter recipes |
-| `FLAMORIS_WORKFLOW_DEFINITION_DIR` | `.generation/definitions` | Trusted API-format ComfyUI workflow definitions, read at startup |
+| `FLAMORIS_WORKFLOW_DEFINITION_DIR` | `.generation/definitions` | Trusted API-format ComfyUI ComfyWorkFlow definitions, read at startup |
 | `FLAMORIS_OUTPUT_DIR` | `.generation/outputs` | Downloaded outputs and metadata, grouped by job ID |
 | `FLAMORIS_REQUEST_TIMEOUT` | `30` | HTTP timeout in seconds (greater than 0, at most 300) |
 | `FLAMORIS_TARGETED_INTERRUPT` | `false` | Enable running cancellation only for a provider with prompt-ID-scoped `/interrupt` |
@@ -247,10 +247,10 @@ and actual node/model compatibility on submission.
 | --- | --- | --- |
 | `system.health` | none | Process health and separate provider availability/queue counts |
 | `capabilities.list` | none | Provider-independent operations and current availability |
-| `capabilities.get` | `capability_id` | One capability, runtime/provider identity and workflow templates |
+| `capabilities.get` | `capability_id` | One capability, runtime/provider identity and generation-definition templates |
 | `models.list` | optional `kind` | Installed file metadata; no weight deserialization |
 | `models.get` | `model_id` | One installed model |
-| `workflows.list` | none | Templates, registered definitions, and built/saved workflow IDs |
+| `workflows.list` | none | Templates, registered definitions, and built/saved generation-definition IDs |
 | `workflows.register` | `definition` | Validate, atomically persist, and immediately activate a trusted definition |
 | `workflows.build` | `template`, `parameters` | Workflow ID, normalized recipe and executable prompt |
 | `workflows.save` | `workflow_id` | Persist a recipe, preserving its ID |
@@ -317,7 +317,7 @@ steps range from 1 to 150; at most 16 LoRAs are accepted. These bounds do not
 guarantee sufficient provider VRAM.
 
 Returned raw prompts are inspectable exports, **not mutable submission inputs**.
-`jobs.submit` accepts only a workflow ID and rebuilds the known template from its
+`jobs.submit` accepts only a generation-definition ID and rebuilds the known template from its
 recipe, rechecking installed models. Saved files contain only versioned recipes.
 
 ### Trusted external workflows
@@ -337,7 +337,7 @@ runtime registrations survive restarts. The directory remains separate from
 `workflows.list` includes a `definitions` array with IDs, versions, descriptions,
 provider/capability and public parameter rules. It does not return raw graphs.
 Build by passing the definition ID as `template` and public values as `parameters`;
-then save/submit the returned workflow ID in the usual way. Missing required,
+then save/submit the returned generation-definition ID in the usual way. Missing required,
 unknown and invalid parameters fail before submission. Saved recipes pin the
 definition version and fail closed if that version is no longer installed.
 
@@ -374,7 +374,7 @@ mounted read/write at `/data/definitions` so validated runtime registrations can
 be persisted atomically. Keep `./workflows` writable for saved recipes; the two
 paths have distinct roles. The Generation MCP and Hub schema change for
 `workflows.register` is a one-time deployment. After that, registering or
-updating workflow definitions requires no container rebuild, file release, or
+updating ComfyWorkFlow definitions requires no container rebuild, file release, or
 service restart.
 
 ### Installed Workflow qualification client
@@ -562,7 +562,7 @@ different owner or group/world write access are rejected. This root is separate 
 managed-input snapshots and output/model storage. No mount or readiness flag is
 enabled by the supplied Compose file. `FLAMORIS_MANAGED_INPUT_READY=true` alone
 cannot advertise readiness without an accessible configured shared input store.
-Runtime evidence and exact Workflow verification are still independent gates.
+Runtime evidence and exact ComfyWorkFlow verification are still independent gates.
 
 Reservations are durable before copying, and count protected, incomplete and
 ambiguous submissions across restart. Trusted terminal provider history or a
