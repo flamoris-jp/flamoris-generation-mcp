@@ -49,7 +49,7 @@ FLAMORIS Generation MCP owns generative-media and closely related media-analysis
 - FLAMORIS product repositories remain authoritative for their own project/document state and editing behavior.
 - The **Generation Hub** is the provider-neutral coordination architecture inside this repository. It is not a separate repository or a second authority.
 
-Media-domain analysis such as music transcription may belong here when it participates in the same capability → workflow → job → provider → asset lifecycle. General language/reasoning/coding intelligence belongs in Intelligence MCP.
+Media-domain analysis such as music transcription may belong here when it participates in the same capability → generation-definition → job → provider → asset lifecycle. General language/reasoning/coding intelligence belongs in Intelligence MCP.
 
 ## Architecture
 
@@ -174,7 +174,7 @@ without query parameters, fragments, route placeholders or a trailing slash
 A tunnel/reverse-proxy runtime may target this loopback HTTP endpoint. Install,
 configure and authenticate that runtime separately; the Python package does not
 manage tunnels or credentials. HTTP has no application authentication and every
-connected client can access the same process-owned workflows/jobs. Keep external
+connected client can access the same process-owned definitions/jobs. Keep external
 access controlled by the deployment layer. SDK Host/Origin checks remain enabled
 for the default loopback bind; the forwarding runtime must send headers accepted
 by that local endpoint (an external Host/Origin can be rejected). No proxy or
@@ -299,7 +299,7 @@ and actual node/model compatibility on submission.
    content, so remote clients receive the media bytes rather than a host-only
    filesystem path.
 
-`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Completed outputs already materialized by `jobs.result` can be read and deleted by asset ID after a restart using a bounded, validated manifest under the configured output directory. Unmaterialized completed outputs cannot be reconstructed after restart. The active reservation journal supports conservative unknown recovery; unsaved workflows and ordinary session history remain process-owned. Provider-original cleanup is not provided.
+`assets.delete` records a deletion marker under the job output directory and removes only the selected Hub-managed local copy. Deleted assets are excluded from `assets.list` and cannot be retrieved or rematerialized by the same running process. Repeating the delete returns `already_deleted`. ComfyUI's original output is **not** deleted. Completed outputs already materialized by `jobs.result` can be read and deleted by asset ID after a restart using a bounded, validated manifest under the configured output directory. Unmaterialized completed outputs cannot be reconstructed after restart. The active reservation journal supports conservative unknown recovery; unsaved definitions and ordinary session history remain process-owned. Provider-original cleanup is not provided.
 
 The asset layer is intentionally media-oriented rather than filesystem-oriented.
 Asset IDs identify outputs owned by known in-process generation jobs; callers cannot
@@ -309,7 +309,7 @@ been downloaded reports `size_bytes: null` and `materialized: false`.
 images, while the same `assets.list` / `assets.get` surface can be extended later
 for video and audio content without exposing the output filesystem.
 
-Use `text-to-image` with no LoRAs for a plain checkpoint workflow. The LoRA
+Use `text-to-image` with no LoRAs for a plain checkpoint ComfyWorkFlow. The LoRA
 template requires at least one LoRA, preserves order, and chains both model and
 CLIP through every entry. Seed is an explicit nonnegative integer (default 0),
 not a randomized sentinel. Width/height must be multiples of 8 from 64 to 4096;
@@ -320,7 +320,7 @@ Returned raw prompts are inspectable exports, **not mutable submission inputs**.
 `jobs.submit` accepts only a generation-definition ID and rebuilds the known template from its
 recipe, rechecking installed models. Saved files contain only versioned recipes.
 
-### Trusted external workflows
+### Trusted external ComfyWorkFlows
 
 The Generation MCP server currently targets Linux. Its asset and provider
 filesystem boundaries use Linux/POSIX directory file descriptors; a Windows
@@ -348,7 +348,7 @@ test the graph against the target ComfyUI API format, verify the node IDs and
 installed model names, then add explicit bindings to existing literal node
 inputs. Give it a stable lowercase ID and increment its version when changing
 the graph. A trusted MCP client may register the validated definition directly;
-Git/file deployment is not required for each workflow. Each definition currently declares
+Git/file deployment is not required for each ComfyWorkFlow. Each definition currently declares
 one `SaveImage` output node with a `filename_prefix` input. The server sets
 that output prefix per job; clients cannot override it. Additional Save/Preview
 nodes are rejected, and only images reported under the declared node become
@@ -394,7 +394,7 @@ See [the qualification procedure](docs/WORKFLOW_QUALIFICATION.md).
 - One server process permits one active generation at a time. While a job is queued,
   running, submitting, or otherwise non-terminal, another `jobs.submit` fails
   immediately with a bounded busy error. The server does not add a waiting queue.
-  Status, result, cancellation, model and workflow inspection remain available.
+  Status, result, cancellation, model and ComfyWorkFlow inspection remain available.
   Capacity is released only after terminal completion, failure or cancellation is
   observed; stdio and Streamable HTTP share the same process-owned guard.
 - States: `submitting`, `queued`, `running`, `completed`, `failed`, `cancelled`,
@@ -406,7 +406,7 @@ See [the qualification procedure](docs/WORKFLOW_QUALIFICATION.md).
   preserves uncertain work across restart; it is not a full historical execution
   database or automatic resubmission mechanism. Previously materialized completed
   assets can be retrieved and deleted from validated output manifests. Session
-  jobs and unsaved workflows retain their process-local 1024-entry limits;
+  jobs and unsaved definitions retain their process-local 1024-entry limits;
   archived asset access uses a fixed lock pool and has no session count limit.
   Save recipes before restart; retain completed result files/metadata. Process
   shutdown does not cancel already submitted ComfyUI work.
@@ -439,7 +439,7 @@ See [the qualification procedure](docs/WORKFLOW_QUALIFICATION.md).
   output root, reject symlinks/path escapes, and are bounded to 64 MiB per asset.
 - Reproducibility metadata contains the operation, provider ID, provider-owned
   execution ID, template, all parameters (including
-  prompts, checkpoint, ordered LoRAs and seed), workflow/job IDs, status and output
+  prompts, checkpoint, ordered LoRAs and seed), ComfyWorkFlow/job IDs, status and output
   references. No weight hashes are calculated. Replacing weights under the same
   filename or changing provider versions can change results.
 
@@ -459,7 +459,7 @@ SDK 2.x owns protocol handling; dependencies are bounded to compatible majors.
 To add a template, extend the explicit `Template` type, template descriptions and
 trusted builder in `workflows.py`, add typed parameters where necessary, and test
 the emitted graph and rejection paths. Templates are shipped with the Python
-package; the workflow directory stores recipes only. Do not add dynamic code
+package; the definition directory stores recipes only. Do not add dynamic code
 loading or raw node mutation tools. Provider-specific execution belongs behind
 `providers/`; ComfyUI HTTP parsing remains isolated in `comfyui.py`.
 
@@ -520,7 +520,7 @@ A listed but unmaterialized output cannot be fetched after restart because live
 provider execution mappings are not reconstructed; listing it does not claim the
 binary is available. Such an output can still be removed from the managed catalog.
 `jobs.status` can return a bounded completed archive summary containing job,
-workflow and provider identity, available output count and optional external
+ComfyWorkFlow and provider identity, available output count and optional external
 provenance. It checks the completed manifest and deletion markers without fetching
 bytes or provider HTTP. Missing, incomplete, malformed or wholly deleted catalog
 records fail closed. This summary does not restore execution authority; active
@@ -545,7 +545,7 @@ of ComfyUI's configured input directory. Generation copies decoded references
 into its own `flamoris-inputs/` subdirectory and binds the resulting relative name
 only to declared managed inputs. This path does not call ComfyUI's HTTP upload
 endpoint, so partial HTTP uploads and renamed responses cannot escape accounting.
-The existing HTTP upload path remains available for schema-1 development workflows
+The existing HTTP upload path remains available for schema-1 development ComfyWorkFlows
 when the shared root is unset; it does **not** satisfy production input readiness.
 
 | Variable | Default | Meaning |
@@ -682,9 +682,9 @@ reader API never exposes a caller-selected path.
 
 See [the managed-input contract](docs/MANAGED_INPUTS.md). Studio must authorize
 source ownership and persist its own input-owner mapping before exposing these
-tools to users. Production workflow file bindings remain fail-closed except for the reviewed
+tools to users. Production ComfyWorkFlow file bindings remain fail-closed except for the reviewed
 ComfyUI `LoadImage.image` managed-image binding described above. A real-runtime
-smoke is still required before enabling a production Reference Image workflow.
+smoke is still required before enabling a production Reference Image ComfyWorkFlow.
 The opt-in native SheetSage2 profile accepts an existing managed WAV reference and
 stages a separate immutable provider copy; its source identity is persisted with
 the job. See [the native Music contract](docs/MUSIC_PROVIDERS.md). Reference-audio
