@@ -14,7 +14,7 @@ IDs are process-independent and never interpreted as filesystem paths.
 
 Generation serves a trusted client group, not individual Studio users. Studio
 must check source ownership before create, persist its own owner/input mapping,
-and authorize get/delete/workflow input use. IDs and hashes grant no user access.
+and authorize get/delete and native recipe input use. IDs and hashes grant no user access.
 Do not forward a caller's arbitrary Generation input ID through Studio. Hub must
 register exact schemas after review. Uploaded originals share the same input
 authority, quota, directory confinement and adapter leases; they are not output Assets.
@@ -50,10 +50,10 @@ chunk handler do not echo private base64. Generation never selects user filename
 Studio bounds its complete body/transfer and persists owner/storage charges before
 any RPC; raw input IDs grant no access. No upload automatically submits a job.
 
-Upload preparation is independent of GPU and Workflow readiness. Actual inference
-still requires the exact qualified img2img definition, managed-input infrastructure
-readiness and provider-side retention protections. Upload acceptance alone does
-not authorize a production reference-image Workflow.
+Upload preparation uses no GPU and submits no job. The retained image templates
+accept no reference input. Image uploads remain available as immutable snapshots;
+they do not enable custom graphs or reference-image inference. Native transcription
+consumes an owned generated WAV under its separate schema-6 contract.
 
 ## Limits and lifecycle
 
@@ -86,16 +86,20 @@ bounded readers plus immutable metadata. An adapter owns mapping these readers
 to its runtime's input locations, cleanup and retention across ambiguous submits.
 No second job/GPU authority is created. Runtime lifecycle remains external.
 
-The ComfyUI adapter stages bounded decoded PNG/JPEG/WebP images, resolves only
-LoadImage.image, and uses ordinary JobStore staging leases. With
-`FLAMORIS_COMFYUI_INPUT_ROOT` configured, copies are written exclusively into
-`flamoris-inputs/` under the exact shared ComfyUI input root; the adapter never
-calls `/upload/image` on this path. Random service-selected filenames avoid
-provider renaming, overwrites and HTTP-upload ambiguity. When unset, the existing
-HTTP upload path remains for schema-1 development; its unmanaged provider copies
-do not satisfy production image-v1 input readiness.
+The active native consumer is the SheetSage2 adapter: it stages the recipe's
+`audio` managed input under an `audio/wav` allowlist and the shared JobStore
+reservation. The ComfyUI adapter builds only the two original schema-1 txt2img
+prompts, with no managed-reference injection or HTTP image upload.
 
-## Shared ComfyUI copies (Issue #62)
+## Historical ComfyUI copy protection (Issue #62)
+
+Custom Image execution is retired. The following ledger and identity protections
+remain because previous versions may have left provider copies or unresolved
+charges. Current image submission creates no such copy. Retaining cleanup/recovery
+code and its tests does not retain the old graph registry or authorize new staging.
+Reconcile opaque old custom jobs using the previous matched version; do not replay
+or cancel them from the new package. See [retirement](LEGACY_RETIREMENT.md).
+
 
 The provider's private artifact ledger reserves full payload bytes and a file
 slot **before** writing, then commits the exact file identity after durable copy.
@@ -147,8 +151,8 @@ or changed/quarantined entries requires operator reconciliation with JobStore an
 provider execution evidence. Restart, queue absence and old mtime are insufficient
 evidence. Readiness must remain disabled during unresolved reconciliation.
 
-Production rollout requires a shared-path/UID/mount receipt, legacy HTTP-copy
-inventory, actual reference copy/terminal release/storage-bound verification,
-independent trusted runtime evidence and exact automatic Workflow attestation;
-see [verification](WORKFLOW_VERIFICATION.md). Passing offline lifecycle tests is
-not an installed-runtime receipt. Other provider bindings remain unsupported.
+No current image-v1 qualification, attestation or reference-image rollout path
+exists. Historical shared copies require private operator reconciliation with
+actual execution and storage evidence. Offline lifecycle tests do not establish
+installed-runtime readiness. Preserve charged copies and authority records while
+that outcome remains uncertain.

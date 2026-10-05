@@ -50,6 +50,19 @@ input/upload confinement, retention and bounded transfers. CI builds the install
 wheel and a non-root container without real providers. These do not qualify live GPU
 or provider behavior.
 
-The [previous main source](https://github.com/flamoris-jp/flamoris-generation-mcp/tree/4a1ad60)
-and superseded design documents retain the old contracts/evidence for historical
-inspection and rollback analysis. They do not authorize recreating the subsystem.
+Obsolete registration, qualification, v3, multimodal-composition and Runtime-bridge
+runbooks were removed from the current document tree on 2026-10-05. They described
+removed modules, tools and flags and must not act as operational instructions.
+Git history preserves their original contracts and evidence; it is not an instruction
+to recreate the subsystem. The historical documents below are pinned to the reviewed
+pre-audit commit, rather than following `main`.
+
+- [GENERATION_HUB_DESIGN.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/GENERATION_HUB_DESIGN.md)
+- [WORKFLOW_SYSTEM_DESIGN.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/WORKFLOW_SYSTEM_DESIGN.md)
+- [WORKFLOW_IMPLEMENTATION_HANDOFF.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/WORKFLOW_IMPLEMENTATION_HANDOFF.md)
+- [WORKFLOW_VERIFICATION.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/WORKFLOW_VERIFICATION.md)
+- [WORKFLOW_QUALIFICATION.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/WORKFLOW_QUALIFICATION.md)
+- [WORKFLOW_V3_FOUNDATION.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/WORKFLOW_V3_FOUNDATION.md)
+- [IMAGE_V3_EXECUTION.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/IMAGE_V3_EXECUTION.md)
+- [RUNTIME_DELEGATION.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/RUNTIME_DELEGATION.md)
+- [MULTIMODAL_WORKFLOWS.md](https://github.com/flamoris-jp/flamoris-generation-mcp/blob/c3f8eee64283aab3e148c20ec737bc8002edb66a/docs/MULTIMODAL_WORKFLOWS.md)

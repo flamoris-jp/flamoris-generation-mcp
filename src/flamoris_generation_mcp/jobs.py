@@ -222,7 +222,6 @@ class JobStore:
 
     def _validated_request(self, workflow_id: str) -> GenerationRequest:
         recipe = self.workflows.get(workflow_id)
-        self.workflows.capture(recipe)
         capability = self.capabilities.resolve_workflow(recipe.template)
         route = capability.provider_id, capability.capability_id
         if route != self.workflows.routing(recipe):

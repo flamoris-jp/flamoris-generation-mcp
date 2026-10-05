@@ -308,8 +308,6 @@ class IrodoriProvider:
             not isinstance(request.payload, SpeechRecipe)
             or request.operation != SPEECH_CAPABILITY
             or request.payload.template != SPEECH_TEMPLATE
-            or request.definition is not None
-            or request.runtime_evidence is not None
             or not re.fullmatch(r"[0-9a-f]{32}", job_id)
         ):
             raise SubmissionRejected("Invalid native speech request")

@@ -78,12 +78,7 @@ class ComfyUIProvider:
         )
 
     async def submit(self, request: GenerationRequest, job_id: str) -> ProviderJob:
-        if (
-            request.operation != "image.generate"
-            or not isinstance(request.payload, Recipe)
-            or request.definition is not None
-            or request.runtime_evidence is not None
-        ):
+        if request.operation != "image.generate" or not isinstance(request.payload, Recipe):
             raise SubmissionRejected("ComfyUI supports only retained builtin image recipes")
         try:
             if self.workflows is not None:

@@ -357,7 +357,7 @@ class WorkflowStore:
             return recipe_type.model_validate(data)
         return Recipe.model_validate(data)
 
-    def capture(self, recipe: AnyRecipe):
+    def _require_supported_recipe(self, recipe: AnyRecipe) -> None:
         """Recheck enabled native routes without mutable provider graph authority."""
         if isinstance(recipe, NATIVE_RECIPES):
             enabled = {
@@ -369,19 +369,18 @@ class WorkflowStore:
                 raise ValueError("Native recipe is disabled")
         elif not isinstance(recipe, Recipe):
             raise RetiredRecipeError("Custom ComfyWorkFlow recipe execution is retired")
-        return None
 
     def prompt(self, recipe: AnyRecipe, job_id: str | None = None) -> dict:
         if isinstance(recipe, NATIVE_RECIPES):
             raise ValueError("Native recipe has no ComfyUI prompt")
-        self.capture(recipe)
+        self._require_supported_recipe(recipe)
         prompt = build_prompt(recipe, self.catalog)
         if job_id is not None:
             prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
         return prompt
 
     def routing(self, recipe: AnyRecipe) -> tuple[str, str]:
-        self.capture(recipe)
+        self._require_supported_recipe(recipe)
         if isinstance(recipe, NATIVE_RECIPES):
             return {
                 SpeechRecipe: (SPEECH_PROVIDER, SPEECH_CAPABILITY),
