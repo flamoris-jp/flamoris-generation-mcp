@@ -5,7 +5,13 @@ image="generation-mcp-smoke:${GITHUB_RUN_ID:-local}"
 scratch=$(mktemp -d)
 container=""
 cleanup() {
-  if [ -n "$container" ]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+  if [ -n "$container" ]; then
+    # Stop the authority before deleting its private test-only lock directory.
+    docker rm -f "$container" >/dev/null 2>&1 || return
+    docker run --rm --user 0:0 --entrypoint python \
+      -v "$scratch/outputs:/smoke-output" "$image" -c \
+      'import shutil; shutil.rmtree("/smoke-output/controller-authority", ignore_errors=True)'
+  fi
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -41,6 +47,7 @@ docker build -t "$image" .
 container=$(docker run -d --read-only --tmpfs /tmp:mode=1777 \
   -p 127.0.0.1::8765 \
   -e FLAMORIS_COMFYUI_URL=http://127.0.0.1:1 \
+  -e FLAMORIS_CONTROLLER_TOKEN=fixture-docker-controller-token-32 \
   -v "$scratch/models:/data/models:ro" \
   -v "$scratch/workflows:/data/workflows" \
   -v "$scratch/outputs:/data/outputs" "$image")
@@ -61,11 +68,23 @@ port=$(docker port "$container" 8765/tcp | sed -n 's/^127\.0\.0\.1://p')
 python - "$port" <<'PY'
 import json
 import sys
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 with urlopen(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=2) as response:
     assert response.status == 200
     assert json.load(response)["healthy"] is True
+endpoint = f"http://127.0.0.1:{sys.argv[1]}/api/v1/generation/system.health"
+request = Request(endpoint, b"{}", {"Content-Type": "application/json"})
+try:
+    urlopen(request, timeout=2)
+except HTTPError as error:
+    assert error.code == 401
+else:
+    raise AssertionError("internal API accepted an unauthenticated call")
+request.add_header("Authorization", "Bearer fixture-docker-controller-token-32")
+with urlopen(request, timeout=5) as response:
+    assert json.load(response)["controller"]["api_version"] == 1
 PY
 
 docker exec -i "$container" python - <<'PY'
@@ -73,9 +92,9 @@ import json
 from pathlib import Path
 
 models = Path('/data/models/checkpoints/example.safetensors')
-from flamoris_generation_mcp.config import Settings
-from flamoris_generation_mcp.models import ModelCatalog
-from flamoris_generation_mcp.workflows import WorkflowStore
+from flamoris_generation_controller.config import Settings
+from flamoris_generation_controller.models import ModelCatalog
+from flamoris_generation_controller.workflows import WorkflowStore
 settings = Settings.from_env()
 store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
 assert store.list()["definitions"] == []
