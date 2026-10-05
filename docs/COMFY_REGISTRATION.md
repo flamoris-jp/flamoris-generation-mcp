@@ -18,7 +18,7 @@ through the checkpoint VAE. This is img2img, not IPAdapter/ControlNet/reference
 identity conditioning. Custom nodes and arbitrary graph topology are rejected.
 Definitions are statically validated; registration does not certify live models.
 
-Controller's `FLAMORIS_COMFYUI_INPUT_ROOT` must be an operator-configured shared
+Controller's `COMFYUI_INPUT_ROOT` must be an operator-configured shared
 ComfyUI input directory with the retained input-copy ledger available. Copies
 survive uncertain POSTs and are released only after definite rejection or terminal
 observation. No automatic inference replay or live deployment is included.
