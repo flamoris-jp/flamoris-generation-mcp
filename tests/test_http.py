@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 import uvicorn
+from flamoris_generation_controller import runtime as runtime_module
 from mcp import Client
 from pydantic import ValidationError
 from test_mcp import TOOL_NAMES
@@ -157,8 +158,8 @@ async def test_http_tools_validation_and_shared_authority(settings, fake, monkey
     settings.mcp_path = "/api/generation"
     factories = {}
     for name in ("ModelCatalog", "WorkflowStore", "ComfyUIClient", "JobStore"):
-        factory = Mock(wraps=getattr(server_module, name))
-        monkeypatch.setattr(server_module, name, factory)
+        factory = Mock(wraps=getattr(runtime_module, name))
+        monkeypatch.setattr(runtime_module, name, factory)
         factories[name] = factory
     provider_transport = httpx.MockTransport(fake.handle)
     server = create_server(settings, transport=provider_transport)

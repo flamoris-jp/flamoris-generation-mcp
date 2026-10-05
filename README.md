@@ -10,13 +10,13 @@ External MCP facade for FLAMORIS generation capabilities. Part of
 authorize deletion of the mistakenly added custom ComfyWorkFlow subsystem.
 Registration/versioning, automatic graph qualification, v3 composition and
 Generation-to-Runtime delegation were removed. Nothing is migrated or recreated
-in Generation Controller; Controller remains unimplemented.
+in Generation Controller. The retained domain is now extracted into its MCP-free package; the deleted subsystem is not copied.
 
 Original bounded builtin Image recipes and the opt-in native Irodori, YuE2 and
-SheetSage2 recipes remain. The package still co-locates these retained generation
-jobs, inputs and assets with the external MCP transport. Studio generation retains
-its compatibility gateway until a separately authorized Controller implementation.
-This is not a claim that the future generation internal cutover is complete.
+SheetSage2 recipes remain in the pinned Controller package. This facade constructs
+one Controller runtime and calls its ordinary typed contract. Studio calls the
+authenticated non-MCP HTTP API hosted on the same listener. Both paths share jobs,
+inputs, assets and one reservation; live cutover remains separately pending.
 
 Read [retirement and retained data](docs/LEGACY_RETIREMENT.md) before any operational
 upgrade. Source cleanup performs no deployment, provider call, DB/data deletion,
@@ -48,7 +48,9 @@ Existing literals such as `workflows.*`, `WorkflowStore`, `workflow_id` and
 `FLAMORIS_WORKFLOW_DIR` remain compatible. A built `workflow_id` is a recipe handle,
 not a definition ID. GPU Node Manager retains host-wide lifecycle authority.
 
-One process-owned generation authority handles all retained providers. Provider
+One Controller authority handles all retained providers. A lifetime output-root
+lock rejects another Controller process before construction/recovery; it does not
+constrain old pre-lock binaries or coordinate different roots/hosts. Provider
 absence, static validity and live qualification are different. No implicit model
 download, GPU switch, arbitrary URL/path, raw graph submission or provider fallback.
 Missing provider history does not prove uncertain work stopped. Output metadata,
@@ -72,12 +74,26 @@ The default entrypoint is stdio; explicit HTTP uses `flamoris-generation-mcp
 network boundary; Host/Origin checks do not grant user access. Studio independently
 scopes every user job/input/asset reference.
 
+The internal API is POST `/api/v1/generation/{operation}` on the same HTTP
+listener. Configure a private `FLAMORIS_CONTROLLER_TOKEN` (32–512 printable ASCII
+characters); unset means internal operations are unavailable. Studio sets the exact
+API base as `STUDIO_GENERATION_ENDPOINT`, the same service secret as
+`STUDIO_GENERATION_TOKEN`, and an empty `STUDIO_GENERATION_NAMESPACE`. This is
+separate from external MCP/Hub ingress credentials and signed provenance. The
+service credential grants a trusted backend the bounded operation surface; Studio
+retains user authorization. No MCP fallback or automatic uncertain-submit retry.
+See [Controller API](https://github.com/flamoris-jp/flamoris-generation-controller/blob/640a5bd48c76e4bf736e9a3589c216123ccd18b3/docs/API.md).
+
 `FLAMORIS_MODEL_ROOT`, `FLAMORIS_WORKFLOW_DIR`, `FLAMORIS_OUTPUT_DIR` and
 `FLAMORIS_COMFYUI_URL` retain their existing meanings. Docker retains models,
 recipes and outputs; obsolete definition/attestation mounts and environment defaults
 were removed without deleting host data. Retired feature flags/configuration no
 longer enable any source or tool. Exact installed schemas and Hub static catalogs
-must match before a separately authorized rollout.
+must match before a separately authorized rollout. Domain/provider tests now live
+with Controller; facade and mixed ingress tests remain here. The retained
+`python -m flamoris_generation_mcp.retention` command delegates to Controller.
+Drain/reconcile and stop any previous owner before upgrading; preserve all active
+journals and never delete the lifetime lock while a Controller is alive.
 
 ## Retained references
 
@@ -95,7 +111,7 @@ are separate from live host/provider qualification and deployment acceptance.
 
 誤って追加した独自ComfyWorkFlowの登録・検証・v3構成・Runtime橋渡しを削除しました。
 元のImageテンプレートとnative provider recipe、入力・資産・未確定予約の保護は維持します。
-Controllerへ移植・再作成はせず、実機の切替や保存データの削除も行っていません。
+削除済みの独自機能は再作成していません。残る生成処理はControllerへ移し、StudioのHTTP入口と外部MCP入口が同じ実行予約を使います。実機切替・保存データの削除は行っていません。
 
 ## License and support
 

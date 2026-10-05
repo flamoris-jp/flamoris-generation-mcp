@@ -5,11 +5,11 @@ import os
 
 import httpx
 import pytest
+from flamoris_generation_controller.jobs import JobStore
+from flamoris_generation_controller.transfers import CHUNK_BYTES, AssetTransfers
 from mcp import Client
 
-from flamoris_generation_mcp.jobs import JobStore
 from flamoris_generation_mcp.server import create_server
-from flamoris_generation_mcp.transfers import CHUNK_BYTES, AssetTransfers
 
 
 async def completed(stores, fake):

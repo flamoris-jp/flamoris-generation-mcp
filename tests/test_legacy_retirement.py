@@ -4,13 +4,13 @@ import json
 
 import httpx
 import pytest
+from flamoris_generation_controller.durable import Records
+from flamoris_generation_controller.jobs import GenerationBusyError, JobStore
+from flamoris_generation_controller.models import ModelCatalog
+from flamoris_generation_controller.workflows import WorkflowStore
 from mcp import Client
 
-from flamoris_generation_mcp.durable import Records
-from flamoris_generation_mcp.jobs import GenerationBusyError, JobStore
-from flamoris_generation_mcp.models import ModelCatalog
 from flamoris_generation_mcp.server import create_server
-from flamoris_generation_mcp.workflows import WorkflowStore
 
 RETIRED_TOOLS = {
     "workflows.register",

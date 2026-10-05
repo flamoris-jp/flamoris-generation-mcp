@@ -4,11 +4,11 @@ import os
 
 import httpx
 import pytest
+from flamoris_generation_controller.durable import CommitUnknown
+from flamoris_generation_controller.providers.comfyui_inputs import ComfyUIInputs
 from mcp import Client
 
 from flamoris_generation_mcp.config import Settings
-from flamoris_generation_mcp.durable import CommitUnknown
-from flamoris_generation_mcp.providers.comfyui_inputs import ComfyUIInputs
 from flamoris_generation_mcp.server import create_server
 
 JOB = "a" * 32

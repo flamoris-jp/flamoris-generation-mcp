@@ -13,11 +13,10 @@ from tempfile import TemporaryDirectory, TemporaryFile
 from uuid import uuid4
 
 import httpx
+from flamoris_generation_controller.providers.comfyui_inputs import ComfyUIInputs
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 from PIL import Image
-
-from flamoris_generation_mcp.providers.comfyui_inputs import ComfyUIInputs
 
 
 async def check_tools(client):

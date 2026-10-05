@@ -5,6 +5,13 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
 
 import httpx
+from flamoris_generation_controller.config import Settings as ControllerSettings
+from flamoris_generation_controller.contracts import API_PATH, CallerContext, ControllerError
+from flamoris_generation_controller.http_api import HTTPAPI
+from flamoris_generation_controller.jobs import GenerationBusyError
+from flamoris_generation_controller.providers import ProviderError
+from flamoris_generation_controller.runtime import GenerationController
+from flamoris_generation_controller.transfers import CHUNK_BYTES
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
@@ -14,136 +21,25 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import __version__
-from .capabilities import Capability, CapabilityRegistry
-from .comfyui import ComfyUIClient
 from .config import ModelKind, Settings
-from .input_uploads import InputUploads
-from .inputs import ManagedInputs
-from .jobs import GenerationBusyError, JobStore
-from .models import ModelCatalog
-from .music import MUSIC_CAPABILITY, MUSIC_PROVIDER, MUSIC_TEMPLATE
 from .provenance import ProvenanceIngress, current_provenance
-from .providers import ProviderError, ProviderRegistry
-from .providers.comfyui import ComfyUIProvider
-from .providers.irodori import IrodoriConfig, IrodoriProvider
-from .providers.sheetsage2 import SheetSage2Config, SheetSage2Provider
-from .providers.yue2 import Yue2Config, Yue2Provider
-from .retention import RetentionStore
-from .speech import SPEECH_CAPABILITY, SPEECH_PROVIDER, SPEECH_TEMPLATE
-from .transcription import (
-    TRANSCRIPTION_CAPABILITY,
-    TRANSCRIPTION_PROVIDER,
-    TRANSCRIPTION_TEMPLATE,
-)
-from .transfers import CHUNK_BYTES, AssetTransfers
-from .workflows import RetiredRecipeError, WorkflowStore
 
 
 def create_server(
-    settings: Settings | None = None,
-    *,
-    transport: httpx.AsyncBaseTransport | None = None,
+    settings: Settings | None = None, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> MCPServer:
     settings = settings or Settings.from_env()
-    catalog = ModelCatalog(settings)
-    workflows = WorkflowStore(
-        catalog,
-        settings.workflow_dir,
-        speech_enabled=settings.irodori_config is not None,
-        music_enabled=settings.yue2_config is not None,
-        transcription_enabled=settings.sheetsage2_config is not None,
+    domain_settings = ControllerSettings.model_validate(
+        {name: getattr(settings, name) for name in ControllerSettings.model_fields}
     )
-    client = ComfyUIClient(settings, transport)
-    comfyui = ComfyUIProvider(client, catalog, workflows)
-    retained_copy_store_available = (
-        comfyui.input_copies is not None and comfyui.input_copies.available()
-    )
-    providers = ProviderRegistry((comfyui,))
-    capabilities = CapabilityRegistry(
-        (
-            Capability(
-                capability_id="image.generate",
-                provider_id="comfyui",
-                runtime_id="janku",
-                workflow_templates=(
-                    "text-to-image",
-                    "text-to-image-lora",
-                ),
-            ),
-        )
-    )
-    if settings.irodori_config is not None:
-        providers.register(
-            IrodoriProvider(
-                IrodoriConfig.read(settings.irodori_config), settings.output_dir / "irodori-staging"
-            )
-        )
-        capabilities.register(
-            Capability(
-                capability_id=SPEECH_CAPABILITY,
-                provider_id=SPEECH_PROVIDER,
-                runtime_id="irodori-no-reference-v1",
-                workflow_templates=(SPEECH_TEMPLATE,),
-            )
-        )
-    if settings.yue2_config is not None:
-        providers.register(
-            Yue2Provider(
-                Yue2Config.read(settings.yue2_config), settings.output_dir / "yue2-staging"
-            )
-        )
-        capabilities.register(
-            Capability(
-                capability_id=MUSIC_CAPABILITY,
-                provider_id=MUSIC_PROVIDER,
-                runtime_id="yue2-synth-v1",
-                workflow_templates=(MUSIC_TEMPLATE,),
-            )
-        )
-    sheetsage2 = None
-    if settings.sheetsage2_config is not None:
-        sheetsage2 = SheetSage2Provider(
-            SheetSage2Config.read(settings.sheetsage2_config),
-            settings.output_dir / "sheetsage2-staging",
-        )
-        providers.register(sheetsage2)
-        capabilities.register(
-            Capability(
-                capability_id=TRANSCRIPTION_CAPABILITY,
-                provider_id=TRANSCRIPTION_PROVIDER,
-                runtime_id="sheetsage2-cpu-v1",
-                workflow_templates=(TRANSCRIPTION_TEMPLATE,),
-            )
-        )
-    retention = None
-    maintenance = comfyui.retention()
-    if maintenance is not None:
-        retention = RetentionStore(
-            settings.output_dir,
-            {
-                "comfyui": maintenance,
-            },
-        )
-    jobs = JobStore(workflows, providers, capabilities, settings.output_dir, retention)
-
-    transfers = AssetTransfers(
-        jobs, max_bytes=settings.transfer_max_bytes, disk_bytes=settings.transfer_disk_bytes
-    )
-
-    inputs = ManagedInputs(transfers, settings.output_dir / "managed-inputs")
-    uploads = InputUploads(inputs)
-    # Provider construction precedes JobStore/ManagedInputs because the input lease
-    # validates the shared Hub reservation. Wire the adapter only after both exist.
-    comfyui.managed_inputs = inputs
-    if sheetsage2 is not None:
-        sheetsage2.managed_inputs = inputs
+    controller = GenerationController(domain_settings, transport=transport)
 
     @asynccontextmanager
     async def lifespan(server):
         try:
             yield None
         finally:
-            await providers.close()
+            await controller.close()
 
     server = MCPServer(
         "FLAMORIS Generation",
@@ -151,16 +47,17 @@ def create_server(
         lifespan=lifespan,
         middleware=[ProvenanceIngress(settings)],
     )
+    server.controller = controller
+    token = settings.controller_token.get_secret_value() if settings.controller_token else None
+    api = HTTPAPI(controller, token)
+
+    @server.custom_route(API_PATH + "/{operation}", methods=["POST"])
+    async def internal(request: Request):
+        return await api(request)
 
     @server.custom_route("/healthz", methods=["GET"])
     async def live(_request: Request) -> JSONResponse:
-        """Bounded HTTP liveness probe; provider reachability is reported by system.health."""
         return JSONResponse({"healthy": True})
-
-    async def provider_availability() -> tuple[list[dict[str, object]], dict[str, bool]]:
-        health = await providers.health()
-        availability = {item["id"]: item.get("available") is True for item in health}
-        return health, availability
 
     @server.tool(
         name="system.health",
@@ -170,24 +67,15 @@ def create_server(
     )
     async def health() -> dict[str, Any]:
         """Check this process and provider connectivity/queue availability."""
-        provider_health, _ = await provider_availability()
-        return {
-            "healthy": True,
-            "version": __version__,
-            "deployment": {"reservation_scope": "process", "single_instance_required": True},
-            **jobs.activity(),
-            "providers": provider_health,
-            "managed_input_support": {
-                "ready": False,
-                "reference_execution": "retired",
-                "retained_copy_store_available": retained_copy_store_available
-                and comfyui.input_copies.available(),
-            },
-            "provider": "comfyui",
-            "provider_health": {
-                key: value for key, value in provider_health[0].items() if key != "id"
-            },
-        }
+        try:
+            result = await controller.invoke(
+                "system.health", {}, context=CallerContext.external(current_provenance())
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="capabilities.list",
@@ -197,8 +85,15 @@ def create_server(
     )
     async def list_capabilities() -> dict[str, Any]:
         """List provider-independent operations and current availability."""
-        _, availability = await provider_availability()
-        return {"capabilities": capabilities.list(availability)}
+        try:
+            result = await controller.invoke(
+                "capabilities.list", {}, context=CallerContext.external(current_provenance())
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="capabilities.get",
@@ -208,8 +103,17 @@ def create_server(
     )
     async def get_capability(capability_id: str) -> dict[str, Any]:
         """Inspect one capability ID independently from provider transport details."""
-        _, availability = await provider_availability()
-        return capabilities.get(capability_id, availability)
+        try:
+            result = await controller.invoke(
+                "capabilities.get",
+                {"capability_id": capability_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="models.list",
@@ -217,9 +121,17 @@ def create_server(
             **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
         ),
     )
-    def list_models(kind: ModelKind | None = None) -> dict[str, Any]:
+    async def list_models(kind: ModelKind | None = None) -> dict[str, Any]:
         """Scan installed model files, optionally filtered by kind."""
-        return {"models": catalog.list(kind)}
+        try:
+            result = await controller.invoke(
+                "models.list", {"kind": kind}, context=CallerContext.external(current_provenance())
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="models.get",
@@ -227,9 +139,19 @@ def create_server(
             **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
         ),
     )
-    def get_model(model_id: str) -> dict[str, Any]:
+    async def get_model(model_id: str) -> dict[str, Any]:
         """Inspect one kind:relative_filename ID from models.list."""
-        return catalog.get(model_id)
+        try:
+            result = await controller.invoke(
+                "models.get",
+                {"model_id": model_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="workflows.list",
@@ -237,9 +159,17 @@ def create_server(
             **{"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
         ),
     )
-    def list_workflows() -> dict[str, Any]:
+    async def list_workflows() -> dict[str, Any]:
         """List known templates and workflow IDs (including saved recipes)."""
-        return workflows.list()
+        try:
+            result = await controller.invoke(
+                "workflows.list", {}, context=CallerContext.external(current_provenance())
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="workflows.build",
@@ -247,7 +177,7 @@ def create_server(
             **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
         ),
     )
-    def build_workflow(
+    async def build_workflow(
         template: str,
         parameters: dict[str, Any],
         definition_version: int | None = None,
@@ -256,11 +186,22 @@ def create_server(
     ) -> dict[str, Any]:
         """Build a known template with validated parameters; returns a workflow_id."""
         try:
-            return workflows.build(
-                template, parameters, definition_version, definition_digest, require_ready
+            result = await controller.invoke(
+                "workflows.build",
+                {
+                    "template": template,
+                    "parameters": parameters,
+                    "definition_version": definition_version,
+                    "definition_digest": definition_digest,
+                    "require_ready": require_ready,
+                },
+                context=CallerContext.external(current_provenance()),
             )
-        except RetiredRecipeError as exc:
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="workflows.save",
@@ -268,12 +209,19 @@ def create_server(
             **{"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
         ),
     )
-    def save_workflow(workflow_id: str) -> dict[str, Any]:
+    async def save_workflow(workflow_id: str) -> dict[str, Any]:
         """Persist the parameter recipe for reuse by workflow_id after restart."""
         try:
-            return workflows.save(workflow_id)
-        except RetiredRecipeError as exc:
+            result = await controller.invoke(
+                "workflows.save",
+                {"workflow_id": workflow_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="jobs.submit",
@@ -284,9 +232,16 @@ def create_server(
     async def submit_job(workflow_id: str) -> dict[str, Any]:
         """Submit one workflow when this process has no active generation."""
         try:
-            return await jobs.submit(workflow_id, provenance=current_provenance())
+            result = await controller.invoke(
+                "jobs.submit",
+                {"workflow_id": workflow_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
         except (GenerationBusyError, ProviderError, ValueError) as exc:
-            raise ToolError(str(exc)) from exc
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="jobs.status",
@@ -296,7 +251,17 @@ def create_server(
     )
     async def job_status(job_id: str) -> dict[str, Any]:
         """Poll execution status for a job submitted by this process."""
-        return await jobs.status(job_id)
+        try:
+            result = await controller.invoke(
+                "jobs.status",
+                {"job_id": job_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="jobs.result",
@@ -307,9 +272,16 @@ def create_server(
     async def job_result(job_id: str) -> dict[str, Any]:
         """Return reproducibility metadata; download completed outputs to configured storage."""
         try:
-            return await jobs.result(job_id)
-        except RetiredRecipeError as exc:
+            result = await controller.invoke(
+                "jobs.result",
+                {"job_id": job_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="jobs.cancel",
@@ -320,9 +292,16 @@ def create_server(
     async def cancel_job(job_id: str) -> dict[str, Any]:
         """Cancel queued work; targeted running interruption requires configured support."""
         try:
-            return await jobs.cancel(job_id)
-        except RetiredRecipeError as exc:
+            result = await controller.invoke(
+                "jobs.cancel",
+                {"job_id": job_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
             raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="assets.list",
@@ -333,9 +312,16 @@ def create_server(
     async def list_assets(job_id: str) -> dict[str, Any]:
         """List generated media assets belonging to one completed generation job."""
         try:
-            return await jobs.list_assets(job_id)
-        except (ValueError, ProviderError) as exc:
-            raise ToolError(str(exc)) from exc
+            result = await controller.invoke(
+                "assets.list",
+                {"job_id": job_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="assets.delete",
@@ -346,9 +332,16 @@ def create_server(
     async def delete_asset(asset_id: str) -> dict[str, Any]:
         """Delete one Hub-managed generated asset (not provider originals)."""
         try:
-            return await jobs.delete_asset(asset_id)
-        except (ValueError, ProviderError) as exc:
-            raise ToolError(str(exc)) from exc
+            result = await controller.invoke(
+                "assets.delete",
+                {"asset_id": asset_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="assets.get",
@@ -359,10 +352,16 @@ def create_server(
     async def get_asset(asset_id: str) -> Image:
         """Return one generated image asset as MCP-native binary media content."""
         try:
-            _, data, media_format = await jobs.get_asset(asset_id)
-            return Image(data=data, format=media_format)
-        except (ValueError, ProviderError) as exc:
-            raise ToolError(str(exc)) from exc
+            result = await controller.invoke(
+                "assets.get",
+                {"asset_id": asset_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return Image(data=result.data, format=result.format)
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="assets.prepare",
@@ -373,13 +372,16 @@ def create_server(
     async def prepare_asset(asset_id: str) -> dict[str, Any]:
         """Materialize one asset for bounded transfer; return immutable content digest."""
         try:
-            return await transfers.prepare(asset_id)
-        except (ValueError, ProviderError, OSError, TimeoutError) as exc:
-            raise ToolError(
-                str(exc)
-                if isinstance(exc, (ValueError, ProviderError))
-                else "Asset preparation failed; retry safely"
-            ) from None
+            result = await controller.invoke(
+                "assets.prepare",
+                {"asset_id": asset_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="assets.read",
@@ -392,13 +394,16 @@ def create_server(
     ) -> dict[str, Any]:
         """Read at most 256 KiB from a prepared asset at a retryable byte offset."""
         try:
-            return await transfers.read(asset_id, sha256, offset, length)
-        except (ValueError, ProviderError, OSError, TimeoutError) as exc:
-            raise ToolError(
-                str(exc)
-                if isinstance(exc, (ValueError, ProviderError))
-                else "Asset read failed; prepare again"
-            ) from None
+            result = await controller.invoke(
+                "assets.read",
+                {"asset_id": asset_id, "sha256": sha256, "offset": offset, "length": length},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="inputs.create",
@@ -409,13 +414,16 @@ def create_server(
     async def create_input(asset_id: str) -> dict[str, Any]:
         """Snapshot a generated image/audio asset as an immutable expiring input."""
         try:
-            return await inputs.create(asset_id)
-        except (ValueError, ProviderError, OSError, TimeoutError) as exc:
-            raise ToolError(
-                str(exc)
-                if isinstance(exc, (ValueError, ProviderError))
-                else "Input creation failed"
-            ) from None
+            result = await controller.invoke(
+                "inputs.create",
+                {"asset_id": asset_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="inputs.get",
@@ -426,11 +434,16 @@ def create_server(
     async def get_input(input_id: str) -> dict[str, Any]:
         """Inspect managed input metadata; an ID is not a Studio ownership grant."""
         try:
-            return inputs.get(input_id)
-        except (ValueError, OSError) as exc:
-            raise ToolError(
-                str(exc) if isinstance(exc, ValueError) else "Input retrieval failed"
-            ) from None
+            result = await controller.invoke(
+                "inputs.get",
+                {"input_id": input_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="inputs.delete",
@@ -441,11 +454,16 @@ def create_server(
     async def delete_input(input_id: str) -> dict[str, Any]:
         """Delete a managed snapshot unless a provider adapter is using it."""
         try:
-            return inputs.delete(input_id)
-        except (ValueError, OSError) as exc:
-            raise ToolError(
-                str(exc) if isinstance(exc, ValueError) else "Input deletion failed"
-            ) from None
+            result = await controller.invoke(
+                "inputs.delete",
+                {"input_id": input_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
         name="inputs.upload.begin",
@@ -464,8 +482,18 @@ def create_server(
     ) -> dict[str, Any]:
         """Reserve an 8 MiB image upload under a pre-recorded private UUID."""
         try:
-            return await uploads.begin(upload_id, mime_type, size_bytes, sha256)
-        except (ValueError, OSError, TimeoutError):
+            result = await controller.invoke(
+                "inputs.upload.begin",
+                {
+                    "upload_id": upload_id,
+                    "mime_type": mime_type,
+                    "size_bytes": size_bytes,
+                    "sha256": sha256,
+                },
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (ValueError, OSError, TimeoutError, ControllerError):
             raise ToolError("Image upload reservation unavailable or invalid") from None
 
     @server.tool(
@@ -487,8 +515,18 @@ def create_server(
     ) -> dict[str, Any]:
         """Write one ordered, digest-checked image chunk of at most 256 KiB."""
         try:
-            return await uploads.write(upload_id, offset, data_base64, chunk_sha256)
-        except (ValueError, OSError, TimeoutError):
+            result = await controller.invoke(
+                "inputs.upload.write",
+                {
+                    "upload_id": upload_id,
+                    "offset": offset,
+                    "data_base64": data_base64,
+                    "chunk_sha256": chunk_sha256,
+                },
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (ValueError, OSError, TimeoutError, ControllerError):
             raise ToolError("Image upload chunk unavailable or invalid") from None
 
     @server.tool(
@@ -505,8 +543,13 @@ def create_server(
     ) -> dict[str, Any]:
         """Decode and atomically publish one immutable expiring uploaded image."""
         try:
-            return await uploads.finish(upload_id)
-        except (ValueError, OSError, TimeoutError):
+            result = await controller.invoke(
+                "inputs.upload.finish",
+                {"upload_id": upload_id},
+                context=CallerContext.external(current_provenance()),
+            )
+            return result
+        except (ValueError, OSError, TimeoutError, ControllerError):
             raise ToolError("Image upload publication unavailable or invalid") from None
 
     return server

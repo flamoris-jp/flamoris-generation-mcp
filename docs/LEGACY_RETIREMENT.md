@@ -15,7 +15,7 @@ live operations and deletion of persisted data are outside this change.
 The matching Hub static custom tools/v3 example and Studio custom/v3 discovery,
 selection and dispatch are retired in their owners. Runtime deletes its Generation
 media-lowering bridge while preserving native ExecuteFlow and generic embedding.
-Controller is not implemented and receives none of this deleted subsystem.
+The later Controller extraction reuses only the retained domain and receives none of this deleted subsystem. The facade now hosts one Controller for MCP and internal HTTP; no deleted feature is restored.
 
 ## Data and uncertainty
 

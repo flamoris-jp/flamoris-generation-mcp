@@ -7,14 +7,13 @@ import sys
 import wave
 
 import pytest
-
-from flamoris_generation_mcp.providers import irodori
-from flamoris_generation_mcp.providers.base import (
+from flamoris_generation_controller.providers import irodori
+from flamoris_generation_controller.providers.base import (
     GenerationRequest,
     ProviderError,
     SubmissionRejected,
 )
-from flamoris_generation_mcp.speech import SpeechRecipe
+from flamoris_generation_controller.speech import SpeechRecipe
 
 STUB = """import argparse, os, signal, sys, time, wave
 p = argparse.ArgumentParser()
@@ -340,12 +339,13 @@ async def test_cancel_during_final_drains_never_becomes_completed(provider, monk
 
 
 def job_store(provider, tmp_path):
-    from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
+    from flamoris_generation_controller.capabilities import Capability, CapabilityRegistry
+    from flamoris_generation_controller.jobs import JobStore
+    from flamoris_generation_controller.models import ModelCatalog
+    from flamoris_generation_controller.providers import ProviderRegistry
+    from flamoris_generation_controller.workflows import WorkflowStore
+
     from flamoris_generation_mcp.config import Settings
-    from flamoris_generation_mcp.jobs import JobStore
-    from flamoris_generation_mcp.models import ModelCatalog
-    from flamoris_generation_mcp.providers import ProviderRegistry
-    from flamoris_generation_mcp.workflows import WorkflowStore
 
     workflows = WorkflowStore(
         ModelCatalog(Settings(model_root=tmp_path)), tmp_path / "recipes", speech_enabled=True
@@ -361,7 +361,7 @@ def job_store(provider, tmp_path):
 
 
 async def test_shared_jobstore_native_pipeline_and_restart(provider, tmp_path):
-    from flamoris_generation_mcp.jobs import JobStore
+    from flamoris_generation_controller.jobs import JobStore
 
     jobs = job_store(provider, tmp_path)
     built = jobs.workflows.build("speech-no-reference", {"text": "こんにちは"})
@@ -386,8 +386,8 @@ async def test_shared_jobstore_native_pipeline_and_restart(provider, tmp_path):
 
 
 async def test_shared_reservation_recovery_unknown_and_exclusive(provider, tmp_path):
-    from flamoris_generation_mcp.jobs import GenerationBusyError, JobStore
-    from flamoris_generation_mcp.providers import ProviderRegistry
+    from flamoris_generation_controller.jobs import GenerationBusyError, JobStore
+    from flamoris_generation_controller.providers import ProviderRegistry
 
     jobs = job_store(provider, tmp_path)
     built = jobs.workflows.build("speech-no-reference", {"text": "sleep"})
