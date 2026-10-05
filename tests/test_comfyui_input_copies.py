@@ -279,8 +279,8 @@ async def test_readiness_requires_configured_accessible_shared_root(
     async with Client(server) as client:
         health = await client.call_tool("system.health")
         support = health.structured_content["managed_input_support"]
-        assert support["ready"] is False
-        assert support["reference_execution"] == "retired"
+        assert support["ready"] is (kind == "accessible")
+        assert support["reference_execution"] == "checkpoint-comfy-v1"
         assert support["retained_copy_store_available"] is (root_kind == "accessible")
         if root_kind == "accessible":
             (root / "flamoris-inputs/unrecorded.png").write_bytes(b"keep")

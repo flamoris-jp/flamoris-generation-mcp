@@ -22,6 +22,7 @@ jobs:
       - run: pytest
 
       - name: Export facade catalog
+        if: always()
         run: |
           python - <<'PY'
           import asyncio, json
@@ -36,4 +37,3 @@ jobs:
                   print("CODEX_CATALOG_END")
           asyncio.run(main())
           PY
-
