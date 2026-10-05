@@ -1,19 +1,14 @@
 """ComfyUI implementation of the provider-neutral generation contract."""
 
-import asyncio
 import logging
-from contextlib import nullcontext
 from pathlib import Path
 
 from ..comfyui import ComfyUIClient
-from ..image_decode import decode_image
-from ..image_profile import image_topology
 from ..models import ModelCatalog
-from ..workflows import ExternalRecipe, Recipe, WorkflowStore, build_prompt
+from ..workflows import Recipe, WorkflowStore, build_prompt
 from .base import (
     GenerationRequest,
     JobSnapshot,
-    OutputRole,
     ProviderError,
     ProviderHealth,
     ProviderJob,
@@ -69,16 +64,6 @@ class ComfyUIProvider:
         )
         self._outputs: dict[tuple[str, str], dict] = {}
         self._output_nodes: dict[str, str] = {}
-        self._output_contracts = {}
-
-    def capture_output_contract(self, execution_id, definition):
-        if hasattr(definition, "v3_identity"):
-            dimensions = image_topology(definition)["dimensions"]
-            self._output_contracts[execution_id] = (
-                definition.output_port,
-                definition.output_contract,
-                {k: definition.graph[dimensions]["inputs"][k] for k in ("width", "height")},
-            )
 
     def retention(self) -> ComfyUIRetention | None:
         root = self.client.settings.comfyui_output_root
@@ -93,123 +78,26 @@ class ComfyUIProvider:
         )
 
     async def submit(self, request: GenerationRequest, job_id: str) -> ProviderJob:
-        if request.operation != "image.generate" or not isinstance(
-            request.payload, (Recipe, ExternalRecipe)
+        if (
+            request.operation != "image.generate"
+            or not isinstance(request.payload, Recipe)
+            or request.definition is not None
+            or request.runtime_evidence is not None
         ):
-            raise SubmissionRejected("ComfyUI does not support the requested operation")
-        definition = request.definition
-        posted = False
-        managed_inputs = {}
+            raise SubmissionRejected("ComfyUI supports only retained builtin image recipes")
         try:
-            if isinstance(request.payload, ExternalRecipe):
-                if self.workflows is None:
-                    raise ValueError("Workflow definitions are not configured")
-                definition = definition or self.workflows.capture(request.payload)
-            guard = nullcontext()
-            if self.workflows is not None and self.workflows.readiness is not None:
-                guard = self.workflows.readiness.execution_guard(
-                    request.payload, definition, request.runtime_evidence
-                )
-            with guard:
-                if definition is not None:
-                    bindings = {
-                        name: spec
-                        for name, spec in definition.parameters.items()
-                        if spec.type == "managed_input"
-                    }
-                else:
-                    bindings = {}
-                if bindings:
-                    if self.managed_inputs is None:
-                        raise ValueError("Managed workflow inputs are not configured")
-                    refs = {name: request.payload.parameters[name] for name in bindings}
-                    allowed = {name: set(spec.media_types) for name, spec in bindings.items()}
-                    provider_inputs = {}
-                    async with self.managed_inputs.stage(job_id, refs, allowed) as readers:
-                        extensions = {
-                            "image/png": ".png",
-                            "image/jpeg": ".jpg",
-                            "image/webp": ".webp",
-                        }
-                        for index, (name, reader) in enumerate(readers.items()):
-                            mime_type = reader.metadata["mime_type"]
-                            content = bytearray()
-                            async for chunk in reader.chunks():
-                                content.extend(chunk)
-                            await asyncio.to_thread(decode_image, bytes(content), mime_type)
-                            if self.input_copies is not None:
-                                provider_inputs[name] = self.input_copies.stage(
-                                    job_id, bytes(content), mime_type
-                                )
-                            else:
-                                # Legacy schema-1 development path. Production image-v1
-                                # readiness requires the shared, bounded input store.
-                                provider_inputs[name] = await self.client.upload_input(
-                                    bytes(content),
-                                    mime_type,
-                                    f"flamoris-{job_id}-{index:02d}{extensions[mime_type]}",
-                                )
-                            managed_inputs[name] = {
-                                key: reader.metadata[key]
-                                for key in (
-                                    "input_id",
-                                    "source_asset_id",
-                                    "sha256",
-                                    "mime_type",
-                                    "size_bytes",
-                                )
-                            }
-                            if reader.metadata.get("source_kind") == "upload":
-                                managed_inputs[name]["source_kind"] = "upload"
-                        self.workflows.capture(request.payload)
-                        prompt = self.workflows.prompt(
-                            request.payload, job_id, provider_inputs, definition
-                        )
-                        if self.workflows.readiness is not None:
-                            self.workflows.readiness.before_post(
-                                request.payload, definition, request.runtime_evidence
-                            )
-                        if self.input_copies is not None:
-                            self.input_copies.before_post(job_id)
-                        posted = True
-                        execution_id = await self.client.submit(prompt, job_id)
-                        if self.input_copies is not None:
-                            self.input_copies.bind(job_id, execution_id)
-                else:
-                    if self.workflows is not None:
-                        self.workflows.capture(request.payload)
-                        prompt = self.workflows.prompt(
-                            request.payload, job_id, definition=definition
-                        )
-                        if self.workflows.readiness is not None:
-                            self.workflows.readiness.before_post(
-                                request.payload, definition, request.runtime_evidence
-                            )
-                    else:
-                        prompt = build_prompt(request.payload, self.catalog)
-                        prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
-                    posted = True
-                    execution_id = await self.client.submit(prompt, job_id)
-        except BaseException as exc:
-            if self.input_copies is not None and (
-                not posted or isinstance(exc, SubmissionRejected)
-            ):
-                try:
-                    self.input_copies.rejected(job_id)
-                except (OSError, ValueError):
-                    logger.warning("ComfyUI input cleanup deferred; storage charge retained")
-            if not posted:
-                detail = (
-                    str(exc)[:300]
-                    if isinstance(exc, ValueError)
-                    else "Workflow rejected before generation submission"
-                )
-                raise SubmissionRejected(detail) from exc
-            raise
-        # The accepted execution always retains the graph's captured output identity.
-        self._output_nodes[execution_id] = definition.output_node if definition is not None else "7"
-        self.capture_output_contract(execution_id, definition)
-        return ProviderJob(execution_id=execution_id, managed_inputs=managed_inputs)
+            if self.workflows is not None:
+                prompt = self.workflows.prompt(request.payload, job_id)
+            else:
+                prompt = build_prompt(request.payload, self.catalog)
+                prompt["7"]["inputs"]["filename_prefix"] = f"flamoris/{job_id}"
+        except ValueError as exc:
+            raise SubmissionRejected(str(exc)[:300]) from exc
+        # No custom graph/managed-reference injection and no retry after an
+        # uncertain POST. ComfyUIClient preserves the accepted/unknown distinction.
+        execution_id = await self.client.submit(prompt, job_id)
+        self._output_nodes[execution_id] = "7"
+        return ProviderJob(execution_id=execution_id)
 
     def _normalize(self, execution_id: str, raw: dict) -> JobSnapshot:
         status = raw.get("status")
@@ -221,29 +109,15 @@ class ComfyUIProvider:
         if declared_node is None:
             raise ProviderError("Unknown ComfyUI execution; inspect only submitted jobs")
         selected = [item for item in raw.get("outputs", []) if item.get("node_id") == declared_node]
-        contract = self._output_contracts.get(execution_id)
-        if (
-            contract is not None
-            and status == "completed"
-            and (len(selected) != 1 or len(raw.get("outputs", [])) != 1)
-        ):
-            # Provider completion is observed, but cannot satisfy the declared result.
-            return JobSnapshot(status="failed", error={"code": "output_contract"})
         if status == "completed" and not selected:
-            raise ProviderError("ComfyUI returned no declared workflow output")
-        if contract is not None and status != "completed":
-            selected = []  # Partial provider outputs are never public v3 results.
+            raise ProviderError("ComfyUI returned no declared recipe output")
         for index, item in enumerate(selected):
             try:
                 filename = item["filename"]
                 suffix = Path(filename).suffix.lower()
                 media_kind, mime_type = MEDIA_TYPES[suffix]
             except (KeyError, TypeError, ValueError):
-                if contract is not None:
-                    return JobSnapshot(status="failed", error={"code": "output_contract"})
                 raise ProviderError("ComfyUI returned an unsupported output") from None
-            if contract is not None and mime_type not in contract[1].mime_types:
-                return JobSnapshot(status="failed", error={"code": "output_contract"})
             output_id = f"{index:03d}"
             outputs.append(
                 ProviderOutput(
@@ -251,7 +125,6 @@ class ComfyUIProvider:
                     filename=filename,
                     media_kind=media_kind,
                     mime_type=mime_type,
-                    role=OutputRole(contract[0], contract[1].role) if contract else None,
                 )
             )
             self._outputs[(execution_id, output_id)] = dict(item)
@@ -315,20 +188,7 @@ class ComfyUIProvider:
             raise ProviderError(
                 "Unknown ComfyUI output; inspect the job before retrieval"
             ) from None
-        data = await self.client.download(output)
-        contract = self._output_contracts.get(execution_id)
-        if contract is not None and len(data) > contract[1].max_bytes:
-            raise ProviderError("Image output exceeds declared byte limit")
-        if contract is not None:
-            await self._validate_image(data, output, contract)
-        return data
-
-    @staticmethod
-    async def _validate_image(data, output, contract):
-        mime_type = MEDIA_TYPES[Path(output["filename"]).suffix.lower()][1]
-        dimensions = await asyncio.to_thread(decode_image, data, mime_type)
-        if dimensions != contract[2]:
-            raise ProviderError("Image output differs from declared dimensions")
+        return await self.client.download(output)
 
     async def close(self) -> None:
         await self.client.close()
@@ -340,16 +200,5 @@ class ComfyUIProvider:
         if output is None:
             raise ProviderError("Unknown ComfyUI output; inspect before retrieval")
         async with aclosing(self.client.stream_output(output)) as stream:
-            size = 0
-            contract = self._output_contracts.get(execution_id)
-            data = bytearray() if contract is not None else None
             async for chunk in stream:
-                size += len(chunk)
-                if contract is not None and size > contract[1].max_bytes:
-                    raise ProviderError("Image output exceeds declared byte limit")
-                if data is not None:
-                    data.extend(chunk)
                 yield chunk
-            if data is not None:
-                # Transfer destinations commit only after the stream closes successfully.
-                await self._validate_image(bytes(data), output, contract)

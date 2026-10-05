@@ -84,7 +84,6 @@ def context(settings):
     workflows = WorkflowStore(
         ModelCatalog(settings),
         settings.workflow_dir,
-        settings.workflow_dir / "definitions",
         speech_enabled=True,
         music_enabled=True,
         transcription_enabled=True,
@@ -162,15 +161,6 @@ def test_native_workflows_are_independent_opt_in_saved_recipes(
     setattr(store, flag, False)
     with pytest.raises(ValueError, match="disabled"):
         store.get(built["workflow_id"])
-
-
-@pytest.mark.parametrize("template", ["music-generate", "music-transcribe"])
-def test_native_ids_are_reserved_even_while_disabled(settings, template):
-    store = WorkflowStore(
-        ModelCatalog(settings), settings.workflow_dir, settings.workflow_dir / "definitions"
-    )
-    with pytest.raises(ValueError, match="reserved"):
-        store.register_definition({"id": template})
 
 
 def test_configuration_uses_explicit_independent_paths(monkeypatch):

@@ -1,5 +1,7 @@
 # Workflow discovery and managed img2img design
 
+> Historical and superseded by [the implemented retirement](LEGACY_RETIREMENT.md) under AI #18. Custom graph registration, qualification, composition and Runtime delegation described below are removed or held; these are not current source/configuration or rollout instructions. Retained data and uncertainty fences remain protected.
+
 Status: proposed implementation contract; design-only. Reviewed 2026-10-01. Tracks
 Generation #19/#42 and Studio #21/#30. No implementation, deployment, runtime
 registration, GPU execution, or automatic merge is included in this PR.

@@ -10,16 +10,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$scratch/models/checkpoints" "$scratch/workflows" "$scratch/outputs" "$scratch/definitions"
+mkdir -p "$scratch/models/checkpoints" "$scratch/workflows" "$scratch/outputs"
 chmod 755 "$scratch"
-chmod 777 "$scratch/workflows" "$scratch/outputs" "$scratch/definitions"
+chmod 777 "$scratch/workflows" "$scratch/outputs"
 printf 'sample' > "$scratch/models/checkpoints/example.safetensors"
-cp src/flamoris_generation_mcp/example_definitions/basic-image.json "$scratch/definitions/"
 
 # Parse the shipped Compose sample with non-default interpolation values before
 # exercising the image independently; this catches a stale or invalid example.
 MODEL_ROOT="$scratch/models" WORKFLOW_ROOT="$scratch/workflows" \
-  DEFINITION_ROOT="$scratch/definitions" \
   OUTPUT_ROOT="$scratch/outputs" FLAMORIS_HTTP_PORT=9876 \
   FLAMORIS_MCP_PATH=/review/mcp docker compose -f compose.yaml config --format json |
   python -c '
@@ -33,8 +31,8 @@ assert str(service["ports"][0]["published"]) == "9876"
 assert service["ports"][0]["host_ip"] == "127.0.0.1"
 mounts = {volume["target"]: volume for volume in service["volumes"]}
 assert mounts["/data/models"]["read_only"] is True
-assert mounts["/data/definitions"].get("read_only", False) is False
-assert service["environment"]["FLAMORIS_WORKFLOW_DEFINITION_DIR"] == "/data/definitions"
+assert "/data/definitions" not in mounts
+assert "FLAMORIS_WORKFLOW_DEFINITION_DIR" not in service["environment"]
 assert mounts["/data/workflows"].get("read_only", False) is False
 assert mounts["/data/outputs"].get("read_only", False) is False
 '
@@ -44,7 +42,6 @@ container=$(docker run -d --read-only --tmpfs /tmp:mode=1777 \
   -p 127.0.0.1::8765 \
   -e FLAMORIS_COMFYUI_URL=http://127.0.0.1:1 \
   -v "$scratch/models:/data/models:ro" \
-  -v "$scratch/definitions:/data/definitions" \
   -v "$scratch/workflows:/data/workflows" \
   -v "$scratch/outputs:/data/outputs" "$image")
 
@@ -80,9 +77,16 @@ from flamoris_generation_mcp.config import Settings
 from flamoris_generation_mcp.models import ModelCatalog
 from flamoris_generation_mcp.workflows import WorkflowStore
 settings = Settings.from_env()
-store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir, settings.workflow_definition_dir)
-assert store.list()["definitions"][0]["id"] == "basic-image"
-assert store.build("basic-image", {"checkpoint": "example.safetensors", "positive_prompt": "smoke"})
+store = WorkflowStore(ModelCatalog(settings), settings.workflow_dir)
+assert store.list()["definitions"] == []
+built = store.build("text-to-image", {"checkpoint": "example.safetensors", "positive_prompt": "smoke"})
+assert store.save(built["workflow_id"])
+try:
+    store.build("basic-image", {"checkpoint": "example.safetensors", "positive_prompt": "smoke"})
+except ValueError as error:
+    assert "retired" in str(error)
+else:
+    raise AssertionError("custom recipe executed")
 assert models.read_text() == 'sample'
 try:
     models.write_text('changed')
@@ -92,21 +96,11 @@ else:
     raise AssertionError('model mount is writable')
 Path('/data/workflows/smoke').write_text('workflow')
 Path('/data/outputs/smoke').write_text('output')
-definition = json.loads(Path('/data/definitions/basic-image.json').read_text())
-definition['id'] = 'runtime-smoke'
-definition['name'] = 'Runtime smoke'
-registered = store.register_definition(definition)
-assert registered['id'] == 'runtime-smoke'
-assert registered['version'] == 1
+
 PY
 test "$(cat "$scratch/models/checkpoints/example.safetensors")" = sample
 test "$(cat "$scratch/workflows/smoke")" = workflow
 test "$(cat "$scratch/outputs/smoke")" = output
-python - "$scratch/definitions/runtime-smoke.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as stream:
-    assert json.load(stream)["id"] == "runtime-smoke"
-PY
+
 test "$(docker inspect -f '{{.State.Running}}' "$container")" = true
 echo 'Docker Streamable HTTP, liveness, non-root and mounts PASS'

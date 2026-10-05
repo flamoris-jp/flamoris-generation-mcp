@@ -22,11 +22,9 @@ from flamoris_generation_mcp.providers.comfyui_inputs import ComfyUIInputs
 
 async def check_tools(client):
     tools = await client.list_tools()
-    assert len(tools.tools) == 25
+    assert len(tools.tools) == 23
     assert {
         "capabilities.list",
-        "workflows.register",
-        "workflows.verify",
         "jobs.submit",
         "assets.get",
         "assets.delete",
