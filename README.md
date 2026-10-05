@@ -39,8 +39,9 @@ The external catalog now has 25 tools. See [reference registration](docs/COMFY_R
 | `inputs.create/get/delete`, `inputs.upload.begin/write/finish` | Immutable snapshots, bounded uploads and in-use/retention guards |
 
 `workflows.register`, `workflows.verify` and every `workflows.v3.*` tool are
-retired. Old optional definition/readiness arguments to `workflows.build` reject
-explicitly. Saved schema-2/3 recipes remain on disk and discoverable but cannot
+retired. `definition_digest` is supported for the new registered profile; old
+definition-version/readiness arguments cannot enable retired qualification or
+versioning and reject unsupported use explicitly. Saved schema-2/3 recipes remain on disk and discoverable but cannot
 execute or be rewritten through save. No unknown custom template falls back to a
 builtin recipe. Retained custom in-flight debt stays reserved as unknown and is
 never replayed by the new package.
@@ -88,7 +89,7 @@ API base as `STUDIO_GENERATION_ENDPOINT`, the same service secret as
 separate from external MCP/Hub ingress credentials and signed provenance. The
 service credential grants a trusted backend the bounded operation surface; Studio
 retains user authorization. No MCP fallback or automatic uncertain-submit retry.
-See [Controller API](https://github.com/flamoris-jp/flamoris-generation-controller/blob/640a5bd48c76e4bf736e9a3589c216123ccd18b3/docs/API.md).
+See [Controller API](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/API.md).
 
 `FLAMORIS_MODEL_ROOT`, `FLAMORIS_WORKFLOW_DIR`, `FLAMORIS_OUTPUT_DIR` and
 `FLAMORIS_COMFYUI_URL` retain their existing meanings. Docker retains models,
@@ -118,6 +119,7 @@ are separate from live host/provider qualification and deployment acceptance.
 誤って追加した独自ComfyWorkFlowの登録・検証・v3構成・Runtime橋渡しを削除しました。
 元のImageテンプレートとnative provider recipe、入力・資産・未確定予約の保護は維持します。
 削除済みの独自機能は再作成していません。残る生成処理はControllerへ移し、StudioのHTTP入口と外部MCP入口が同じ実行予約を使います。実機切替・保存データの削除は行っていません。
+その後、別の限定profileとして標準checkpointのtxt2img／img2img登録と管理参照画像を実装し、mainへマージしました。外部toolは25件です。旧schema 2/3・v3や任意custom nodeは対象外で、実機生成は未確認です。
 
 ## License and support
 

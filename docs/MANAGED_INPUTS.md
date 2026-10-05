@@ -1,6 +1,6 @@
 # Managed inputs (Issues #30 and #64)
 
-After [custom ComfyWorkFlow retirement](LEGACY_RETIREMENT.md), immutable input/upload APIs, leases and retention remain. Image builtin recipes do not consume managed references; references to custom Image binding or verification below describe historical use. Native transcription keeps its separately reviewed input contract. Existing input snapshots and active debt are not deleted or replayed.
+After [custom ComfyWorkFlow retirement](LEGACY_RETIREMENT.md), immutable input/upload APIs, leases and retention remain. Image builtin recipes do not consume managed references; references to custom Image binding or verification below describe historical use. The later [bounded checkpoint img2img profile](COMFY_REGISTRATION.md) consumes managed image references through Controller-owned schema 7; it does not restore old bindings or verification. Native transcription keeps its separately reviewed input contract. Existing input snapshots and active debt are not deleted or replayed.
 
 An existing generated asset can be copied into an immutable managed input.
 Trusted clients can also upload bounded local images using the protocol below.
@@ -52,7 +52,8 @@ any RPC; raw input IDs grant no access. No upload automatically submits a job.
 
 Upload preparation uses no GPU and submits no job. The retained image templates
 accept no reference input. Image uploads remain available as immutable snapshots;
-they do not enable custom graphs or reference-image inference. Native transcription
+they can be used by the explicitly registered schema-7 img2img profile, with its
+managed-input validation and provider copy protection. Upload alone does not run inference. Native transcription
 consumes an owned generated WAV under its separate schema-6 contract.
 
 ## Limits and lifecycle
@@ -88,8 +89,11 @@ No second job/GPU authority is created. Runtime lifecycle remains external.
 
 The active native consumer is the SheetSage2 adapter: it stages the recipe's
 `audio` managed input under an `audio/wav` allowlist and the shared JobStore
-reservation. The ComfyUI adapter builds only the two original schema-1 txt2img
-prompts, with no managed-reference injection or HTTP image upload.
+reservation. The ComfyUI adapter retains the original schema-1 txt2img prompts
+and additionally executes bounded registered schema-7 txt2img/img2img graphs.
+For img2img it stages the immutable reference and creates a confined shared-input
+copy under `COMFYUI_INPUT_ROOT`; it accepts no caller filenames or arbitrary paths
+and uses no HTTP image-upload shortcut. Unknown POST retains the copy and reservation.
 
 ## Historical ComfyUI copy protection (Issue #62)
 
@@ -151,8 +155,9 @@ or changed/quarantined entries requires operator reconciliation with JobStore an
 provider execution evidence. Restart, queue absence and old mtime are insufficient
 evidence. Readiness must remain disabled during unresolved reconciliation.
 
-No current image-v1 qualification, attestation or reference-image rollout path
-exists. Historical shared copies require private operator reconciliation with
+The retired image-v1 qualification/attestation rollout remains unavailable.
+The separate current schema-7 img2img rollout is documented in
+[COMFY_REGISTRATION.md](COMFY_REGISTRATION.md), with live acceptance still pending. Historical shared copies require private operator reconciliation with
 actual execution and storage evidence. Offline lifecycle tests do not establish
 installed-runtime readiness. Preserve charged copies and authority records while
 that outcome remains uncertain.
