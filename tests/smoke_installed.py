@@ -21,7 +21,7 @@ from PIL import Image
 
 async def check_tools(client):
     tools = await client.list_tools()
-    assert len(tools.tools) == 23
+    assert len(tools.tools) == 25
     assert {
         "capabilities.list",
         "jobs.submit",

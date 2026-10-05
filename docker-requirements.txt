@@ -7,7 +7,7 @@ certifi==2026.7.22
 cffi==2.1.1
 click==8.5.0
 cryptography==50.0.1
-flamoris-generation-controller @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/b57140954c8bc8176d882a053df70f00fad2be31.zip
+flamoris-generation-controller @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/3014133d861f6ea5fdc23b5379b911025d089e8d.zip
 h11==0.16.0
 httpcore==1.0.9
 httpcore2==2.13.1
@@ -33,3 +33,4 @@ truststore==0.10.4
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 uvicorn==0.53.0
+

@@ -9,7 +9,7 @@ description = "Small MCP server for template-based media generation"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
-dependencies = ["mcp>=2.2,<3", "httpx>=0.28,<1", "pydantic>=2.11,<3", "flamoris-generation-controller[http] @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/b57140954c8bc8176d882a053df70f00fad2be31.zip"]
+dependencies = ["mcp>=2.2,<3", "httpx>=0.28,<1", "pydantic>=2.11,<3", "flamoris-generation-controller[http] @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/3014133d861f6ea5fdc23b5379b911025d089e8d.zip"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.14,<1", "build>=1.2,<2"]
@@ -33,3 +33,4 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+

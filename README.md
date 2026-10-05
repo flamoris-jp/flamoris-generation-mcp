@@ -24,6 +24,12 @@ credential change or runtime switch.
 
 ## Retained external contracts
 
+Controller #6 adds a separate bounded checkpoint profile through `comfy.register`
+and `comfy.get`: immutable txt2img/img2img API-format graphs, managed initial
+images and schema 7 recipes. This is static validation, with live readiness
+unverified. Retired schema 2/3, v3 and custom-node graphs remain unavailable.
+The external catalog now has 25 tools. See [reference registration](docs/COMFY_REGISTRATION.md).
+
 | Tool family | Current responsibility |
 | --- | --- |
 | `system.health`, `capabilities.list/get`, `models.list/get` | Configured metadata and bounded status; not production qualification |
