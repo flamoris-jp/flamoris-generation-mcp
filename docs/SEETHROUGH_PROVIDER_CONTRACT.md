@@ -1,6 +1,6 @@
 # SeeThrough and AnimeGen integration gates
 
-This source review belongs to #25. It records the actual output transport before
+This held source review belongs to #25. Decomposition/video have no current Generation implementation; custom graph registration and qualification were retired under AI #18. The pinned upstream output findings remain research, not a current authoring/rollout contract. It records the actual output transport before
 adding `image.decompose` or video workflows. It does not register a workflow,
 advertise a ready capability, or establish current runtime health.
 
@@ -45,23 +45,24 @@ filename glob has the same ownership problem.
 
 ## Required integration shape
 
-Use the existing trusted ComfyUI workflow authoring and JobStore authority. Keep
-the current Image execution profile unchanged. The following gates must be met
-before a decomposition workflow is advertised:
+A separately authorized future decomposition adapter needs a minimal input/output
+contract and the single retained job authority. The former custom graph registry
+and input-injection path are absent and must not be reused or recreated by this
+research document. The following are contract questions, not implementation steps:
 
 1. Obtain the API-format graph used for a successful decomposition, with exact
    custom-node identities, model configuration and dependency links. The upstream
    `seethrough-basic.json` example is a UI-format authoring graph, not this receipt.
 2. Replace the public image filename with a declared managed image binding.
-   Stage only owned PNG/JPEG/WebP inputs through the existing bounded lease and
-   ComfyUI upload adapter; preserve source identity and digest. Clients cannot
+   Any future adapter must use owned PNG/JPEG/WebP inputs with bounded leases and
+   a separately reviewed provider staging contract; preserve source identity and digest. Clients cannot
    supply provider filenames, output prefixes or absolute paths.
 3. Establish a job-scoped output receipt. A reviewed save-node extension may
    return the manifest through ComfyUI UI metadata, tied to the submitted prompt
    and declared output node. An independently reviewed native layered-save route
    is also possible. Both require their actual installed contracts and a real
    graph; neither is inferred from a node display name.
-4. Assign the output prefix from the Hub job ID and enforce it in the whole
+4. Assign the output prefix from the generation job ID and enforce it in the whole
    manifest. Accept only bounded relative basenames within that exact scope, reject
    duplicate references, traversal, absolute paths and symlinks, and confine local
    retention to the configured provider output root. A returned absolute path is

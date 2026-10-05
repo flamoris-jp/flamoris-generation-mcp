@@ -16,7 +16,7 @@ Controller remains documentation-only. Old Generation Hub expansion or Runtime-b
 
 Use ComfyWorkFlow for ComfyUI graph/API-format JSON. Use ExecuteFlow for Runtime inference flow and keep the existing compiled ExecutionPlan distinct. Non-ComfyUI generation requests/recipes are not automatically ComfyWorkFlow. Avoid bare Workflow as new FLAMORIS architecture prose.
 
-Preserve exact current `workflows.*`, `workflow_id`, `WorkflowDefinition`, `WorkflowStore`, schemas, configuration keys and file paths until an explicit compatibility-reviewed implementation change. `workflow_id` returned by build is a built recipe handle, not necessarily the registered definition ID. `FLAMORIS_WORKFLOW_DIR` stores retained recipes; the custom definition directory setting is retired and existing host data is preserved. Do not invent a config or API rename in docs.
+Preserve exact current `workflows.*`, `workflow_id`, `WorkflowStore`, schemas, configuration keys and file paths until an explicit compatibility-reviewed implementation change. `workflow_id` returned by build is a built recipe handle, not necessarily the registered definition ID. `FLAMORIS_WORKFLOW_DIR` stores retained recipes; the custom definition directory setting is retired and existing host data is preserved. Do not invent a config or API rename in docs.
 
 ## Retained behavior and authority
 

@@ -149,7 +149,7 @@ def test_native_workflows_are_independent_opt_in_saved_recipes(
     assert built["schema_version"] == schema and built["prompt"] is None
     recipe = store.get(built["workflow_id"])
     assert isinstance(recipe, recipe_type)
-    assert store.routing(recipe) == route and store.capture(recipe) is None
+    assert store.routing(recipe) == route
     with pytest.raises(ValueError, match="no ComfyUI"):
         store.prompt(recipe)
     for preconditions in ({"require_ready": True}, {"definition_version": 1}):
@@ -243,7 +243,7 @@ async def test_music_shares_reservation_with_image_speech_and_transcription(sett
     _, fixtures, _, _, jobs, built = context(settings)
     submitted = await jobs.submit(built[provider_id])
     request = fixtures[provider_id].requests[0][0]
-    assert request.definition is None
+    assert request.workflow_id == built[provider_id]
     for other in built.values():
         with pytest.raises(GenerationBusyError):
             await jobs.submit(other)

@@ -500,8 +500,6 @@ class SheetSage2Provider:
             not isinstance(request.payload, TranscriptionRecipe)
             or request.operation != TRANSCRIPTION_CAPABILITY
             or request.payload.template != TRANSCRIPTION_TEMPLATE
-            or request.definition is not None
-            or request.runtime_evidence is not None
             or type(job_id) is not str
             or not re.fullmatch(r"[0-9a-f]{32}", job_id)
         ):

@@ -53,13 +53,11 @@ class ProviderHealth:
 
 @dataclass(frozen=True)
 class GenerationRequest:
-    """Validated Hub request passed to the explicitly selected provider."""
+    """Validated generation recipe passed to the explicitly selected provider."""
 
     operation: str
     workflow_id: str
     payload: object
-    definition: object | None = None
-    runtime_evidence: object | None = None
 
 
 @dataclass(frozen=True)
