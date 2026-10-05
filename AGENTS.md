@@ -4,6 +4,11 @@ These instructions apply to the repository. Read README.md and [AI #18](https://
 
 ## Current authorization and target
 
+Controller #6 supersedes the earlier reference-image hold for immutable bounded
+checkpoint ComfyWorkFlow registration and init-image generation through the
+external MCP facade. Implement and test matched catalogs in reviewable PRs;
+this request does not authorize merging or any live/data/grant/credential change.
+
 The subsequent user instruction authorizes deletion-first source cleanup, matched catalogs/callers, deterministic tests, review/fixes and merges. Remove the mistaken custom ComfyWorkFlow/v3/Runtime-delegation subsystem while preserving original builtin/native recipes and retained-data protections. The latest 2026-10-05 user instruction explicitly authorizes Controller implementation and matched caller integration, superseding the previous implementation hold. Do not migrate/delete user data, expand reference-image features, deploy, switch runtimes or call live providers.
 
 Generation MCP's target responsibility is the external MCP facade used by ChatGPT through Hub. Internal FLAMORIS service/application calls use non-MCP contracts. The retained domain now lives in the pinned MCP-free Controller package. One constructed runtime is shared by MCP tools and internal HTTP; never instantiate domain stores per caller/session.

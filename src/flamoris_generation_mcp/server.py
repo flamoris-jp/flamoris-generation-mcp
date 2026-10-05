@@ -172,6 +172,45 @@ def create_server(
             raise ToolError("Generation operation unavailable") from None
 
     @server.tool(
+        name="comfy.register",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
+    )
+    async def register_comfy(name: str, graph: dict[str, Any]) -> dict[str, Any]:
+        """Register an immutable bounded checkpoint ComfyWorkFlow API graph.
+
+        Supports txt2img and init-image img2img core profiles. Use the documented
+        $reference_image slot; supply its managed input ID to workflows.build.
+        Registration is static validation, not proof of live GPU/model readiness.
+        """
+        try:
+            return await controller.invoke(
+                "comfy.register",
+                {"name": name, "graph": graph},
+                context=CallerContext.external(current_provenance()),
+            )
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
+
+    @server.tool(
+        name="comfy.get",
+        annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    )
+    async def get_comfy(definition_id: str) -> dict[str, Any]:
+        """Get a registered ComfyWorkFlow descriptor and immutable content digest."""
+        try:
+            return await controller.invoke(
+                "comfy.get",
+                {"definition_id": definition_id},
+                context=CallerContext.external(current_provenance()),
+            )
+        except (GenerationBusyError, ProviderError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+        except (OSError, TimeoutError, ControllerError):
+            raise ToolError("Generation operation unavailable") from None
+
+    @server.tool(
         name="workflows.build",
         annotations=ToolAnnotations(
             **{"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}

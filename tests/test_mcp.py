@@ -14,6 +14,8 @@ TOOL_NAMES = {
     "models.list",
     "models.get",
     "workflows.list",
+    "comfy.register",
+    "comfy.get",
     "workflows.build",
     "workflows.save",
     "jobs.submit",
@@ -51,7 +53,7 @@ async def test_mcp_protocol_validation_and_generation(settings, fake):
             "id": "image.generate",
             "provider_id": "comfyui",
             "runtime_id": "janku",
-            "workflow_templates": ["text-to-image", "text-to-image-lora"],
+            "workflow_templates": ["text-to-image", "text-to-image-lora", "registered-comfy"],
             "available": True,
         }
         detail = await client.call_tool("capabilities.get", {"capability_id": "image.generate"})
