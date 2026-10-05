@@ -17,6 +17,10 @@ selection and dispatch are retired in their owners. Runtime deletes its Generati
 media-lowering bridge while preserving native ExecuteFlow and generic embedding.
 The later Controller extraction reuses only the retained domain and receives none of this deleted subsystem. The facade now hosts one Controller for MCP and internal HTTP; no deleted feature is restored.
 
+The later accepted [bounded checkpoint registration profile](COMFY_REGISTRATION.md)
+uses new `comfy.register/get` operations and schema 7. It is separate from this
+retired subsystem; historical receipts below retain their original scope.
+
 ## Data and uncertainty
 
 The cleanup never deletes saved definitions/recipes, assets, immutable inputs,
