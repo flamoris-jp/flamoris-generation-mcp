@@ -141,7 +141,7 @@ async def test_provider_unavailable_does_not_make_hub_unhealthy(settings):
 
 
 async def test_asset_size_limit_is_actionable_over_mcp(settings, fake, monkeypatch):
-    monkeypatch.setattr("flamoris_generation_mcp.jobs.MAX_ASSET_BYTES", 4)
+    monkeypatch.setattr("flamoris_generation_controller.jobs.MAX_ASSET_BYTES", 4)
     server = create_server(settings, transport=httpx.MockTransport(fake.handle))
     async with Client(server) as client:
         workflow = await client.call_tool(

@@ -8,14 +8,14 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from flamoris_generation_controller.input_uploads import MAX_UPLOAD_BYTES, InputUploads
+from flamoris_generation_controller.inputs import ManagedInputs
+from flamoris_generation_controller.jobs import JobStore
+from flamoris_generation_controller.transfers import CHUNK_BYTES, AssetTransfers
 from mcp import Client
 from PIL import Image
 
-from flamoris_generation_mcp.input_uploads import MAX_UPLOAD_BYTES, InputUploads
-from flamoris_generation_mcp.inputs import ManagedInputs
-from flamoris_generation_mcp.jobs import JobStore
 from flamoris_generation_mcp.server import create_server
-from flamoris_generation_mcp.transfers import CHUNK_BYTES, AssetTransfers
 
 
 def image(format="PNG", size=16):
@@ -142,7 +142,9 @@ async def test_quota_reserves_declared_bytes_and_expired_partial_is_pruned(uploa
     with pytest.raises(ValueError, match="budget"):
         await begin(restarted, b"x")
     original = __import__("time").time()
-    monkeypatch.setattr("flamoris_generation_mcp.input_uploads.time.time", lambda: original + 601)
+    monkeypatch.setattr(
+        "flamoris_generation_controller.input_uploads.time.time", lambda: original + 601
+    )
     with pytest.raises(ValueError, match="expired"):
         await uploads.finish(key)
     await begin(restarted, b"x")
@@ -215,7 +217,7 @@ async def test_cancellation_waits_for_decoder_and_protects_delete(uploads, monke
         started.set()
         assert release.wait(5)
 
-    monkeypatch.setattr("flamoris_generation_mcp.input_uploads.decode_image", decode)
+    monkeypatch.setattr("flamoris_generation_controller.input_uploads.decode_image", decode)
     key = await begin(uploads, b"x")
     await write(uploads, key, b"x")
     task = asyncio.create_task(uploads.finish(key))

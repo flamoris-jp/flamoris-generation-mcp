@@ -4,13 +4,13 @@ These instructions apply to the repository. Read README.md and [AI #18](https://
 
 ## Current authorization and target
 
-The subsequent user instruction authorizes deletion-first source cleanup, matched catalogs/callers, deterministic tests, review/fixes and merges. Remove the mistaken custom ComfyWorkFlow/v3/Runtime-delegation subsystem while preserving original builtin/native recipes and retained-data protections. Do not implement Controller, migrate/delete user data, expand reference-image features, deploy, switch runtimes or call live providers.
+The subsequent user instruction authorizes deletion-first source cleanup, matched catalogs/callers, deterministic tests, review/fixes and merges. Remove the mistaken custom ComfyWorkFlow/v3/Runtime-delegation subsystem while preserving original builtin/native recipes and retained-data protections. The latest 2026-10-05 user instruction explicitly authorizes Controller implementation and matched caller integration, superseding the previous implementation hold. Do not migrate/delete user data, expand reference-image features, deploy, switch runtimes or call live providers.
 
-Generation MCP's target responsibility is the external MCP facade used by ChatGPT through Hub. Internal FLAMORIS service/application calls use non-MCP contracts. The current Python package co-locates generation-domain code; document this as-built fact without making it permanent ownership or pretending it was already removed.
+Generation MCP's target responsibility is the external MCP facade used by ChatGPT through Hub. Internal FLAMORIS service/application calls use non-MCP contracts. The retained domain now lives in the pinned MCP-free Controller package. One constructed runtime is shared by MCP tools and internal HTTP; never instantiate domain stores per caller/session.
 
 The custom MCP-side ComfyWorkFlow subsystem is retired, not transferred into Controller or recreated. Read docs/LEGACY_RETIREMENT.md for the removed source/tools, matched Studio/Hub callers and preserved data/fences. Do not delete a generic recipe store merely because its name contains workflow; it may support non-ComfyUI providers too.
 
-Controller remains documentation-only. Old Generation Hub expansion or Runtime-bridge plans are historical/held, not implementation instructions overriding #18.
+Controller is implemented in its owning repository; this package retains facade/ingress configuration and a compatibility retention entry point. Old Generation Hub expansion or Runtime-bridge plans are historical/held, not implementation instructions overriding #18.
 
 ## Terminology and identifiers
 
@@ -22,7 +22,7 @@ Preserve exact current `workflows.*`, `workflow_id`, `WorkflowStore`, schemas, c
 
 Providers execute; current generation code validates/builds/submits/observes and materializes bounded outputs. Keep provider APIs behind adapters, explicit provider selection, original bounded builtin ComfyUI templates and validated parameters, model/catalog checks and ordered LoRA semantics where supported. Do not expose arbitrary raw graph mutation as a shortcut.
 
-MCP protocol validation/annotations/content mapping belongs to the external facade. Generation jobs, recipes, references and assets have one current authority until a reviewed change. Do not instantiate competing stores/reservations per frontend or equate process locks with host-wide GPU control. GPU Node Manager alone owns configured host lifecycle. Agent is optional personality, products retain document/user authority and Commons owns generic infrastructure.
+MCP protocol validation/annotations/content mapping belongs to the external facade. Generation jobs, recipes, references and assets have one Controller authority. Keep its output-root lifetime ownership lock and durable job reservations intact. Do not instantiate competing stores/reservations per frontend or equate process locks with host-wide GPU control. GPU Node Manager alone owns configured host lifecycle. Agent is optional personality, products retain document/user authority and Commons owns generic infrastructure.
 
 ## Safety and cleanup boundaries
 
@@ -36,7 +36,7 @@ Provider responses/paths and user-supplied metadata are untrusted. No arbitrary 
 
 ## Tests and review
 
-The actual issue defines scope. Do not add unrelated UI/auth/database/provider/deployment work. Read exact current source and tests before later cleanup and preserve/version external compatibility deliberately. Normal CI uses fake provider HTTP and bounded fixtures without live GPUs, weights or model services. Validate retained tool mapping, recipe building/identity, model discovery, state, provider errors, cancellation and negative paths. Run lint/format/package smoke when applicable; keep existing PR concurrency behavior.
+The actual issue defines scope. Do not add unrelated UI/auth/database/provider/deployment work. Read exact current source and tests before later cleanup and preserve/version external compatibility deliberately. Domain tests are owned by Controller; mixed transport/provenance tests import its values here. Normal CI uses fake provider HTTP and bounded fixtures without live GPUs, weights or model services. Validate retained tool mapping, recipe building/identity, model discovery, state, provider errors, cancellation and negative paths. Run lint/format/package smoke when applicable; keep existing PR concurrency behavior.
 
 Review final prose and literal identifiers, not only keyword matches. Merge only within the explicit user authorization; source merge does not authorize live deployment or data changes. Do not claim unrun tests, provider support or live qualification.
 

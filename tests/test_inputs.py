@@ -7,12 +7,12 @@ import zlib
 
 import httpx
 import pytest
+from flamoris_generation_controller.inputs import ManagedInputs
+from flamoris_generation_controller.jobs import JobStore
+from flamoris_generation_controller.transfers import CHUNK_BYTES, AssetTransfers
 from mcp import Client
 
-from flamoris_generation_mcp.inputs import ManagedInputs
-from flamoris_generation_mcp.jobs import JobStore
 from flamoris_generation_mcp.server import create_server
-from flamoris_generation_mcp.transfers import CHUNK_BYTES, AssetTransfers
 
 
 def png():
@@ -80,7 +80,7 @@ async def test_small_audio_snapshot(stores, fake):
     managed, asset = await setup_input(stores, fake)
     jobs = managed.transfers.jobs
     job = jobs._jobs[asset[:32]]
-    from flamoris_generation_mcp.providers import JobSnapshot, ProviderOutput
+    from flamoris_generation_controller.providers import JobSnapshot, ProviderOutput
 
     job.snapshot = JobSnapshot(
         status="completed", outputs=(ProviderOutput("000", "sample.wav", "audio", "audio/wav"),)
@@ -140,7 +140,7 @@ async def test_expiry_prune_and_unpublished_recovery(stores, fake, monkeypatch):
     with pytest.raises(ValueError, match="count limit"):
         await managed.create(asset)
     monkeypatch.setattr(
-        "flamoris_generation_mcp.inputs.time.time", lambda: record["expires_at"] + 1
+        "flamoris_generation_controller.inputs.time.time", lambda: record["expires_at"] + 1
     )
     with pytest.raises(ValueError, match="expired"):
         managed.get(record["input_id"])
@@ -271,7 +271,7 @@ async def test_staging_failure_releases_lease_and_aggregate_limit(stores, fake, 
         async with managed.stage(job_id, refs, types):
             raise RuntimeError("adapter failed")
     assert not managed._used and not managed._staging
-    monkeypatch.setattr("flamoris_generation_mcp.inputs.MAX_JOB_BYTES", 1)
+    monkeypatch.setattr("flamoris_generation_controller.inputs.MAX_JOB_BYTES", 1)
     with pytest.raises(ValueError, match="aggregate"):
         async with managed.stage(job_id, refs, types):
             pass
@@ -287,7 +287,7 @@ async def test_expiry_during_lease_does_not_remove_active_input(stores, fake, mo
     managed.transfers.jobs._active_job_id = job_id
     async with managed.stage(job_id, {"source": key}, {"source": {"image/png"}}) as readers:
         monkeypatch.setattr(
-            "flamoris_generation_mcp.inputs.time.time", lambda: record["expires_at"] + 1
+            "flamoris_generation_controller.inputs.time.time", lambda: record["expires_at"] + 1
         )
         managed._capacity()
         assert b"".join([chunk async for chunk in readers["source"].chunks()]) == png()
@@ -300,7 +300,7 @@ async def test_expiry_during_lease_does_not_remove_active_input(stores, fake, mo
 
 async def test_unsupported_video_rejected_before_provider_stream(stores, fake):
     managed, asset = await setup_input(stores, fake)
-    from flamoris_generation_mcp.providers import JobSnapshot, ProviderOutput
+    from flamoris_generation_controller.providers import JobSnapshot, ProviderOutput
 
     jobs = managed.transfers.jobs
     jobs._jobs[asset[:32]].snapshot = JobSnapshot(

@@ -2,15 +2,15 @@ import json
 
 import httpx
 import pytest
+from flamoris_generation_controller.capabilities import Capability, CapabilityRegistry
+from flamoris_generation_controller.comfyui import ComfyUIClient
+from flamoris_generation_controller.jobs import JobStore
+from flamoris_generation_controller.models import ModelCatalog
+from flamoris_generation_controller.providers import ProviderRegistry
+from flamoris_generation_controller.providers.comfyui import ComfyUIProvider
+from flamoris_generation_controller.workflows import WorkflowStore
 
-from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
-from flamoris_generation_mcp.comfyui import ComfyUIClient
 from flamoris_generation_mcp.config import Settings
-from flamoris_generation_mcp.jobs import JobStore
-from flamoris_generation_mcp.models import ModelCatalog
-from flamoris_generation_mcp.providers import ProviderRegistry
-from flamoris_generation_mcp.providers.comfyui import ComfyUIProvider
-from flamoris_generation_mcp.workflows import WorkflowStore
 
 
 def validation_rejection():

@@ -1,63 +1,14 @@
-"""Environment-only deployment configuration; paths are local to the MCP process."""
+"""External MCP transport/ingress configuration extends provider/storage settings."""
 
-import json
-import os
 import re
-from pathlib import Path
 from typing import Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    HttpUrl,
-    SecretStr,
-    field_validator,
-    model_validator,
-)
-
-ModelKind = Literal[
-    "checkpoint",
-    "lora",
-    "vae",
-    "controlnet",
-    "clip",
-    "clip_vision",
-    "diffusion_model",
-    "text_encoder",
-    "unet",
-]
-MODEL_FOLDERS: dict[str, str] = {
-    "checkpoint": "checkpoints",
-    "lora": "loras",
-    "vae": "vae",
-    "controlnet": "controlnet",
-    "clip": "clip",
-    "clip_vision": "clip_vision",
-    "diffusion_model": "diffusion_models",
-    "text_encoder": "text_encoders",
-    "unet": "unet",
-}
+from flamoris_generation_controller.config import ModelKind as ModelKind
+from flamoris_generation_controller.config import Settings as CoreSettings
+from pydantic import Field, SecretStr, field_validator, model_validator
 
 
-class Settings(BaseModel):
-    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
-
-    comfyui_url: HttpUrl = HttpUrl("http://localhost:8188")
-    model_root: Path = Path("models")
-    model_dirs: dict[ModelKind, list[Path]] = Field(default_factory=dict)
-    workflow_dir: Path = Path(".generation/workflows")
-    output_dir: Path = Path(".generation/outputs")
-    comfyui_output_root: Path | None = None
-    comfyui_input_root: Path | None = None
-    provider_input_max_files: int = Field(default=128, ge=1, le=128)
-    provider_input_max_bytes: int = Field(default=512 * 1024**2, ge=1, le=512 * 1024**2)
-    provider_cleanup_enabled: bool = False
-    provider_retention_days: int = Field(default=30, ge=0, le=36500)
-    request_timeout: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)
-    transfer_max_bytes: int = Field(default=1024**3, ge=1, le=4 * 1024**3)
-    transfer_disk_bytes: int = Field(default=8 * 1024**3, ge=1, le=64 * 1024**3)
-    targeted_interrupt: bool = False
+class Settings(CoreSettings):
     mcp_transport: Literal["stdio", "streamable-http"] = "stdio"
     http_host: str = Field(default="127.0.0.1", min_length=1, max_length=253)
     http_port: int = Field(default=8765, ge=1, le=65535)
@@ -66,9 +17,7 @@ class Settings(BaseModel):
     provenance_issuer: str | None = Field(
         default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
-    irodori_config: Path | None = None
-    yue2_config: Path | None = None
-    sheetsage2_config: Path | None = None
+    controller_token: SecretStr | None = Field(default=None, repr=False, exclude=True)
 
     @model_validator(mode="after")
     def validate_provenance_configuration(self):
@@ -90,6 +39,8 @@ class Settings(BaseModel):
     @field_validator("mcp_path")
     @classmethod
     def validate_path(cls, value: str) -> str:
+        if value == "/api/v1/generation" or value.startswith("/api/v1/generation/"):
+            raise ValueError("MCP path is reserved for the internal Controller API")
         if value == "/healthz":
             raise ValueError("MCP path /healthz is reserved for the HTTP liveness endpoint")
         if value != "/" and (
@@ -101,42 +52,30 @@ class Settings(BaseModel):
             )
         return value
 
+    @field_validator("controller_token", mode="before")
     @classmethod
-    def from_env(cls, **overrides) -> "Settings":
-        fields = {
-            "COMFYUI_URL": "comfyui_url",
-            "MODEL_ROOT": "model_root",
-            "WORKFLOW_DIR": "workflow_dir",
-            "OUTPUT_DIR": "output_dir",
-            "COMFYUI_OUTPUT_ROOT": "comfyui_output_root",
-            "COMFYUI_INPUT_ROOT": "comfyui_input_root",
-            "PROVIDER_INPUT_MAX_FILES": "provider_input_max_files",
-            "PROVIDER_INPUT_MAX_BYTES": "provider_input_max_bytes",
-            "PROVIDER_CLEANUP_ENABLED": "provider_cleanup_enabled",
-            "PROVIDER_RETENTION_DAYS": "provider_retention_days",
-            "REQUEST_TIMEOUT": "request_timeout",
-            "TRANSFER_MAX_BYTES": "transfer_max_bytes",
-            "TRANSFER_DISK_BYTES": "transfer_disk_bytes",
-            "TARGETED_INTERRUPT": "targeted_interrupt",
-            "MCP_TRANSPORT": "mcp_transport",
-            "HTTP_HOST": "http_host",
-            "HTTP_PORT": "http_port",
-            "MCP_PATH": "mcp_path",
-            "PROVENANCE_SECRET": "provenance_secret",
-            "PROVENANCE_ISSUER": "provenance_issuer",
-            "IRODORI_CONFIG": "irodori_config",
-            "YUE2_CONFIG": "yue2_config",
-            "SHEETSAGE2_CONFIG": "sheetsage2_config",
-        }
-        values = {
-            field: os.environ["FLAMORIS_" + suffix]
-            for suffix, field in fields.items()
-            if "FLAMORIS_" + suffix in os.environ
-        }
-        if "FLAMORIS_MODEL_DIRS" in os.environ:
-            values["model_dirs"] = json.loads(os.environ["FLAMORIS_MODEL_DIRS"])
-        values.update({key: value for key, value in overrides.items() if value is not None})
-        return cls.model_validate(values)
+    def empty_controller_token(cls, value):
+        # Compose's empty optional environment value disables only internal HTTP.
+        return None if value == "" else value
 
-    def roots(self, kind: ModelKind) -> list[Path]:
-        return self.model_dirs.get(kind, [self.model_root / MODEL_FOLDERS[kind]])
+    @field_validator("controller_token")
+    @classmethod
+    def validate_controller_token(cls, value):
+        if value is not None:
+            token = value.get_secret_value()
+            if not 32 <= len(token) <= 512 or not all(33 <= ord(c) <= 126 for c in token):
+                raise ValueError(
+                    "Controller token must contain 32-512 printable credential characters"
+                )
+        return value
+
+    env_fields = {
+        **CoreSettings.env_fields,
+        "MCP_TRANSPORT": "mcp_transport",
+        "HTTP_HOST": "http_host",
+        "HTTP_PORT": "http_port",
+        "MCP_PATH": "mcp_path",
+        "PROVENANCE_SECRET": "provenance_secret",
+        "PROVENANCE_ISSUER": "provenance_issuer",
+        "CONTROLLER_TOKEN": "controller_token",
+    }

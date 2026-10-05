@@ -16,10 +16,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FLAMORIS_OUTPUT_DIR=/data/outputs
 
 COPY --from=build /wheels /wheels
-COPY docker-requirements.txt /tmp/docker-requirements.txt
-RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels \
-      -r /tmp/docker-requirements.txt /wheels/flamoris_generation_mcp-*.whl \
-    && rm -rf /wheels /tmp/docker-requirements.txt \
+RUN python -m pip install --no-cache-dir --no-index --no-deps /wheels/*.whl \
+    && rm -rf /wheels \
     && mkdir -p /data/models /data/workflows /data/outputs \
     && chown -R 10001:10001 /data
 

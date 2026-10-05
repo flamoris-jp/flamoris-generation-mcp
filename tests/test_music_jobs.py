@@ -8,15 +8,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from mcp import Client
-
-from flamoris_generation_mcp.capabilities import Capability, CapabilityRegistry
-from flamoris_generation_mcp.config import Settings
-from flamoris_generation_mcp.jobs import GenerationBusyError, JobStore
-from flamoris_generation_mcp.models import ModelCatalog
-from flamoris_generation_mcp.music import MusicRecipe
-from flamoris_generation_mcp.provenance import ExternalProvenance
-from flamoris_generation_mcp.providers import (
+from flamoris_generation_controller.capabilities import Capability, CapabilityRegistry
+from flamoris_generation_controller.jobs import GenerationBusyError, JobStore
+from flamoris_generation_controller.models import ModelCatalog
+from flamoris_generation_controller.music import MusicRecipe
+from flamoris_generation_controller.providers import (
     JobSnapshot,
     OutputRole,
     ProviderHealth,
@@ -24,11 +20,15 @@ from flamoris_generation_mcp.providers import (
     ProviderOutput,
     ProviderRegistry,
 )
-from flamoris_generation_mcp.providers.base import SubmissionRejected, SubmissionUnknown
+from flamoris_generation_controller.providers.base import SubmissionRejected, SubmissionUnknown
+from flamoris_generation_controller.transcription import TranscriptionRecipe
+from flamoris_generation_controller.transfers import AssetTransfers
+from flamoris_generation_controller.workflows import WorkflowStore
+from mcp import Client
+
+from flamoris_generation_mcp.config import Settings
+from flamoris_generation_mcp.provenance import ExternalProvenance
 from flamoris_generation_mcp.server import create_server
-from flamoris_generation_mcp.transcription import TranscriptionRecipe
-from flamoris_generation_mcp.transfers import AssetTransfers
-from flamoris_generation_mcp.workflows import WorkflowStore
 
 
 class NativeFixture:
@@ -176,8 +176,8 @@ def test_configuration_uses_explicit_independent_paths(monkeypatch):
 async def test_configured_unavailable_music_keeps_image_and_tool_schema(
     settings, fake, tmp_path, monkeypatch
 ):
-    from flamoris_generation_mcp.music import YUE2_SOURCE_REVISION
-    from flamoris_generation_mcp.transcription import SHEETSAGE2_ENTRYPOINT_SHA256
+    from flamoris_generation_controller.music import YUE2_SOURCE_REVISION
+    from flamoris_generation_controller.transcription import SHEETSAGE2_ENTRYPOINT_SHA256
 
     yue = tmp_path / "yue2.json"
     yue.write_text(
@@ -206,13 +206,13 @@ async def test_configured_unavailable_music_keeps_image_and_tool_schema(
     async with Client(baseline) as client:
         schemas = {tool.name: tool.input_schema for tool in (await client.list_tools()).tools}
     configured = settings.model_copy(update={"yue2_config": yue, "sheetsage2_config": sheet})
-    from flamoris_generation_mcp.providers.yue2 import Yue2Provider
+    from flamoris_generation_controller.providers.yue2 import Yue2Provider
 
     def offline(request):
         raise httpx.ConnectError("fixture unavailable", request=request)
 
     monkeypatch.setattr(
-        "flamoris_generation_mcp.server.Yue2Provider",
+        "flamoris_generation_controller.runtime.Yue2Provider",
         lambda config, root: Yue2Provider(
             config, root, client=httpx.AsyncClient(transport=httpx.MockTransport(offline))
         ),
