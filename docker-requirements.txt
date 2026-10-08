@@ -7,7 +7,7 @@ certifi==2026.7.22
 cffi==2.1.1
 click==8.5.0
 cryptography==50.0.1
-flamoris-generation-controller @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/69b05d0897a94f5d174335f8d849ca9e1f9488ac.zip
+flamoris-generation-controller @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/2e9770d7e1ee9ef47f49cc7f622cbdcfe707116b.zip
 h11==0.16.0
 httpcore==1.0.9
 httpcore2==2.13.1
@@ -33,3 +33,6 @@ truststore==0.10.4
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 uvicorn==0.53.0
+
+# MCP-independent Updater SDK, pinned source.
+flamoris-update-core[owner] @ https://github.com/flamoris-jp/flamoris-updater/archive/d9f010a92ff6e8a1e7a3b7fad8817850bdfb72cd.zip#subdirectory=packages/update-core
