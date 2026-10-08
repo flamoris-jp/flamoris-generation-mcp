@@ -33,7 +33,7 @@ See [Updater contract](docs/UPDATER.md).
 ## Pre-deployment dependency refresh
 
 The SDK now targets merged Updater revision
-`d5ec3408d2a9b43ce44efef6ab8209a6b8ffad25`, and the packaged Controller
+`797d6f4e7bd4089e7c162fa50c10a0afae68370a`, and the packaged Controller
 targets merged retained-resource correction
-`399ff53c2dbb8b13844ea8a40d6c4b65d9103fe9`. Review and CI at these exact
+`eacf1086e28ca3eeb13b4297d4343fdec1163429`. Review and CI at these exact
 revisions are pending. No runtime, release, data or host state was changed.
