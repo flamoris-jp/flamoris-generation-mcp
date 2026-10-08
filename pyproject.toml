@@ -4,17 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flamoris-generation-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "Small MCP server for template-based media generation"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
-dependencies = ["mcp>=2.2,<3", "httpx>=0.28,<1", "pydantic>=2.11,<3", "flamoris-generation-controller[http] @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/69b05d0897a94f5d174335f8d849ca9e1f9488ac.zip"]
+dependencies = ["flamoris-update-core[owner] @ https://github.com/flamoris-jp/flamoris-updater/archive/d9f010a92ff6e8a1e7a3b7fad8817850bdfb72cd.zip#subdirectory=packages/update-core", "mcp>=2.2,<3", "httpx>=0.28,<1", "pydantic>=2.11,<3", "flamoris-generation-controller[http] @ https://github.com/flamoris-jp/flamoris-generation-controller/archive/2e9770d7e1ee9ef47f49cc7f622cbdcfe707116b.zip"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.14,<1", "build>=1.2,<2"]
 
 [project.scripts]
+flamoris-generation-mcp-update-owner = "flamoris_generation_mcp.updater:main"
 flamoris-generation-mcp = "flamoris_generation_mcp.server:main"
 
 [tool.hatch.build.targets.wheel]

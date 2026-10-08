@@ -12,6 +12,7 @@ from flamoris_generation_controller.jobs import GenerationBusyError
 from flamoris_generation_controller.providers import ProviderError
 from flamoris_generation_controller.runtime import GenerationController
 from flamoris_generation_controller.transfers import CHUNK_BYTES
+from flamoris_update_core.admission import register_boot
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
@@ -32,6 +33,7 @@ def create_server(
     domain_settings = ControllerSettings.model_validate(
         {name: getattr(settings, name) for name in ControllerSettings.model_fields}
     )
+    register_boot("flamoris-generation-mcp")
     controller = GenerationController(domain_settings, transport=transport)
 
     @asynccontextmanager
@@ -595,12 +597,15 @@ def create_server(
 
 
 def main(argv: list[str] | None = None) -> None:
+    from flamoris_update_core.admission import wait_for_admission
+
     parser = argparse.ArgumentParser(description="FLAMORIS generation MCP server")
     parser.add_argument("--transport", dest="mcp_transport", choices=("stdio", "streamable-http"))
     parser.add_argument("--host", dest="http_host", help="HTTP bind host (default: 127.0.0.1)")
     parser.add_argument("--port", dest="http_port", type=int, help="HTTP port (default: 8765)")
     parser.add_argument("--mcp-path", help="HTTP MCP path (default: /mcp)")
     args = parser.parse_args(argv)
+    wait_for_admission("flamoris-generation-mcp")
     try:
         settings = Settings.from_env(**vars(args))
     except ValueError as exc:
