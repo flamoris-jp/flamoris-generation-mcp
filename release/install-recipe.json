@@ -1,0 +1,111 @@
+{
+  "application_id": "flamoris-generation-mcp",
+  "sql_files": [],
+  "recipe": {
+    "application_id": "flamoris-generation-mcp",
+    "release": "1.0.1",
+    "platform": "linux/amd64",
+    "compatible_from": [],
+    "dependencies": {},
+    "settings": [
+      {
+        "key": "PORT",
+        "label": "待受ポート",
+        "default": "8765",
+        "secret": false,
+        "required": false,
+        "generate": false,
+        "kind": "port"
+      },
+      {
+        "key": "COMFYUI_URL",
+        "label": "既存ComfyUIのURL",
+        "default": "http://127.0.0.1:8188",
+        "secret": false,
+        "required": false,
+        "generate": false,
+        "kind": "text"
+      },
+      {
+        "key": "MODEL_ROOT",
+        "label": "既存モデルフォルダ（読み取り専用で接続）",
+        "default": "",
+        "secret": false,
+        "required": true,
+        "generate": false,
+        "kind": "text"
+      },
+      {
+        "key": "CONTROLLER_TOKEN",
+        "label": "Studio接続用Controllerトークン",
+        "default": "",
+        "secret": true,
+        "required": false,
+        "generate": true,
+        "kind": "url_password"
+      }
+    ],
+    "downloads": {},
+    "generated": {
+      "runtime.env": "FLAMORIS_HTTP_HOST=127.0.0.1\nFLAMORIS_HTTP_PORT=${PORT}\nFLAMORIS_WORKFLOW_DIR=/data/workflows\nFLAMORIS_OUTPUT_DIR=/data/outputs\nFLAMORIS_COMFYUI_URL=${COMFYUI_URL}\nFLAMORIS_MODEL_ROOT=/data/models\nFLAMORIS_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}\n"
+    },
+    "application": {
+      "application_id": "flamoris-generation-mcp",
+      "release": "1.0.1",
+      "directories": [
+        {
+          "path": "${root}/config"
+        },
+        {
+          "path": "${root}/workflows",
+          "uid": 10001,
+          "gid": 10001,
+          "mode": 488
+        },
+        {
+          "path": "${root}/outputs",
+          "uid": 10001,
+          "gid": 10001,
+          "mode": 488
+        }
+      ],
+      "files": [
+        {
+          "source": {
+            "path": "${package}/runtime.env",
+            "digest": "generated",
+            "private": true
+          },
+          "destination": "${root}/config/runtime.env"
+        }
+      ],
+      "health_url": "http://127.0.0.1:${PORT}/healthz",
+      "kind": "docker",
+      "image_archive": {
+        "path": "${package}/image.tar",
+        "digest": "artifact",
+        "private": false
+      },
+      "image_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "container_name": "flamoris-generation-mcp",
+      "environment_file": "${root}/config/runtime.env",
+      "mounts": [
+        {
+          "source": "${root}/workflows",
+          "target": "/data/workflows",
+          "read_only": false
+        },
+        {
+          "source": "${root}/outputs",
+          "target": "/data/outputs",
+          "read_only": false
+        },
+        {
+          "source": "${MODEL_ROOT}",
+          "target": "/data/models",
+          "read_only": true
+        }
+      ]
+    }
+  }
+}
