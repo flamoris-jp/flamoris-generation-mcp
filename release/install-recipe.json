@@ -3,9 +3,11 @@
   "sql_files": [],
   "recipe": {
     "application_id": "flamoris-generation-mcp",
-    "release": "1.0.2",
+    "release": "1.0.3",
     "platform": "linux/amd64",
-    "compatible_from": [],
+    "compatible_from": [
+      "1.0.2"
+    ],
     "dependencies": {},
     "settings": [
       {
@@ -51,7 +53,7 @@
     },
     "application": {
       "application_id": "flamoris-generation-mcp",
-      "release": "1.0.2",
+      "release": "1.0.3",
       "directories": [
         {
           "path": "${root}/config"

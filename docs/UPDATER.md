@@ -1,3 +1,5 @@
+> Source target 1.0.3 is prepared for updates from 1.0.2; it pins the reviewed Controller reference profile and preserves settings/data. This PR does not publish a release or run a host update. The earlier 1.0.2 receipt below remains history.
+
 # Repository-owned Updater release 1.0.2
 
 インストールを始める前に、[入力値の用途・取得元・自動生成と導入後の設定](FIRST_SETUP.md)を確認してください。Updaterの項目名だけで値を推測せず、このアプリの手順に沿って進めます。

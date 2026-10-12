@@ -1,5 +1,3 @@
-# flamoris-generation-mcp v1.0.2
+# Generation MCP v1.0.3 — release preparation
 
-このリポジトリ自身のUpdater配布物とカタログを公開するパッチ版です。amd64/arm64向け配布物はカタログから個別取得できます。初回設定、GPU/モデル動作、実機への導入は別の作業です。既存の集中配布は上書きしません。詳しくはdocs/UPDATER.mdを参照してください。
-
-Docker images now declare the application/version labels required by the Updater installer. Fresh-install recipes remain owned by this repository.
+Uses the matched Controller reference profiles for img2img, IPAdapter appearance/style and prepared-map ControlNet, with four managed image roles. Keeps the same 25-tool surface and adds ipadapter model discovery. Updates from 1.0.2 preserve settings and persisted state; schema-8 recipes require the matched Controller before use. Publication and live model/GPU acceptance remain separate.

@@ -26,8 +26,8 @@ credential change or runtime switch.
 
 Controller #6 adds a separate bounded checkpoint profile through `comfy.register`
 and `comfy.get`: immutable txt2img/img2img API-format graphs, managed initial
-images and schema 7 recipes. This is static validation, with live readiness
-unverified. Retired schema 2/3, v3 and custom-node graphs remain unavailable.
+images and schema 7 recipes. The subsequent [production reference profiles](docs/COMFY_REGISTRATION.md) add reviewed IPAdapter appearance/style, prepared-map ControlNet and multiple image roles using schema 8. This is static validation, with live readiness
+unverified. Retired schema 2/3, v3 and unreviewed custom-node graphs remain unavailable.
 The external catalog now has 25 tools. See [reference registration](docs/COMFY_REGISTRATION.md).
 
 | Tool family | Current responsibility |
@@ -130,4 +130,4 @@ terms remain separate. FLAMORIS is provided as-is without guaranteed individual 
 
 Before filling the form, read [input values and post-install setup](docs/FIRST_SETUP.md) for each field's purpose, value source, generation behavior and remaining app configuration.
 
-See [repository-owned distribution](docs/UPDATER.md) for release 1.0.2, its catalog and post-install configuration. Publication and actual-host acceptance remain separately verified.
+See [repository-owned distribution](docs/UPDATER.md) for source target 1.0.3 (release preparation), its catalog and post-install configuration. Publication and actual-host acceptance remain separately verified.

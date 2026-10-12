@@ -1,25 +1,11 @@
-# ChatGPT reference-image generation
+# ComfyWorkFlow registration and reference images
 
-Use `models.list` to choose an installed checkpoint, then `comfy.register` with
-an API-format graph matching Controller's bounded checkpoint profile. Set
-`LoadImage.image` to the literal `$reference_image`; the supported sample is in
-the matching Controller commit's `examples/reference-image-comfy.json`.
-`comfy.get` returns the normalized graph, defaults and immutable SHA-256 identity.
+The matched Controller implements checkpoint txt2img/img2img and reviewed IPAdapter appearance/style plus prepared-map ControlNet profiles. Generation MCP exposes the same comfy.register/get, workflows.build, input upload/snapshot, job and Asset operations through its existing 25-tool surface.
 
-Upload the user's PNG/JPEG/WebP bytes through `inputs.upload.begin/write/finish`
-with the existing bounded chunk/digest protocol. Build with the returned
-definition ID as `template` and the returned input ID as `parameters.reference_image`.
-Override prompt, size, seed, sampler and denoise through validated parameters.
-Use `workflows.save` if needed, then `jobs.submit/status/result` and `assets.get`
-for image retrieval. Never pass a caller path or URL as the image.
+See [Controller reference setup and examples](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/REFERENCE_IMAGES.md) for concrete graphs, the graph-writing CLI, model pairing, shared ComfyUI input storage and Studio integration. The definition digest pins graph/model identity; registration does not test model compatibility or output quality.
 
-The image is an initial image, scaled with Lanczos without cropping and encoded
-through the checkpoint VAE. This is img2img, not IPAdapter/ControlNet/reference
-identity conditioning. Custom nodes and arbitrary graph topology are rejected.
-Definitions are statically validated; registration does not certify live models.
+The retained img2img uses schema 7 and reference_image. Conditioning uses schema 8 with initial_image, character_image, style_image and control_image as declared. All are immutable managed input IDs. Influence and start/end values are validated; missing/unsupported roles are rejected. ControlNet requires a prepared map; no automatic pose/depth extraction is added.
 
-Controller's `COMFYUI_INPUT_ROOT` must be an operator-configured shared
-ComfyUI input directory with the retained input-copy ledger available. Copies
-survive uncertain POSTs and are released only after definite rejection or terminal
-observation. No automatic inference replay or live deployment is included.
-Roll out the matching 25-tool Hub catalog with this facade and Controller pin.
+models.list now accepts ipadapter in addition to existing model kinds. Refresh the Hub's matched 25-tool catalog; no new namespace or internal Hub route is introduced. Configure nodes/models in ComfyUI, mount an explicitly shared FLAMORIS_COMFYUI_INPUT_ROOT into Generation, and keep Controller state outside it. No model download, GPU activation or deployment is performed by graph registration.
+
+Retired schema 2/3, v3, automatic graph qualification and Runtime delegation remain unavailable. Reconcile new schema-8 recipes/work and protected copies before downgrade. The new package target is 1.0.3, prepared but not published by this source change.

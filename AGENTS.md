@@ -4,6 +4,9 @@ These instructions apply to the repository. Read README.md and [AI #18](https://
 
 ## Current authorization and target
 
+The 2026-10-12 request authorizes the matching reference profiles under Controller #13 / Studio #79, including IPAdapter appearance/style and prepared-map ControlNet. Preserve the same 25-tool surface and one Controller authority. Source/tests/docs/PRs are authorized; deployment/model downloads/inference and merges are separate.
+
+
 Controller #6 supersedes the earlier reference-image hold for immutable bounded
 checkpoint ComfyWorkFlow registration and init-image generation through the
 external MCP facade. Controller #7, Generation #72 and Hub #39 are now accepted
