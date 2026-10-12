@@ -78,3 +78,9 @@ issuer/subject mapping against its authenticated account, then checking that the
 job and every selected asset have identical provenance and job identity. Studio
 must authorize assets, inputs and downloads itself. Provenance metadata is not a
 Generation access-control policy or a general ownership token.
+
+## Automatic Studio gallery registration
+
+The matched Controller 1.0.2 exposes `jobs.external.list` exclusively through authenticated internal HTTP. Generation MCP co-hosts that API on the same Controller; the external tool catalog remains 25 tools. Studio supplies only its operator-granted exact issuer/subject, independently verifies completed status and every asset's provenance, and retains account/session/CSRF checks and durable claims. No browser user ID, raw job ID or MCP metadata can grant ownership.
+
+The private recent index stores at most 1,024 completed external jobs across restart without media downloads or a second state owner. Historical jobs outside that window retain explicit import. Shared anonymous Hub credentials still produce no user provenance. Hub signing/Generation verification and Studio bindings must be configured before automatic registration is available.
