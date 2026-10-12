@@ -9,7 +9,7 @@ retained bytes/mappings and installed application/component versions.
 Controller 1.0.1 and optional FLAMORIS_YUE2_OUTPUT_ROOT are unchanged from
 1.0.3. The output directory and its container binding remain operator settings;
 updating alone does not enable publication, create a media root, move existing
-files or activate a GPU provider. Updater 1.0.9 or newer is required.
+files or activate a GPU provider. Updater 1.0.10 or newer is required.
 
 Both CPU images, catalogs and checksums are published without overwriting older
 releases. Real-host update and configured media publication are separate checks.
