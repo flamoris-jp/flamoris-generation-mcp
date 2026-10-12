@@ -107,7 +107,10 @@
           "target": "/data/models",
           "read_only": true
         }
-      ]
+      ],
+      "components": {
+        "flamoris-generation-controller": "1.0.1"
+      }
     }
   }
 }
