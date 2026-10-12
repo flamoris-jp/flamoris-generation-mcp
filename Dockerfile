@@ -8,7 +8,7 @@ RUN python -m pip wheel --no-cache-dir --wheel-dir /wheels -r docker-requirement
 
 FROM python:3.12-slim-bookworm
 LABEL org.opencontainers.image.title="flamoris-generation-mcp" \
-    org.opencontainers.image.version="1.0.3"
+    org.opencontainers.image.version="1.0.4"
 LABEL net.flamoris.components='{"flamoris-generation-controller":"1.0.1"}'
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

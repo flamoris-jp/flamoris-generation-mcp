@@ -1,6 +1,6 @@
 # Generation MCP／Controller：Updaterの入力値と導入後の設定
 
-対象は1.0.3のインストール定義です。別の版では選定Releaseのカタログと[インストール定義](../release/install-recipe.json)を照合します。
+対象は1.0.4のインストール定義です。別の版では選定Releaseのカタログと[インストール定義](../release/install-recipe.json)を照合します。
 Updaterの画面には短い項目名が表示されます。本書で用途・取得元・空欄時の動作を確認してください。
 既定値は入力欄の初期値で、generate=true以外の欄を空にしても自動生成されません。
 共通のDB・秘密値の扱い、配置の調べ方、作業の順番は[共通設定ガイド](https://github.com/flamoris-jp/flamoris-updater/blob/main/docs/APPLICATION_SETUP.md)にあります。
