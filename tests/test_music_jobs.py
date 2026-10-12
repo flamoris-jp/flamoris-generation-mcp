@@ -213,8 +213,11 @@ async def test_configured_unavailable_music_keeps_image_and_tool_schema(
 
     monkeypatch.setattr(
         "flamoris_generation_controller.runtime.Yue2Provider",
-        lambda config, root: Yue2Provider(
-            config, root, client=httpx.AsyncClient(transport=httpx.MockTransport(offline))
+        lambda config, root, *, output_root=None: Yue2Provider(
+            config,
+            root,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(offline)),
+            output_root=output_root,
         ),
     )
     server = create_server(configured, transport=httpx.MockTransport(fake.handle))
