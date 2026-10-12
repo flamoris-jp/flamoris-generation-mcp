@@ -141,7 +141,7 @@ def verify_update(catalog_path, previous_path):
         or before.release not in target.compatible_from
     ):
         raise ValueError("Predecessor must be explicitly compatible")
-    catalog = Catalog(recipes=[before, target])
+    catalog = Catalog(catalog_version=1, recipes=[before, target])
     with tempfile.TemporaryDirectory(prefix="flamoris-update-check-") as temporary:
         root = Path(temporary)
         manager = Manager(root / "state", root / "apps")
@@ -190,7 +190,9 @@ def verify_update(catalog_path, previous_path):
             app_root = manager.root / before.application_id
             environment = Path(old_profile["environment_file"])
             with environment.open("ab") as stream:
-                stream.write(b"\n# retained operator configuration\nFLAMORIS_TEST_MARKER=preserved\n")
+                stream.write(
+                    b"\n# retained operator configuration\nFLAMORIS_TEST_MARKER=preserved\n"
+                )
             retained_environment = environment.read_bytes()
             settings_file = manager.state / "settings" / before.application_id / "values.json"
             retained_settings = settings_file.read_bytes()
