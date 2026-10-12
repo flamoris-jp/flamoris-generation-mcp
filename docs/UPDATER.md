@@ -1,11 +1,11 @@
-# Repository-owned Updater release 1.0.2
+# Repository-owned Updater release 1.0.3
 
 インストールを始める前に、[入力値の用途・取得元・自動生成と導入後の設定](FIRST_SETUP.md)を確認してください。Updaterの項目名だけで値を推測せず、このアプリの手順に沿って進めます。
 
 このリポジトリがソース・ビルド・Release・配布物・インストールカタログを管理します。Updaterは配布物を集め直さず、カタログに記載したこのリポジトリのReleaseから、選択したアプリとCPU向けのファイルだけを取得します。
 
 公開成功後のカタログURL：
-`https://github.com/flamoris-jp/flamoris-generation-mcp/releases/download/v1.0.2/catalog.json`
+`https://github.com/flamoris-jp/flamoris-generation-mcp/releases/download/v1.0.3/catalog.json`
 
 `.github/workflows/publish-updater-release.yml` はこのアプリだけをamd64/arm64でビルドし、固定image IDまたは完全なoffline wheelhouse、ファイルのSHA-256、設定と起動方法をカタログへ記録します。`release/install-recipe.json` がアプリ所有のインストール定義です。公開前にUpdater自身の型と実際のprofile展開処理で検証します。検証用のUpdater依存はCIツール環境だけに入れ、アプリのランタイムへは追加しません。
 
