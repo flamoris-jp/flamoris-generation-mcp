@@ -126,7 +126,6 @@ def verify(catalog_path, install):
     )
 
 
-
 def verify_update(catalog_path, previous_path):
     """Exercise the real published predecessor with retained operator state."""
     if os.geteuid() != 0 or os.environ.get("GITHUB_ACTIONS") != "true":
@@ -149,10 +148,11 @@ def verify_update(catalog_path, previous_path):
         manager.catalog = lambda refresh=False: catalog
         manager.accept_catalog(catalog)
         original_download = manager._download
+        candidate_urls = {item.url for item in target.downloads.values()}
 
         def local_or_published(url, limit, destination, expected):
             source = catalog_path.parent / url.rsplit("/", 1)[1]
-            if source.is_file():
+            if url in candidate_urls:
                 if source.stat().st_size > limit:
                     raise ValueError("Artifact exceeds its installer limit")
                 with source.open("rb") as stream:
@@ -220,7 +220,11 @@ def verify_update(catalog_path, previous_path):
             assert all(probe.read_bytes() == b"retained generation data" for probe in probes)
             versions = json.loads(
                 command(
-                    "docker", "exec", container, "python", "-c",
+                    "docker",
+                    "exec",
+                    container,
+                    "python",
+                    "-c",
                     "import json, importlib.metadata as m; "
                     "print(json.dumps({name:m.version(name) for name in "
                     "['flamoris-generation-mcp','flamoris-generation-controller']}))",
@@ -230,13 +234,25 @@ def verify_update(catalog_path, previous_path):
                 "flamoris-generation-mcp": target.release,
                 "flamoris-generation-controller": "1.0.1",
             }
-            print(json.dumps({"update_from": before.release, "update_to": target.release,
-                              "environment_preserved": True, "data_preserved": True}))
+            print(
+                json.dumps(
+                    {
+                        "update_from": before.release,
+                        "update_to": target.release,
+                        "environment_preserved": True,
+                        "data_preserved": True,
+                    }
+                )
+            )
         finally:
             subprocess.run(
                 ["docker", "rm", "--force", container],
-                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60,
             )
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
