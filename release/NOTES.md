@@ -1,5 +1,21 @@
-# flamoris-generation-mcp v1.0.2
+# flamoris-generation-mcp v1.0.3
 
-このリポジトリ自身のUpdater配布物とカタログを公開するパッチ版です。amd64/arm64向け配布物はカタログから個別取得できます。初回設定、GPU/モデル動作、実機への導入は別の作業です。既存の集中配布は上書きしません。詳しくはdocs/UPDATER.mdを参照してください。
+Controller 1.0.1 is embedded in this release. Optional operator-only
+`FLAMORIS_YUE2_OUTPUT_ROOT` publishes completed Music bundles (`audio.wav`,
+`score.abc`, `replay.json`) into an existing configured media directory.
+Private Job/Workflow storage and default behavior remain unchanged. ComfyUI
+image originals keep their provider destination; no host-specific path is built in.
 
-Docker images now declare the application/version labels required by the Updater installer. Fresh-install recipes remain owned by this repository.
+Publication copies are independent from API archives, group-readable under the
+operator's permissions and never overwritten or recreated after operator deletion.
+A missing/symlink/colliding destination reports publication failure without
+replaying or failing completed generation. See docs/MUSIC_PROVIDERS.md and the
+Controller storage guide for configuration and deletion boundaries.
+
+Updater 1.0.9 or newer is required for declared embedded-component version checks.
+Both amd64/arm64 images, Updater catalogs and SHA-256 checksums are published by
+this repository. The optional media mount requires deployment configuration;
+the fresh-install recipe does not add it automatically. This catalog retains
+`compatible_from=[]`; it does not declare an automatic upgrade from older
+installed layouts. Release publication does not update hosts, relocate models
+or move/delete existing output data.

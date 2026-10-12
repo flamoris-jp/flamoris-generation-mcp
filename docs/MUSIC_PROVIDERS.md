@@ -72,6 +72,34 @@ settlement. A cancel-requested/unknown job retains shared capacity until its
 execution reports a definite terminal state. Missing history, timeout and lost
 submission acknowledgements never trigger generation replay or automatic release.
 
+## Operator media directory
+
+The matched Controller supports optional `FLAMORIS_YUE2_OUTPUT_ROOT`. Set it to
+an existing writable directory in the Generation process's filesystem to publish
+validated Music outputs as a dated per-generation bundle: `audio.wav`,
+`score.abc` and `replay.json`. The setting is unset by default.
+
+In a container, bind the chosen host media directory to a dedicated writable
+path and set the variable to that container path. Preserve the existing
+`FLAMORIS_OUTPUT_DIR` and `FLAMORIS_WORKFLOW_DIR` mounts: they retain private job
+journals, generated archives, staging and recipes. Output copies are for the
+operator and never become API asset sources. `assets.delete` removes a managed
+archive copy only; published bundles need separate operator cleanup.
+
+The root is not created implicitly; symlink roots and existing bundle collisions
+fail publication without failing/replaying completed generation. Failure appears
+as `output_publication.status=failed` in snapshot metadata and a constant warning
+in service logs. Bundles request directory mode 0750/file mode 0640, subject to
+umask/ACLs. Authorize operator read access without opening private Job storage.
+
+See [Controller storage rules](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/STORAGE.md)
+for repeat polling, incomplete-bundle handling and cleanup. This requires the
+matching updated Controller dependency; the already published 1.0.2 image does
+not include this setting. The current Updater install recipe does not add this
+optional mount. Record extra bindings with the deployment owner rather than
+treating a Docker-only edit as an Updater profile migration. Release publication,
+host configuration and real generation acceptance are separate steps.
+
 ## Audio transcription
 
 The SheetSage2 profile pins the installed Python entrypoint SHA-256
