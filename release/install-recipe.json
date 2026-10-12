@@ -81,6 +81,9 @@
       ],
       "health_url": "http://127.0.0.1:${PORT}/healthz",
       "kind": "docker",
+      "components": {
+        "flamoris-generation-controller": "1.0.1"
+      },
       "image_archive": {
         "path": "${package}/image.tar",
         "digest": "artifact",

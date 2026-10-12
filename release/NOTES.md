@@ -12,6 +12,7 @@ A missing/symlink/colliding destination reports publication failure without
 replaying or failing completed generation. See docs/MUSIC_PROVIDERS.md and the
 Controller storage guide for configuration and deletion boundaries.
 
+Updater 1.0.9 or newer is required for declared embedded-component version checks.
 Both amd64/arm64 images, Updater catalogs and SHA-256 checksums are published by
 this repository. The optional media mount requires deployment configuration;
 the fresh-install recipe does not add it automatically. This catalog retains
