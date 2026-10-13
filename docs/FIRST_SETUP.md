@@ -34,3 +34,12 @@ CONTROLLER_TOKENはruntime.envのFLAMORIS_CONTROLLER_TOKENに保存されます�
 
 プロセス起動、ComfyUI／model接続、Studio接続、対象生成の成功を分けて記録します。
 ComfyUI・GPU runtimeの起動停止は正規Managerが担当し、接続URLやtokenの確認のために全runtimeを切り替えません。
+
+
+## Resident Irodori Speech (1.0.7)
+
+Optional `IRODORI_URL` is the exact private HTTP origin of an already installed resident Irodori server; it is not a ComfyUI URL or MCP endpoint. Leave it blank to keep Speech disabled. `IRODORI_MODEL` must match the server model ID (default `irodori-tts`); `IRODORI_TOKEN` is optional and private. No source/model mount or second GPU process is needed for HTTP Speech.
+
+An update retains the actual existing environment file. To enable Speech after updating, explicitly add `FLAMORIS_IRODORI_URL` and optional model/token to that file, remove any conflicting `FLAMORIS_IRODORI_CONFIG`, and restart only the Controller host container. Enable `STUDIO_SPEECH_ENABLED=true` in matched Studio and restart Studio. Activate Irodori with the existing runtime manager, then use Speech → Check Again. GPU switching remains with that manager.
+
+The server must report an exact model match and boolean `runtime.loaded=true`. See [Controller HTTP transport](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/IRODORI_HTTP.md) for the bounded no-reference request, WAV retrieval, cancellation/unknown semantics and live acceptance. The updated application being healthy does not by itself prove an actual recording.
