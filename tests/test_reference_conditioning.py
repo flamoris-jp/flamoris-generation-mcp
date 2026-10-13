@@ -94,3 +94,4 @@ async def test_mcp_reference_roles_models_build_submission_and_result(settings, 
         result = await client.call_tool("jobs.result", {"job_id": job.structured_content["job_id"]})
         assert not result.is_error and result.structured_content["status"] == "completed"
         assert not list((root / "flamoris-inputs").glob("*.png"))
+

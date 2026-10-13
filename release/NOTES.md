@@ -1,3 +1,3 @@
-# Generation MCP v1.0.3 — release preparation
+# FLAMORIS Generation v1.0.6
 
-Uses the matched Controller reference profiles for img2img, IPAdapter appearance/style and prepared-map ControlNet, with four managed image roles. Keeps the same 25-tool surface and adds ipadapter model discovery. Updates from 1.0.2 preserve settings and persisted state; schema-8 recipes require the matched Controller before use. Publication and live model/GPU acceptance remain separate.
+Adds registered img2img, IPAdapter character/style and prepared ControlNet reference-image profiles. Preserves linked external result discovery, YuE2 output placement, account isolation and explicit Assistant model selection. Actual model/GPU acceptance remains separate.

@@ -6,8 +6,9 @@ from flamoris_update_core.owner_cli import serve
 
 
 def factory(config):
-    return ApplicationOwner(config, "flamoris-generation-mcp", "1.0.3", inspect_domain)
+    return ApplicationOwner(config, "flamoris-generation-mcp", "1.0.6", inspect_domain)
 
 
 def main():
     serve(factory)
+

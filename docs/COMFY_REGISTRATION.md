@@ -9,3 +9,4 @@ The retained img2img uses schema 7 and reference_image. Conditioning uses schema
 models.list now accepts ipadapter in addition to existing model kinds. Refresh the Hub's matched 25-tool catalog; no new namespace or internal Hub route is introduced. Configure nodes/models in ComfyUI, mount an explicitly shared FLAMORIS_COMFYUI_INPUT_ROOT into Generation, and keep Controller state outside it. No model download, GPU activation or deployment is performed by graph registration.
 
 Retired schema 2/3, v3, automatic graph qualification and Runtime delegation remain unavailable. Reconcile new schema-8 recipes/work and protected copies before downgrade. The new package target is 1.0.3, prepared but not published by this source change.
+

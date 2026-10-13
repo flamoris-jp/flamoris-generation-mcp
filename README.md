@@ -130,4 +130,5 @@ terms remain separate. FLAMORIS is provided as-is without guaranteed individual 
 
 Before filling the form, read [input values and post-install setup](docs/FIRST_SETUP.md) for each field's purpose, value source, generation behavior and remaining app configuration.
 
-See [repository-owned distribution](docs/UPDATER.md) for source target 1.0.3 (release preparation), its catalog and post-install configuration. Publication and actual-host acceptance remain separately verified.
+See [repository-owned distribution](docs/UPDATER.md) for release 1.0.5, its catalog and post-install configuration. Publication and actual-host acceptance remain separately verified.
+

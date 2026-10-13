@@ -52,3 +52,12 @@ Review final prose and literal identifiers, not only keyword matches. Merge only
 ## License and support
 
 Code/docs are Apache-2.0 unless otherwise stated. Third-party source, models, weights, data, fonts and media require compatible documented terms; provider/generated assets do not automatically inherit the code license. FLAMORIS has no guaranteed individual support; documentation, Issues, tests, logs and source are primary references.
+
+## 2026-10-13 linked external gallery scope
+
+The user authorizes implementation through release and real-host changes for Controller #16 / Studio #86. Embed the matched Controller 1.0.2 and preserve the 25-tool external catalog, shared runtime, output placement and no-replay protections. Internal discovery is not an MCP tool or an ownership grant. Source tests and actual operator credential/binding acceptance remain separate evidence.
+
+
+## 2026-10-13 reference-image continuation
+
+Resume the prepared reference-image PR against current main. Preserve linked external discovery, YuE2 output placement and remembered Assistant models. Match Controller/Generation/Studio dependency pins and new release versions; source CI and real-host model/shared-input acceptance remain distinct.
