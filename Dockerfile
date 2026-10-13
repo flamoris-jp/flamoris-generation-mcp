@@ -30,4 +30,3 @@ EXPOSE 8765
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD ["python", "-m", "flamoris_generation_mcp.healthcheck"]
 CMD ["flamoris-generation-mcp", "--transport", "streamable-http"]
-

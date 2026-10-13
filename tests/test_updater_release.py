@@ -89,4 +89,3 @@ def test_mismatched_or_unexpected_publication_inputs_fail_before_output(candidat
     with pytest.raises(ValueError):
         PACKAGER.combine(source, output)
     assert not output.exists()
-

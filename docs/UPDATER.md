@@ -22,4 +22,3 @@ Updater 1.0.10以降へ更新後、このURLをカタログ画面へ登録して
 ## Generation 1.0.3 prerequisites
 
 Generation 1.0.3 catalogs declare embedded Controller 1.0.1. Upgrade Updater to 1.0.9 or newer before installing/updating this catalog; older Updater versions reject the component declaration. Configure ComfyUI nodes/models and shared input storage as described in COMFY_REGISTRATION.md and MANAGED_INPUTS.md. No model downloads or real-host configuration are performed by the source change.
-

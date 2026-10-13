@@ -54,4 +54,3 @@ The SDK now targets merged Updater revision
 targets merged retained-resource correction
 `eacf1086e28ca3eeb13b4297d4343fdec1163429`. Review and CI at these exact
 revisions are pending. No runtime, release, data or host state was changed.
-
