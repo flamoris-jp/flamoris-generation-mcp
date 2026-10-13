@@ -38,7 +38,7 @@ ComfyUI・GPU runtimeの起動停止は正規Managerが担当し、接続URLやt
 
 ## Resident Irodori Speech (1.0.7)
 
-Optional `IRODORI_URL` is the exact private HTTP origin of an already installed resident Irodori server; it is not a ComfyUI URL or MCP endpoint. Leave it blank to keep Speech disabled. `IRODORI_MODEL` must match the server model ID (default `irodori-tts`); `IRODORI_TOKEN` is optional and private. No source/model mount or second GPU process is needed for HTTP Speech.
+After installation, set `FLAMORIS_IRODORI_URL` in the existing private environment file to the exact private HTTP origin of an already installed resident Irodori server; it is not a ComfyUI URL or MCP endpoint. Leave it blank to keep Speech disabled. `FLAMORIS_IRODORI_MODEL` must match the server model ID (default `irodori-tts`); `FLAMORIS_IRODORI_TOKEN` is optional and private. No source/model mount or second GPU process is needed for HTTP Speech.
 
 An update retains the actual existing environment file. To enable Speech after updating, explicitly add `FLAMORIS_IRODORI_URL` and optional model/token to that file, remove any conflicting `FLAMORIS_IRODORI_CONFIG`, and restart only the Controller host container. Enable `STUDIO_SPEECH_ENABLED=true` in matched Studio and restart Studio. Activate Irodori with the existing runtime manager, then use Speech → Check Again. GPU switching remains with that manager.
 

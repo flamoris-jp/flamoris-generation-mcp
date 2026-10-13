@@ -49,38 +49,11 @@
         "required": false,
         "generate": true,
         "kind": "url_password"
-      },
-      {
-        "key": "IRODORI_URL",
-        "label": "常駐Irodori APIのHTTP origin（任意）",
-        "default": "",
-        "secret": false,
-        "required": false,
-        "generate": false,
-        "kind": "text"
-      },
-      {
-        "key": "IRODORI_MODEL",
-        "label": "IrodoriサーバーのモデルID",
-        "default": "irodori-tts",
-        "secret": false,
-        "required": false,
-        "generate": false,
-        "kind": "text"
-      },
-      {
-        "key": "IRODORI_TOKEN",
-        "label": "Irodori APIトークン（必要な場合のみ）",
-        "default": "",
-        "secret": true,
-        "required": false,
-        "generate": false,
-        "kind": "url_password"
       }
     ],
     "downloads": {},
     "generated": {
-      "runtime.env": "FLAMORIS_HTTP_HOST=127.0.0.1\nFLAMORIS_HTTP_PORT=${PORT}\nFLAMORIS_WORKFLOW_DIR=/data/workflows\nFLAMORIS_OUTPUT_DIR=/data/outputs\nFLAMORIS_COMFYUI_URL=${COMFYUI_URL}\nFLAMORIS_MODEL_ROOT=/data/models\nFLAMORIS_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}\nFLAMORIS_IRODORI_URL=${IRODORI_URL}\nFLAMORIS_IRODORI_MODEL=${IRODORI_MODEL}\nFLAMORIS_IRODORI_TOKEN=${IRODORI_TOKEN}\n"
+      "runtime.env": "FLAMORIS_HTTP_HOST=127.0.0.1\nFLAMORIS_HTTP_PORT=${PORT}\nFLAMORIS_WORKFLOW_DIR=/data/workflows\nFLAMORIS_OUTPUT_DIR=/data/outputs\nFLAMORIS_COMFYUI_URL=${COMFYUI_URL}\nFLAMORIS_MODEL_ROOT=/data/models\nFLAMORIS_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}\n"
     },
     "application": {
       "application_id": "flamoris-generation-mcp",
