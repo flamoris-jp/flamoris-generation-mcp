@@ -87,3 +87,30 @@ async def test_internal_api_does_not_accept_mcp_credentials_or_context(settings,
             )
             assert response.status_code == 404
             assert server.controller.workflows._recipes == {}
+
+
+async def test_completed_discovery_is_internal_and_not_an_external_mcp_tool(
+    settings, fake, monkeypatch
+):
+    monkeypatch.setenv("NO_PROXY", "*")
+    monkeypatch.setenv("no_proxy", "*")
+    settings.controller_token = SecretStr(TOKEN)
+    server = create_server(settings, transport=httpx.MockTransport(fake.handle))
+    async with serve_http(server, settings) as base_url:
+        async with httpx.AsyncClient(
+            base_url=base_url + API_PATH + "/",
+            trust_env=False,
+            headers={"Authorization": "Bearer " + TOKEN},
+        ) as http:
+            response = await http.post(
+                "jobs.external.list",
+                json={
+                    "actor": {"issuer": "hub.example", "subject": "client-a"},
+                },
+            )
+            assert response.status_code == 200
+            assert response.json() == {"jobs": [], "next_cursor": 0, "has_more": False}
+        async with Client(base_url + settings.mcp_path) as external:
+            tools = await external.list_tools()
+            assert len(tools.tools) == 25
+            assert "jobs.external.list" not in {tool.name for tool in tools.tools}
