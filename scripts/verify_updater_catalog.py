@@ -234,7 +234,7 @@ def verify_update(catalog_path, previous_path):
             )
             assert versions == {
                 "flamoris-generation-mcp": target.release,
-                "flamoris-generation-controller": "1.0.2",
+                "flamoris-generation-controller": target.application["components"]["flamoris-generation-controller"],
             }
             print(
                 json.dumps(
