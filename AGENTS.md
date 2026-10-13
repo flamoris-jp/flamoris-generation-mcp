@@ -4,6 +4,9 @@ These instructions apply to the repository. Read README.md and [AI #18](https://
 
 ## Current authorization and target
 
+The 2026-10-12 request authorizes the matching reference profiles under Controller #13 / Studio #79, including IPAdapter appearance/style and prepared-map ControlNet. Preserve the same 25-tool surface and one Controller authority. Source/tests/docs/PRs are authorized; deployment/model downloads/inference and merges are separate.
+
+
 Controller #6 supersedes the earlier reference-image hold for immutable bounded
 checkpoint ComfyWorkFlow registration and init-image generation through the
 external MCP facade. Controller #7, Generation #72 and Hub #39 are now accepted
@@ -53,3 +56,8 @@ Code/docs are Apache-2.0 unless otherwise stated. Third-party source, models, we
 ## 2026-10-13 linked external gallery scope
 
 The user authorizes implementation through release and real-host changes for Controller #16 / Studio #86. Embed the matched Controller 1.0.2 and preserve the 25-tool external catalog, shared runtime, output placement and no-replay protections. Internal discovery is not an MCP tool or an ownership grant. Source tests and actual operator credential/binding acceptance remain separate evidence.
+
+
+## 2026-10-13 reference-image continuation
+
+Resume the prepared reference-image PR against current main. Preserve linked external discovery, YuE2 output placement and remembered Assistant models. Match Controller/Generation/Studio dependency pins and new release versions; source CI and real-host model/shared-input acceptance remain distinct.

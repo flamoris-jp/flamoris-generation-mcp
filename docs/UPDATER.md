@@ -1,3 +1,5 @@
+> Reference-image source target 1.0.6; compatible update retains current settings and data. Publication and live acceptance remain pending.
+
 # Repository-owned Updater release 1.0.5
 
 インストールを始める前に、[入力値の用途・取得元・自動生成と導入後の設定](FIRST_SETUP.md)を確認してください。Updaterの項目名だけで値を推測せず、このアプリの手順に沿って進めます。
@@ -16,3 +18,7 @@ Controller 1.0.2はこのイメージ内の固定依存ライブラリです。�
 Updater 1.0.10以降へ更新後、このURLをカタログ画面へ登録して個別に導入します。アプリ自身の接続トークン・DBパスワード等は必要な設定であり、Updaterのログイン認証とは別です。初回導入後の設定、実際のプロキシ/トンネル、GPU・モデル動作は運用時に確認します。CI・公開成功を実機受入として報告しません。設定・DB・データは実行ファイルの更新対象から分離します。
 
 従来の高度なOwner/移行用SDKは内部統合用としてソースに残りますが、通常のこの新規インストールにOwnerプロファイル・mTLS・DBバックアップ・旧配置の取り込みは要求しません。
+
+## Generation 1.0.3 prerequisites
+
+Generation 1.0.3 catalogs declare embedded Controller 1.0.1. Upgrade Updater to 1.0.9 or newer before installing/updating this catalog; older Updater versions reject the component declaration. Configure ComfyUI nodes/models and shared input storage as described in COMFY_REGISTRATION.md and MANAGED_INPUTS.md. No model downloads or real-host configuration are performed by the source change.

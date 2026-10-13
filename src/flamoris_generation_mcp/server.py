@@ -180,8 +180,9 @@ def create_server(
     async def register_comfy(name: str, graph: dict[str, Any]) -> dict[str, Any]:
         """Register an immutable bounded checkpoint ComfyWorkFlow API graph.
 
-        Supports txt2img and init-image img2img core profiles. Use the documented
-        $reference_image slot; supply its managed input ID to workflows.build.
+        Supports txt2img/img2img and reviewed IPAdapter appearance/style and
+        ControlNet prepared-map profiles. Use declared image placeholders and
+        supply their managed input IDs to workflows.build.
         Registration is static validation, not proof of live GPU/model readiness.
         """
         try:

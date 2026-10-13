@@ -1,3 +1,14 @@
+# Distribution component contract (2026-10-12)
+
+- Generation 1.0.3 declares embedded Controller 1.0.1 in its install recipe and requires Updater 1.0.9 first. Distribution CI uses the immutable reviewed Updater component-validation source; it runs actual disposable fresh installations on amd64/arm64.
+- This change does not download models or configure ComfyUI/shared inputs on a real host.
+
+# Production reference integration — 2026-10-12
+
+Matches Controller #13/#14 for IPAdapter appearance/style, prepared-map ControlNet, schema 8 and four managed image roles. No new MCP tools or job authority. Includes an external-MCP register/upload/build/submit/result test and ipadapter model discovery. Source target 1.0.3 / update from 1.0.2 is release preparation; no publication, host change or actual inference. Local regression and CI evidence are attached to the PR.
+
+---
+
 # Repository-owned distribution preparation — 2026-10-11
 
 The operator explicitly requested preparing this repository for individual Updater installation. Release 1.0.1 adds an app-owned installer definition, per-platform packaging, direct Release URLs and typed/profile validation. No centralized app distribution, live deployment, DB/data/credential change or provider invocation is performed. CI/publication and actual-host acceptance will be reported separately. This is a new-install recipe; no unverified compatibility edge is declared.
