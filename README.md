@@ -106,7 +106,7 @@ journals and never delete the lifetime lock while a Controller is alive.
 
 - [Managed inputs](docs/MANAGED_INPUTS.md), [asset transfers](docs/ASSET_TRANSFER.md)
   and [external provenance](docs/EXTERNAL_PROVENANCE.md)
-- [Irodori](docs/IRODORI_PROVIDER.md), [Music](docs/MUSIC_PROVIDERS.md)
+- [Resident Irodori HTTP transport](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/IRODORI_HTTP.md), [Irodori CLI](docs/IRODORI_PROVIDER.md), [Music](docs/MUSIC_PROVIDERS.md)
   and [SheetSage2](docs/SHEETSAGE2.md)
 - [Removed source, historical contracts and reconciliation](docs/LEGACY_RETIREMENT.md)
 
@@ -131,3 +131,4 @@ terms remain separate. FLAMORIS is provided as-is without guaranteed individual 
 Before filling the form, read [input values and post-install setup](docs/FIRST_SETUP.md) for each field's purpose, value source, generation behavior and remaining app configuration.
 
 See [repository-owned distribution](docs/UPDATER.md) for release 1.0.5, its catalog and post-install configuration. Publication and actual-host acceptance remain separately verified.
+
