@@ -58,7 +58,7 @@
     },
     "application": {
       "application_id": "flamoris-generation-mcp",
-      "release": "1.0.7",
+      "release": "1.0.8",
       "directories": [
         {
           "path": "${root}/config"
@@ -89,7 +89,7 @@
       "health_url": "http://127.0.0.1:${PORT}/healthz",
       "kind": "docker",
       "components": {
-        "flamoris-generation-controller": "1.0.4"
+        "flamoris-generation-controller": "1.0.5"
       },
       "image_archive": {
         "path": "${package}/image.tar",
