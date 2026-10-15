@@ -119,7 +119,7 @@ async def test_chunk_replay_restart_conflict_and_order(uploads):
     "mime,size,digest",
     [
         ("image/svg+xml", 1, "a" * 64),
-        ("audio/wav", 1, "a" * 64),
+        ("audio/mpeg", 1, "a" * 64),
         ("image/png", 0, "a" * 64),
         ("image/png", MAX_UPLOAD_BYTES + 1, "a" * 64),
         ("image/png", True, "a" * 64),
