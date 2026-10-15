@@ -161,3 +161,13 @@ The separate current schema-7 img2img rollout is documented in
 actual execution and storage evidence. Offline lifecycle tests do not establish
 installed-runtime readiness. Preserve charged copies and authority records while
 that outcome remains uncertain.
+
+## Reference WAV uploads
+
+The existing upload tools also accept `audio/wav`. Controller validates PCM16 mono/stereo
+WAV, at 16/22.05/24/44.1/48/96 kHz, at most 30 seconds and 8 MiB, before publication.
+Use the returned immutable `input_id` as `reference_audio` when building
+`speech-reference`, then submit/retrieve with the ordinary job and asset tools.
+The resident HTTP adapter reports reference support in provider health and rejects
+unsupported checkpoints; no-reference and CLI speech remain unchanged. Use the
+matched Hub MIME enum. See [Controller's contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/REFERENCE_SPEECH.md).

@@ -132,3 +132,4 @@ Before filling the form, read [input values and post-install setup](docs/FIRST_S
 
 See [repository-owned distribution](docs/UPDATER.md) for release 1.0.5, its catalog and post-install configuration. Publication and actual-host acceptance remain separately verified.
 
+Reference speech accepts a managed WAV through the existing upload/build/job tools; see [managed input limits](docs/MANAGED_INPUTS.md#reference-wav-uploads).

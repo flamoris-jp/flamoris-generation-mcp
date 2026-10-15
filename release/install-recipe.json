@@ -3,14 +3,15 @@
   "sql_files": [],
   "recipe": {
     "application_id": "flamoris-generation-mcp",
-    "release": "1.0.7",
+    "release": "1.0.8",
     "platform": "linux/amd64",
     "compatible_from": [
       "1.0.2",
       "1.0.3",
       "1.0.4",
       "1.0.5",
-      "1.0.6"
+      "1.0.6",
+      "1.0.7"
     ],
     "dependencies": {},
     "settings": [
