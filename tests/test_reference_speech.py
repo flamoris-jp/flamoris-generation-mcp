@@ -58,7 +58,7 @@ async def test_external_mcp_reference_upload_build_and_result(settings):
     settings.irodori_url = "http://127.0.0.1:8088"
     server = create_server(settings, transport=httpx.MockTransport(handle))
     async with Client(server) as client:
-        tools = {tool.name: tool for tool in await client.list_tools()}
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
         assert (
             "audio/wav"
             in tools["inputs.upload.begin"].input_schema["properties"]["mime_type"]["enum"]
