@@ -518,11 +518,11 @@ def create_server(
     )
     async def begin_input_upload(
         upload_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$", max_length=32)],
-        mime_type: Literal["image/png", "image/jpeg", "image/webp"],
+        mime_type: Literal["image/png", "image/jpeg", "image/webp", "audio/wav"],
         size_bytes: Annotated[StrictInt, Field(ge=1, le=8 * 1024**2)],
         sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$", max_length=64)],
     ) -> dict[str, Any]:
-        """Reserve an 8 MiB image upload under a pre-recorded private UUID."""
+        """Reserve an 8 MiB image or reference WAV upload under a pre-recorded private UUID."""
         try:
             result = await controller.invoke(
                 "inputs.upload.begin",
@@ -536,7 +536,7 @@ def create_server(
             )
             return result
         except (ValueError, OSError, TimeoutError, ControllerError):
-            raise ToolError("Image upload reservation unavailable or invalid") from None
+            raise ToolError("Media upload reservation unavailable or invalid") from None
 
     @server.tool(
         name="inputs.upload.write",
@@ -555,7 +555,7 @@ def create_server(
         data_base64: Annotated[str, Field(json_schema_extra={"minLength": 1, "maxLength": 349528})],
         chunk_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$", max_length=64)],
     ) -> dict[str, Any]:
-        """Write one ordered, digest-checked image chunk of at most 256 KiB."""
+        """Write one ordered, digest-checked media chunk of at most 256 KiB."""
         try:
             result = await controller.invoke(
                 "inputs.upload.write",
@@ -569,7 +569,7 @@ def create_server(
             )
             return result
         except (ValueError, OSError, TimeoutError, ControllerError):
-            raise ToolError("Image upload chunk unavailable or invalid") from None
+            raise ToolError("Media upload chunk unavailable or invalid") from None
 
     @server.tool(
         name="inputs.upload.finish",
@@ -583,7 +583,7 @@ def create_server(
     async def finish_input_upload(
         upload_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$", max_length=32)],
     ) -> dict[str, Any]:
-        """Decode and atomically publish one immutable expiring uploaded image."""
+        """Decode and publish one immutable expiring image or reference WAV."""
         try:
             result = await controller.invoke(
                 "inputs.upload.finish",
@@ -592,7 +592,7 @@ def create_server(
             )
             return result
         except (ValueError, OSError, TimeoutError, ControllerError):
-            raise ToolError("Image upload publication unavailable or invalid") from None
+            raise ToolError("Media upload publication unavailable or invalid") from None
 
     return server
 
