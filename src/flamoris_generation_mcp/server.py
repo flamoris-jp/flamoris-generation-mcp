@@ -569,7 +569,7 @@ def create_server(
             )
             return result
         except (ValueError, OSError, TimeoutError, ControllerError):
-            raise ToolError("Image upload chunk unavailable or invalid") from None
+            raise ToolError("Media upload chunk unavailable or invalid") from None
 
     @server.tool(
         name="inputs.upload.finish",
@@ -583,7 +583,7 @@ def create_server(
     async def finish_input_upload(
         upload_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$", max_length=32)],
     ) -> dict[str, Any]:
-        """Decode and atomically publish one immutable expiring uploaded image."""
+        """Decode and publish one immutable expiring image or reference WAV."""
         try:
             result = await controller.invoke(
                 "inputs.upload.finish",
@@ -592,7 +592,7 @@ def create_server(
             )
             return result
         except (ValueError, OSError, TimeoutError, ControllerError):
-            raise ToolError("Image upload publication unavailable or invalid") from None
+            raise ToolError("Media upload publication unavailable or invalid") from None
 
     return server
 

@@ -171,3 +171,5 @@ Use the returned immutable `input_id` as `reference_audio` when building
 The resident HTTP adapter reports reference support in provider health and rejects
 unsupported checkpoints; no-reference and CLI speech remain unchanged. Use the
 matched Hub MIME enum. See [Controller's contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/REFERENCE_SPEECH.md).
+
+Rollback: drain or reconcile schema-9 jobs and temporary voice receipts before reverting. Earlier binaries cannot consume reference-speech recipes or uploaded-audio records; preserve these records with the matched owner until they are no longer needed. Do not erase unknown journals to permit rollback.
