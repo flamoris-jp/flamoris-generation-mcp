@@ -97,3 +97,23 @@ def test_mismatched_or_unexpected_publication_inputs_fail_before_output(candidat
     with pytest.raises(ValueError):
         PACKAGER.combine(source, output)
     assert not output.exists()
+
+
+def test_runtime_build_pins_and_image_labels_match_the_catalog():
+    import re
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    recipe = json.loads((ROOT / "release/install-recipe.json").read_text())["recipe"]
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    frozen = (ROOT / "docker-requirements.txt").read_text()
+    assert f'org.opencontainers.image.version="{project["version"]}"' in dockerfile
+    components = json.loads(re.search(r"LABEL net.flamoris.components='([^']+)'", dockerfile)[1])
+    assert components == recipe["application"]["components"]
+    controller = next(
+        d for d in project["dependencies"] if d.startswith("flamoris-generation-controller[")
+    )
+    assert (
+        controller.split(" @ ", 1)[1]
+        == re.search(r"^flamoris-generation-controller @ (.+)$", frozen, re.MULTILINE)[1]
+    )

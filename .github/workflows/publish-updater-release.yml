@@ -33,7 +33,7 @@ jobs:
       - name: Build this repository's immutable Docker image
         run: |
           docker build --platform '${{ matrix.platform }}' --tag 'repository-release:1.0.9' .
-          docker run --rm --entrypoint python 'repository-release:1.0.9' -c 'import importlib.metadata as m; assert m.version("flamoris-generation-mcp") == "1.0.9"'
+          docker run --rm --entrypoint python 'repository-release:1.0.9' -c 'import importlib.metadata as m; assert m.version("flamoris-generation-mcp") == "1.0.9"; assert m.version("flamoris-generation-controller") == "1.0.6"'
           docker run --rm --entrypoint python 'repository-release:1.0.9' -m pip check
           mkdir -p dist
           docker image save --output dist/image.tar 'repository-release:1.0.9'
@@ -41,7 +41,7 @@ jobs:
           python scripts/package_updater_release.py --platform '${{ matrix.platform }}' --revision "$GITHUB_SHA" --image dist/image.tar --image-id "$image_id" --output dist/release
       - name: Install and start this release with the actual Updater
         run: |
-          python -m pip install 'https://github.com/flamoris-jp/flamoris-updater/archive/63f4e1266dbf16939d65dccc2dae636ee3723424.zip'
+          python -m pip install 'https://github.com/flamoris-jp/flamoris-updater/archive/adb7fb2843dbb34b840e1cb1ad2b8c1a0234c8b9.zip'
           sudo env GITHUB_ACTIONS=true FLAMORIS_INSTALL_TEST_POSTGRES_DSN="${FLAMORIS_INSTALL_TEST_POSTGRES_DSN:-}" "$(command -v python)" scripts/verify_updater_catalog.py dist/release/catalog-linux-${{ matrix.arch }}.json --install
       - name: Update the published predecessor while retaining settings and data
         run: |
