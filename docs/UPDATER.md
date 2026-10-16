@@ -1,3 +1,5 @@
+> Release target 1.0.9 embeds Controller 1.0.6. Reconcile settled unknown speech before updating; installation preserves pending reservations and explicit timeout settings. Source validation is separate from publication and actual-host acceptance.
+
 > Reference-image source target 1.0.6; compatible update retains current settings and data. Publication and live acceptance remain pending.
 
 # Repository-owned Updater release 1.0.5

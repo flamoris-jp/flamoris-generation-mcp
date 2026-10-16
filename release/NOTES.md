@@ -1,3 +1,3 @@
-# FLAMORIS Generation MCP 1.0.8
+# FLAMORIS Generation MCP 1.0.9
 
-Expose bounded reference WAV uploads and the pinned Controller 1.0.5 reference-speech recipe over the existing 25 tools. Requires the additive Hub upload MIME catalog and matched Studio Speech editor. Preserve shared admission, immutable inputs, signed ingress and unknown/no-replay semantics. No runtime activation or live inference is performed by installation.
+Embed Controller 1.0.6 with a 900-second default resident Irodori HTTP budget (operator-configurable up to 1800 seconds) and local-only offline reconciliation of one independently confirmed settled speech execution. Explicit existing timeout settings remain effective. Preserve the existing 25 tools, reference WAV support, shared authority and unknown/no-replay behavior. Installation does not clear pending reservations, invoke inference or switch runtimes.

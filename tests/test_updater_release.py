@@ -45,8 +45,16 @@ def test_both_platforms_use_own_repository_payloads_and_exact_checksums(candidat
     assert catalog["updater_releases"] == []
     assert {recipe["platform"] for recipe in catalog["recipes"]} == {"linux/amd64", "linux/arm64"}
     for recipe in catalog["recipes"]:
-        assert recipe["compatible_from"] == ["1.0.2", "1.0.3", "1.0.4", "1.0.5", "1.0.6", "1.0.7"]
-        assert recipe["application"]["components"] == {"flamoris-generation-controller": "1.0.5"}
+        assert recipe["compatible_from"] == [
+            "1.0.2",
+            "1.0.3",
+            "1.0.4",
+            "1.0.5",
+            "1.0.6",
+            "1.0.7",
+            "1.0.8",
+        ]
+        assert recipe["application"]["components"] == {"flamoris-generation-controller": "1.0.6"}
         prefix = (
             "https://github.com/flamoris-jp/"
             + recipe["application_id"]
