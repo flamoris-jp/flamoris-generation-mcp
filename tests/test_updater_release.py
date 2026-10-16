@@ -45,8 +45,16 @@ def test_both_platforms_use_own_repository_payloads_and_exact_checksums(candidat
     assert catalog["updater_releases"] == []
     assert {recipe["platform"] for recipe in catalog["recipes"]} == {"linux/amd64", "linux/arm64"}
     for recipe in catalog["recipes"]:
-        assert recipe["compatible_from"] == ["1.0.2", "1.0.3", "1.0.4", "1.0.5", "1.0.6", "1.0.7"]
-        assert recipe["application"]["components"] == {"flamoris-generation-controller": "1.0.5"}
+        assert recipe["compatible_from"] == [
+            "1.0.2",
+            "1.0.3",
+            "1.0.4",
+            "1.0.5",
+            "1.0.6",
+            "1.0.7",
+            "1.0.8",
+        ]
+        assert recipe["application"]["components"] == {"flamoris-generation-controller": "1.0.6"}
         prefix = (
             "https://github.com/flamoris-jp/"
             + recipe["application_id"]
@@ -89,3 +97,23 @@ def test_mismatched_or_unexpected_publication_inputs_fail_before_output(candidat
     with pytest.raises(ValueError):
         PACKAGER.combine(source, output)
     assert not output.exists()
+
+
+def test_runtime_build_pins_and_image_labels_match_the_catalog():
+    import re
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    recipe = json.loads((ROOT / "release/install-recipe.json").read_text())["recipe"]
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    frozen = (ROOT / "docker-requirements.txt").read_text()
+    assert f'org.opencontainers.image.version="{project["version"]}"' in dockerfile
+    components = json.loads(re.search(r"LABEL net.flamoris.components='([^']+)'", dockerfile)[1])
+    assert components == recipe["application"]["components"]
+    controller = next(
+        d for d in project["dependencies"] if d.startswith("flamoris-generation-controller[")
+    )
+    assert (
+        controller.split(" @ ", 1)[1]
+        == re.search(r"^flamoris-generation-controller @ (.+)$", frozen, re.MULTILINE)[1]
+    )

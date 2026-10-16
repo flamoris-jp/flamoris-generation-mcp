@@ -1,3 +1,9 @@
+# Resident speech timeout distribution — 2026-10-16
+
+Source target Generation 1.0.9 embeds Controller 1.0.6 at an immutable commit, extends update compatibility from 1.0.8 and uses the published 1.0.8 predecessor in distribution CI. The 25 external tools, runtime/configuration/data placement and unknown/no-replay behavior remain unchanged. Existing explicit timeout settings are preserved; adjust the operator value separately if required. Offline reconciliation needs independently confirmed runtime settlement and a stopped authority; installation does not release unknown work. Docker frozen dependencies and OCI component/release labels are aligned with the immutable Controller pin; CI independently asserts the installed Controller distribution version. Distribution acceptance uses the cleanup-corrected Updater source. Publication and real-host reconciliation/update remain pending.
+
+---
+
 # Distribution component contract (2026-10-12)
 
 - Generation 1.0.3 declares embedded Controller 1.0.1 in its install recipe and requires Updater 1.0.9 first. Distribution CI uses the immutable reviewed Updater component-validation source; it runs actual disposable fresh installations on amd64/arm64.
