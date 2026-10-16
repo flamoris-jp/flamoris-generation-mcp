@@ -1,3 +1,5 @@
-# FLAMORIS Generation MCP 1.0.9
+# Generation MCP 1.0.10
 
-Embed Controller 1.0.6 with a 900-second default resident Irodori HTTP budget (operator-configurable up to 1800 seconds) and local-only offline reconciliation of one independently confirmed settled speech execution. Explicit existing timeout settings remain effective. Preserve the existing 25 tools, reference WAV support, shared authority and unknown/no-replay behavior. Installation does not clear pending reservations, invoke inference or switch runtimes.
+Embeds Controller 1.0.7. Omitted/null speech seconds now lets Irodori estimate duration instead of injecting ten seconds. Explicit numeric durations remain fixed. Reference/no-reference speech, existing estimation/output/timeout bounds, 25 tools, saved numeric recipes and no-replay authority remain unchanged.
+
+Deploy with the matched Studio 1.0.10 automatic-duration contract. Automatic timing is not a speech-quality attestation. Compatibility includes published 1.0.9; model/runtime configuration and existing data stay in place.
