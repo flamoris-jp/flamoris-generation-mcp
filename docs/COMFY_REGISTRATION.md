@@ -1,5 +1,7 @@
 # ComfyWorkFlow registration and reference images
 
+Controller #26 adds a separate [declarative image contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/DECLARED_COMFY.md). The fixed profiles below remain supported; their restrictions do not apply to declaration-based registrations. New behavior requires matched 1.1.0 sources and separate live acceptance.
+
 The matched Controller implements checkpoint txt2img/img2img and reviewed IPAdapter appearance/style plus prepared-map ControlNet profiles. Generation MCP exposes the same comfy.register/get, workflows.build, input upload/snapshot, job and Asset operations through its existing 25-tool surface.
 
 See [Controller reference setup and examples](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/REFERENCE_IMAGES.md) for concrete graphs, the graph-writing CLI, model pairing, shared ComfyUI input storage and Studio integration. The definition digest pins graph/model identity; registration does not test model compatibility or output quality.

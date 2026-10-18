@@ -32,12 +32,12 @@ jobs:
           python-version: '3.12'
       - name: Build this repository's immutable Docker image
         run: |
-          docker build --platform '${{ matrix.platform }}' --tag 'repository-release:1.0.10' .
-          docker run --rm --entrypoint python 'repository-release:1.0.10' -c 'import importlib.metadata as m; assert m.version("flamoris-generation-mcp") == "1.0.10"; assert m.version("flamoris-generation-controller") == "1.0.7"'
-          docker run --rm --entrypoint python 'repository-release:1.0.10' -m pip check
+          docker build --platform '${{ matrix.platform }}' --tag 'repository-release:1.1.0' .
+          docker run --rm --entrypoint python 'repository-release:1.1.0' -c 'import importlib.metadata as m; assert m.version("flamoris-generation-mcp") == "1.1.0"; assert m.version("flamoris-generation-controller") == "1.1.0"'
+          docker run --rm --entrypoint python 'repository-release:1.1.0' -m pip check
           mkdir -p dist
-          docker image save --output dist/image.tar 'repository-release:1.0.10'
-          image_id=$(docker image inspect --format '{{.Id}}' 'repository-release:1.0.10')
+          docker image save --output dist/image.tar 'repository-release:1.1.0'
+          image_id=$(docker image inspect --format '{{.Id}}' 'repository-release:1.1.0')
           python scripts/package_updater_release.py --platform '${{ matrix.platform }}' --revision "$GITHUB_SHA" --image dist/image.tar --image-id "$image_id" --output dist/release
       - name: Install and start this release with the actual Updater
         run: |
@@ -73,9 +73,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api 'repos/'"$GITHUB_REPOSITORY"'/git/ref/tags/v1.0.10' > /dev/null 2>&1; then
+          if gh api 'repos/'"$GITHUB_REPOSITORY"'/git/ref/tags/v1.1.0' > /dev/null 2>&1; then
             echo 'Release tag already exists; refusing to replace it'
             exit 1
           fi
-          gh release create v1.0.10 distribution/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'flamoris-generation-mcp v1.0.10' --notes-file release/NOTES.md --latest
+          gh release create v1.1.0 distribution/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'flamoris-generation-mcp v1.1.0' --notes-file release/NOTES.md --latest
 

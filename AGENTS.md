@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## 2026-10-18 Controller #26
+
+The explicit user request authorizes source implementation, matched MCP/Studio/Hub integration, tests, documentation and reviewable PRs for declarative image graphs. It supersedes older fixed-topology/model-family restrictions for this slice. Follow the [declaration contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/DECLARED_COMFY.md). Preserve existing profiles/data, single authority, immutable inputs, ownership and unknown/no-replay. Live deployment, inference and merges remain separate.
+
 These instructions apply to the repository. Read README.md and [AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18) / [Generation #67](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/67) before changing generation integration.
 
 ## Current authorization and target

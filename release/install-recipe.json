@@ -3,7 +3,7 @@
   "sql_files": [],
   "recipe": {
     "application_id": "flamoris-generation-mcp",
-    "release": "1.0.10",
+    "release": "1.1.0",
     "platform": "linux/amd64",
     "compatible_from": [
       "1.0.2",
@@ -13,7 +13,8 @@
       "1.0.6",
       "1.0.7",
       "1.0.8",
-      "1.0.9"
+      "1.0.9",
+      "1.0.10"
     ],
     "dependencies": {},
     "settings": [
@@ -60,7 +61,7 @@
     },
     "application": {
       "application_id": "flamoris-generation-mcp",
-      "release": "1.0.10",
+      "release": "1.1.0",
       "directories": [
         {
           "path": "${root}/config"
@@ -91,7 +92,7 @@
       "health_url": "http://127.0.0.1:${PORT}/healthz",
       "kind": "docker",
       "components": {
-        "flamoris-generation-controller": "1.0.7"
+        "flamoris-generation-controller": "1.1.0"
       },
       "image_archive": {
         "path": "${package}/image.tar",

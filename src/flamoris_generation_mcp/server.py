@@ -177,18 +177,21 @@ def create_server(
         name="comfy.register",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
     )
-    async def register_comfy(name: str, graph: dict[str, Any]) -> dict[str, Any]:
-        """Register an immutable bounded checkpoint ComfyWorkFlow API graph.
+    async def register_comfy(
+        name: str, graph: dict[str, Any], declaration: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Register an immutable ComfyWorkFlow API graph with optional input/output declaration.
 
         Supports txt2img/img2img and reviewed IPAdapter appearance/style and
         ControlNet prepared-map profiles. Use declared image placeholders and
         supply their managed input IDs to workflows.build.
-        Registration is static validation, not proof of live GPU/model readiness.
+        A declaration enables installed-node validation under operator policy.
+        Registration does not prove GPU generation or output quality.
         """
         try:
             return await controller.invoke(
                 "comfy.register",
-                {"name": name, "graph": graph},
+                {"name": name, "graph": graph, "declaration": declaration},
                 context=CallerContext.external(current_provenance()),
             )
         except (GenerationBusyError, ProviderError, ValueError) as exc:

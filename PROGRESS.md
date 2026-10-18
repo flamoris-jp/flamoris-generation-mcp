@@ -1,5 +1,9 @@
 # Automatic speech duration distribution — 2026-10-17
 
+## 2026-10-18 — Controller #26
+
+Prepared 1.1.0 facade preserves 25 tools with optional declaration forwarding to Controller 4c956412d2eb61e9f8893293d50df5d8b9df9417. Qwen registration/get/upload plus shared MCP/HTTP submit/content test passed. Local suite: 208 tests; Ruff checks/format passed. Matched source: Controller #27; Studio and Hub companions follow. Live deployment/GPU quality checks remain pending.
+
 Prepares 1.0.10 with Controller 1.0.7 and matched Docker frozen pin/component
 labels. Omitted/null seconds is automatic; explicit numeric recipes stay fixed.
 Matched Studio 1.0.10 is required by its strict descriptor contract. Normal
