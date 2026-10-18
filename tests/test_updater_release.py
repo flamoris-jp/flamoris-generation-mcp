@@ -119,3 +119,12 @@ def test_runtime_build_pins_and_image_labels_match_the_catalog():
         controller.split(" @ ", 1)[1]
         == re.search(r"^flamoris-generation-controller @ (.+)$", frozen, re.MULTILINE)[1]
     )
+
+
+def test_release_workflow_checks_and_publishes_the_current_package_version():
+    import tomllib
+
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    workflow = (ROOT / ".github/workflows/publish-updater-release.yml").read_text()
+    assert 'm.version("flamoris-generation-mcp") == "' + version + '"' in workflow
+    assert "gh release create v" + version + " " in workflow
