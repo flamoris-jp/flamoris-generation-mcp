@@ -1,5 +1,7 @@
 # FLAMORIS Generation MCP
 
+Controller #26 adds [declarative image ComfyWorkFlow registration](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/DECLARED_COMFY.md) with installed-node validation and descriptor-driven Studio Image controls. Prepared source target: Controller / Generation MCP / Studio 1.1.0 plus the matched Hub catalog; live acceptance remains pending.
+
 External MCP facade for FLAMORIS generation capabilities. Part of
 [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai).
 

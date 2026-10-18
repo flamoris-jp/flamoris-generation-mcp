@@ -3,7 +3,7 @@
   "sql_files": [],
   "recipe": {
     "application_id": "flamoris-generation-mcp",
-    "release": "1.0.10",
+    "release": "1.1.0",
     "platform": "linux/amd64",
     "compatible_from": [
       "1.0.2",
@@ -13,7 +13,8 @@
       "1.0.6",
       "1.0.7",
       "1.0.8",
-      "1.0.9"
+      "1.0.9",
+      "1.0.10"
     ],
     "dependencies": {},
     "settings": [
@@ -52,15 +53,24 @@
         "required": false,
         "generate": true,
         "kind": "url_password"
+      },
+      {
+        "key": "DECLARED_COMFY_NODES",
+        "label": "Trusted ComfyUI node classes (JSON array)",
+        "default": "[]",
+        "secret": false,
+        "required": false,
+        "generate": false,
+        "kind": "text"
       }
     ],
     "downloads": {},
     "generated": {
-      "runtime.env": "FLAMORIS_HTTP_HOST=127.0.0.1\nFLAMORIS_HTTP_PORT=${PORT}\nFLAMORIS_WORKFLOW_DIR=/data/workflows\nFLAMORIS_OUTPUT_DIR=/data/outputs\nFLAMORIS_COMFYUI_URL=${COMFYUI_URL}\nFLAMORIS_MODEL_ROOT=/data/models\nFLAMORIS_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}\n"
+      "runtime.env": "FLAMORIS_HTTP_HOST=127.0.0.1\nFLAMORIS_HTTP_PORT=${PORT}\nFLAMORIS_WORKFLOW_DIR=/data/workflows\nFLAMORIS_OUTPUT_DIR=/data/outputs\nFLAMORIS_COMFYUI_URL=${COMFYUI_URL}\nFLAMORIS_MODEL_ROOT=/data/models\nFLAMORIS_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}\nFLAMORIS_DECLARED_COMFY_NODES=${DECLARED_COMFY_NODES}\n"
     },
     "application": {
       "application_id": "flamoris-generation-mcp",
-      "release": "1.0.10",
+      "release": "1.1.0",
       "directories": [
         {
           "path": "${root}/config"
@@ -91,7 +101,7 @@
       "health_url": "http://127.0.0.1:${PORT}/healthz",
       "kind": "docker",
       "components": {
-        "flamoris-generation-controller": "1.0.7"
+        "flamoris-generation-controller": "1.1.0"
       },
       "image_archive": {
         "path": "${package}/image.tar",

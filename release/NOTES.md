@@ -1,5 +1,3 @@
-# Generation MCP 1.0.10
+# flamoris-generation-mcp 1.1.0
 
-Embeds Controller 1.0.7. Omitted/null speech seconds now lets Irodori estimate duration instead of injecting ten seconds. Explicit numeric durations remain fixed. Reference/no-reference speech, existing estimation/output/timeout bounds, 25 tools, saved numeric recipes and no-replay authority remain unchanged.
-
-Deploy with the matched Studio 1.0.10 automatic-duration contract. Automatic timing is not a speech-quality attestation. Compatibility includes published 1.0.9; model/runtime configuration and existing data stay in place.
+Adds declarative image ComfyWorkFlows under Controller #26: installed-node validation, managed image/prompt/model/parameter bindings, dynamic Image fields, and unchanged shared Job/Asset authority. Use the matched 1.1.0 Controller/Generation MCP/Studio and updated 25-tool Hub catalog. Existing profiles and data remain compatible; new schema-10 recipes/definitions require reconciliation before downgrade. Node policy defaults to disabled (`[]`). Source changes do not deploy, infer or attest output quality. See Controller docs/DECLARED_COMFY.md for the registration and trust contract.
