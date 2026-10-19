@@ -625,9 +625,14 @@
             "CONDITIONING"
           ],
           "reference_latents_method": [
-            [
-              "index_timestep_zero"
-            ]
+            "COMBO",
+            {
+              "options": [
+                "offset",
+                "index_timestep_zero"
+              ],
+              "multiselect": false
+            }
           ]
         },
         "optional": {}

@@ -4,9 +4,11 @@ from flamoris_generation_controller.updater import inspect_domain
 from flamoris_update_core.owner import ApplicationOwner
 from flamoris_update_core.owner_cli import serve
 
+from . import __version__
+
 
 def factory(config):
-    return ApplicationOwner(config, "flamoris-generation-mcp", "1.1.0", inspect_domain)
+    return ApplicationOwner(config, "flamoris-generation-mcp", __version__, inspect_domain)
 
 
 def main():

@@ -1,3 +1,7 @@
+# 2026-10-19 — Controller #26 COMBO fix
+
+Generation 1.1.1 pins Controller 1.1.1 for ComfyUI V3 static COMBO registration. Existing 25-tool and Studio 1.1.0 contracts remain compatible. Supports settings-preserving updates from 1.1.0. Live GPU/Studio acceptance is pending.
+
 # Automatic speech duration distribution — 2026-10-17
 
 ## 2026-10-18 — Controller #26
