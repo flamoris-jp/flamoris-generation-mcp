@@ -46,7 +46,7 @@ jobs:
       - name: Update the published predecessor while retaining settings and data
         run: |
           mkdir -p dist/upgrade-check
-          curl --fail --location --max-time 60 --output dist/upgrade-check/previous.json 'https://github.com/flamoris-jp/flamoris-generation-mcp/releases/download/v1.0.9/catalog-linux-${{ matrix.arch }}.json'
+          curl --fail --location --max-time 60 --output dist/upgrade-check/previous.json 'https://github.com/flamoris-jp/flamoris-generation-mcp/releases/download/v1.1.1/catalog-linux-${{ matrix.arch }}.json'
           sudo env GITHUB_ACTIONS=true "$(command -v python)" scripts/verify_updater_catalog.py dist/release/catalog-linux-${{ matrix.arch }}.json --upgrade-from-catalog dist/upgrade-check/previous.json
       - uses: actions/upload-artifact@v4
         with:

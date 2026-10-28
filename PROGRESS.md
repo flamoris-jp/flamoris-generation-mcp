@@ -90,3 +90,8 @@ Public branch publication was rejected twice by automatic approval review, which
 ## 2026-10-28 — publication authorized
 
 The user explicitly authorized branch publication and draft PR creation. Controller PR #32 publishes the exact tested source tree at `aec5cba84a5d9be0bbe62f831a77e1d00fb5f877`; this facade pins that published commit in project and Docker dependencies. The earlier approval block is resolved. Hosted CI and real-machine acceptance are separate checks; no merge or deployment is authorized by publication.
+
+
+## 2026-10-28 — release readiness correction
+
+Read-only Updater inspection confirmed LIME is on Generation/Controller 1.1.1. The 1.2.0 candidate had omitted 1.1.1 from compatible_from and still tested the older 1.0.9 predecessor. Added the installed version to the catalog and changed the actual amd64/arm64 Updater upgrade checks to published 1.1.1. Source CI and real-host acceptance remain distinct; no merge, release publication or runtime mutation is performed by this correction.
