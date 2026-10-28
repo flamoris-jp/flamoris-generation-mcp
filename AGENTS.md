@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## 2026-10-28 Controller #31
+
+The user resumes AnimeGen/Wan video integration and short-clip testing. Follow docs/VIDEO.md and the Controller-owned contract. Keep this package a thin facade, with one shared Controller, unchanged 25 operation schemas, input leases, scoped cancellation and unknown/no-replay. Real graph/model/launch-setting evidence remains required; do not claim source tests prove live GPU success. No merge is requested.
+
 ## 2026-10-18 Controller #26
 
 The explicit user request authorizes source implementation, matched MCP/Studio/Hub integration, tests, documentation and reviewable PRs for declarative image graphs. It supersedes older fixed-topology/model-family restrictions for this slice. Follow the [declaration contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/DECLARED_COMFY.md). Preserve existing profiles/data, single authority, immutable inputs, ownership and unknown/no-replay. Live deployment, inference and merges remain separate.

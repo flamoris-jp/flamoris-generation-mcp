@@ -77,3 +77,21 @@ The SDK now targets merged Updater revision
 targets merged retained-resource correction
 `eacf1086e28ca3eeb13b4297d4343fdec1163429`. Review and CI at these exact
 revisions are pending. No runtime, release, data or host state was changed.
+
+## 2026-10-28 — bounded Wan video candidate (Controller #31 / #25)
+
+Prepared matching 1.2.0 facade/Controller dependency pins, image labels and release metadata. Existing generic 25-tool schemas carry Controller declaration v2 and separate I2V/FLF2V contracts; domain logic and state remain in Controller. Added synthetic end-to-end MCP + authenticated HTTP tests for both modes, managed inputs, shared admission, verified MP4 bytes and SHA-256 transfer.
+
+Validation: 211 local facade tests (including both video integration modes), Ruff check/format and wheel/sdist build passed against the local Controller candidate. Controller has 454 passing local tests. Hosted CI and Docker execution have not run; Docker is not installed in this workspace. The Controller SHA pin is prospective until its local branch is published.
+
+Public branch publication was rejected twice by automatic approval review, which requires a fresh explicit user-authored authorization for public GitHub publication. No bypass or alternate publication path was used. Source is committed locally for review; PR creation and hosted CI remain blocked on that approval. Separately, live AnimeGen tests remain blocked on the actual successful exported graph/history, base-model discovery/mount reconciliation and runtime launch evidence. No runtime switch, deployment, real GPU video generation, Studio Video editor or Kachinco project change is claimed. See docs/VIDEO.md.
+
+
+## 2026-10-28 — publication authorized
+
+The user explicitly authorized branch publication and draft PR creation. Controller PR #32 publishes the exact tested source tree at `aec5cba84a5d9be0bbe62f831a77e1d00fb5f877`; this facade pins that published commit in project and Docker dependencies. The earlier approval block is resolved. Hosted CI and real-machine acceptance are separate checks; no merge or deployment is authorized by publication.
+
+
+## 2026-10-28 — release readiness correction
+
+Read-only Updater inspection confirmed LIME is on Generation/Controller 1.1.1. The 1.2.0 candidate had omitted 1.1.1 from compatible_from and still tested the older 1.0.9 predecessor. Added the installed version to the catalog and changed the actual amd64/arm64 Updater upgrade checks to published 1.1.1. Source CI and real-host acceptance remain distinct; no merge, release publication or runtime mutation is performed by this correction.

@@ -1,3 +1,5 @@
+> 1.2.0 candidate: embeds Controller 1.2.0 and explicitly accepts updates from 1.1.1, the currently observed LIME version. Candidate CI now installs the published 1.1.1 predecessor and verifies settings/data preservation on amd64 and arm64. Real-machine updates, AnimeGen graph registration and GPU acceptance remain separate. Controller is embedded; install/update only Generation MCP on LIME.
+
 > 1.0.10 matches Studio 1.0.10 and Controller 1.0.7 for automatic speech duration. Publication/live acceptance are separate.
 
 > Release target 1.0.9 embeds Controller 1.0.6. Reconcile settled unknown speech before updating; installation preserves pending reservations and explicit timeout settings. Source validation is separate from publication and actual-host acceptance.
