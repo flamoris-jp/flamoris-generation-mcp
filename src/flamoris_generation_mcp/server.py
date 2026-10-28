@@ -185,6 +185,8 @@ def create_server(
         Supports txt2img/img2img and reviewed IPAdapter appearance/style and
         ControlNet prepared-map profiles. Use declared image placeholders and
         supply their managed input IDs to workflows.build.
+        Declaration v2 also supports bounded Wan I2V/FLF2V video with managed
+        start/end images and MP4/H.264 output through video.generate.
         A declaration enables installed-node validation under operator policy.
         Registration does not prove GPU generation or output quality.
         """

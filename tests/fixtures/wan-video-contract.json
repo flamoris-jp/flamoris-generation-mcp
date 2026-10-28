@@ -1,0 +1,653 @@
+{
+  "i2v": {
+    "registration": {
+      "name": "Synthetic Wan contract",
+      "graph": {
+        "1": {
+          "class_type": "TestContext",
+          "inputs": {}
+        },
+        "2": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "$start_image"
+          }
+        },
+        "3": {
+          "class_type": "WanImageToVideo",
+          "inputs": {
+            "positive": [
+              "1",
+              0
+            ],
+            "negative": [
+              "1",
+              1
+            ],
+            "vae": [
+              "1",
+              2
+            ],
+            "start_image": [
+              "2",
+              0
+            ],
+            "width": 64,
+            "height": 64,
+            "length": 5,
+            "batch_size": 1
+          }
+        },
+        "4": {
+          "class_type": "TestDecode",
+          "inputs": {
+            "positive": [
+              "3",
+              0
+            ],
+            "negative": [
+              "3",
+              1
+            ],
+            "latent": [
+              "3",
+              2
+            ]
+          }
+        },
+        "5": {
+          "class_type": "CreateVideo",
+          "inputs": {
+            "images": [
+              "4",
+              0
+            ],
+            "fps": 16
+          }
+        },
+        "6": {
+          "class_type": "SaveVideo",
+          "inputs": {
+            "video": [
+              "5",
+              0
+            ],
+            "filename_prefix": "flamoris",
+            "format": "mp4",
+            "codec": "h264"
+          }
+        }
+      },
+      "declaration": {
+        "version": 2,
+        "video": {
+          "mode": "i2v",
+          "conditioning_node": "3"
+        },
+        "parameters": {
+          "start_image": {
+            "type": "string",
+            "role": "managed_input",
+            "required": true,
+            "label": "Start",
+            "targets": [
+              {
+                "node": "2",
+                "input": "image"
+              }
+            ]
+          },
+          "width": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "width",
+            "default": 64,
+            "minimum": 64,
+            "maximum": 1024,
+            "targets": [
+              {
+                "node": "3",
+                "input": "width"
+              }
+            ]
+          },
+          "height": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "height",
+            "default": 64,
+            "minimum": 64,
+            "maximum": 1024,
+            "targets": [
+              {
+                "node": "3",
+                "input": "height"
+              }
+            ]
+          },
+          "frames": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "frames",
+            "default": 5,
+            "minimum": 5,
+            "maximum": 161,
+            "targets": [
+              {
+                "node": "3",
+                "input": "length"
+              }
+            ]
+          },
+          "fps": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "fps",
+            "default": 16,
+            "minimum": 1,
+            "maximum": 32,
+            "targets": [
+              {
+                "node": "5",
+                "input": "fps"
+              }
+            ]
+          }
+        },
+        "constants": [
+          {
+            "node": "3",
+            "input": "batch_size"
+          },
+          {
+            "node": "6",
+            "input": "format"
+          },
+          {
+            "node": "6",
+            "input": "codec"
+          }
+        ],
+        "output": {
+          "node": "6"
+        }
+      }
+    },
+    "object_info": {
+      "TestContext": {
+        "input": {},
+        "output": [
+          "CONDITIONING",
+          "CONDITIONING",
+          "VAE"
+        ]
+      },
+      "LoadImage": {
+        "input": {
+          "required": {
+            "image": [
+              [
+                "placeholder.png"
+              ]
+            ]
+          }
+        },
+        "output": [
+          "IMAGE"
+        ]
+      },
+      "WanImageToVideo": {
+        "input": {
+          "required": {
+            "positive": [
+              "CONDITIONING"
+            ],
+            "negative": [
+              "CONDITIONING"
+            ],
+            "vae": [
+              "VAE"
+            ],
+            "start_image": [
+              "IMAGE"
+            ],
+            "width": [
+              "INT",
+              {
+                "min": 16,
+                "max": 4096
+              }
+            ],
+            "height": [
+              "INT",
+              {
+                "min": 16,
+                "max": 4096
+              }
+            ],
+            "length": [
+              "INT",
+              {
+                "min": 1,
+                "max": 4096
+              }
+            ],
+            "batch_size": [
+              "INT",
+              {
+                "min": 1,
+                "max": 4096
+              }
+            ]
+          }
+        },
+        "output": [
+          "CONDITIONING",
+          "CONDITIONING",
+          "LATENT"
+        ]
+      },
+      "TestDecode": {
+        "input": {
+          "required": {
+            "positive": [
+              "CONDITIONING"
+            ],
+            "negative": [
+              "CONDITIONING"
+            ],
+            "latent": [
+              "LATENT"
+            ]
+          }
+        },
+        "output": [
+          "IMAGE"
+        ]
+      },
+      "CreateVideo": {
+        "input": {
+          "required": {
+            "images": [
+              "IMAGE"
+            ],
+            "fps": [
+              "FLOAT",
+              {
+                "min": 1,
+                "max": 120
+              }
+            ]
+          }
+        },
+        "output": [
+          "VIDEO"
+        ]
+      },
+      "SaveVideo": {
+        "input": {
+          "required": {
+            "video": [
+              "VIDEO"
+            ],
+            "filename_prefix": [
+              "STRING"
+            ],
+            "format": [
+              [
+                "mp4",
+                "webm"
+              ]
+            ],
+            "codec": [
+              [
+                "h264",
+                "av1"
+              ]
+            ]
+          }
+        },
+        "output": [],
+        "output_node": true
+      }
+    }
+  },
+  "flf2v": {
+    "registration": {
+      "name": "Synthetic Wan contract",
+      "graph": {
+        "1": {
+          "class_type": "TestContext",
+          "inputs": {}
+        },
+        "2": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "$start_image"
+          }
+        },
+        "3": {
+          "class_type": "WanFirstLastFrameToVideo",
+          "inputs": {
+            "positive": [
+              "1",
+              0
+            ],
+            "negative": [
+              "1",
+              1
+            ],
+            "vae": [
+              "1",
+              2
+            ],
+            "start_image": [
+              "2",
+              0
+            ],
+            "width": 64,
+            "height": 64,
+            "length": 5,
+            "batch_size": 1,
+            "end_image": [
+              "7",
+              0
+            ]
+          }
+        },
+        "4": {
+          "class_type": "TestDecode",
+          "inputs": {
+            "positive": [
+              "3",
+              0
+            ],
+            "negative": [
+              "3",
+              1
+            ],
+            "latent": [
+              "3",
+              2
+            ]
+          }
+        },
+        "5": {
+          "class_type": "CreateVideo",
+          "inputs": {
+            "images": [
+              "4",
+              0
+            ],
+            "fps": 16
+          }
+        },
+        "6": {
+          "class_type": "SaveVideo",
+          "inputs": {
+            "video": [
+              "5",
+              0
+            ],
+            "filename_prefix": "flamoris",
+            "format": "mp4",
+            "codec": "h264"
+          }
+        },
+        "7": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "$end_image"
+          }
+        }
+      },
+      "declaration": {
+        "version": 2,
+        "video": {
+          "mode": "flf2v",
+          "conditioning_node": "3"
+        },
+        "parameters": {
+          "start_image": {
+            "type": "string",
+            "role": "managed_input",
+            "required": true,
+            "label": "Start",
+            "targets": [
+              {
+                "node": "2",
+                "input": "image"
+              }
+            ]
+          },
+          "width": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "width",
+            "default": 64,
+            "minimum": 64,
+            "maximum": 1024,
+            "targets": [
+              {
+                "node": "3",
+                "input": "width"
+              }
+            ]
+          },
+          "height": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "height",
+            "default": 64,
+            "minimum": 64,
+            "maximum": 1024,
+            "targets": [
+              {
+                "node": "3",
+                "input": "height"
+              }
+            ]
+          },
+          "frames": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "frames",
+            "default": 5,
+            "minimum": 5,
+            "maximum": 161,
+            "targets": [
+              {
+                "node": "3",
+                "input": "length"
+              }
+            ]
+          },
+          "fps": {
+            "type": "integer",
+            "role": "parameter",
+            "label": "fps",
+            "default": 16,
+            "minimum": 1,
+            "maximum": 32,
+            "targets": [
+              {
+                "node": "5",
+                "input": "fps"
+              }
+            ]
+          },
+          "end_image": {
+            "type": "string",
+            "role": "managed_input",
+            "required": true,
+            "label": "End",
+            "targets": [
+              {
+                "node": "7",
+                "input": "image"
+              }
+            ]
+          }
+        },
+        "constants": [
+          {
+            "node": "3",
+            "input": "batch_size"
+          },
+          {
+            "node": "6",
+            "input": "format"
+          },
+          {
+            "node": "6",
+            "input": "codec"
+          }
+        ],
+        "output": {
+          "node": "6"
+        }
+      }
+    },
+    "object_info": {
+      "TestContext": {
+        "input": {},
+        "output": [
+          "CONDITIONING",
+          "CONDITIONING",
+          "VAE"
+        ]
+      },
+      "LoadImage": {
+        "input": {
+          "required": {
+            "image": [
+              [
+                "placeholder.png"
+              ]
+            ]
+          }
+        },
+        "output": [
+          "IMAGE"
+        ]
+      },
+      "WanFirstLastFrameToVideo": {
+        "input": {
+          "required": {
+            "positive": [
+              "CONDITIONING"
+            ],
+            "negative": [
+              "CONDITIONING"
+            ],
+            "vae": [
+              "VAE"
+            ],
+            "start_image": [
+              "IMAGE"
+            ],
+            "width": [
+              "INT",
+              {
+                "min": 16,
+                "max": 4096
+              }
+            ],
+            "height": [
+              "INT",
+              {
+                "min": 16,
+                "max": 4096
+              }
+            ],
+            "length": [
+              "INT",
+              {
+                "min": 1,
+                "max": 4096
+              }
+            ],
+            "batch_size": [
+              "INT",
+              {
+                "min": 1,
+                "max": 4096
+              }
+            ],
+            "end_image": [
+              "IMAGE"
+            ]
+          }
+        },
+        "output": [
+          "CONDITIONING",
+          "CONDITIONING",
+          "LATENT"
+        ]
+      },
+      "TestDecode": {
+        "input": {
+          "required": {
+            "positive": [
+              "CONDITIONING"
+            ],
+            "negative": [
+              "CONDITIONING"
+            ],
+            "latent": [
+              "LATENT"
+            ]
+          }
+        },
+        "output": [
+          "IMAGE"
+        ]
+      },
+      "CreateVideo": {
+        "input": {
+          "required": {
+            "images": [
+              "IMAGE"
+            ],
+            "fps": [
+              "FLOAT",
+              {
+                "min": 1,
+                "max": 120
+              }
+            ]
+          }
+        },
+        "output": [
+          "VIDEO"
+        ]
+      },
+      "SaveVideo": {
+        "input": {
+          "required": {
+            "video": [
+              "VIDEO"
+            ],
+            "filename_prefix": [
+              "STRING"
+            ],
+            "format": [
+              [
+                "mp4",
+                "webm"
+              ]
+            ],
+            "codec": [
+              [
+                "h264",
+                "av1"
+              ]
+            ]
+          }
+        },
+        "output": [],
+        "output_node": true
+      }
+    }
+  }
+}

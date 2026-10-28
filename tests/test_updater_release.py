@@ -57,7 +57,7 @@ def test_both_platforms_use_own_repository_payloads_and_exact_checksums(candidat
             "1.0.10",
             "1.1.0",
         ]
-        assert recipe["application"]["components"] == {"flamoris-generation-controller": "1.1.1"}
+        assert recipe["application"]["components"] == {"flamoris-generation-controller": "1.2.0"}
         prefix = (
             "https://github.com/flamoris-jp/"
             + recipe["application_id"]
