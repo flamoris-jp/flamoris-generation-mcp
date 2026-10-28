@@ -2,7 +2,7 @@
 
 Controller #26 adds [declarative image ComfyWorkFlow registration](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/DECLARED_COMFY.md) with installed-node validation and descriptor-driven Studio Image controls. Controller / Generation MCP 1.1.1 fix ComfyUI V3 static COMBO choices; Studio 1.1.0 and the matched Hub catalog remain compatible. Live acceptance remains pending.
 
-Candidate 1.2.0 embeds [bounded Wan I2V/FLF2V video](docs/VIDEO.md) through the same 25-tool facade. Source tests are separate from production AnimeGen graph registration, deployment and GPU acceptance, which remain pending.
+Version 1.2.1 embeds [bounded Wan I2V/FLF2V video](docs/VIDEO.md) through the same 25-tool facade. Source tests are separate from production AnimeGen graph registration and GPU acceptance, which remain pending. Version 1.2.0 was deployed; 1.2.1 adds compatibility with the installed native SaveVideo V3 schema.
 
 External MCP facade for FLAMORIS generation capabilities. Part of
 [FLAMORIS AI](https://github.com/flamoris-jp/flamoris-ai).
