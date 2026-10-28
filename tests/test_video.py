@@ -35,8 +35,9 @@ def clip():
 
 
 @pytest.mark.parametrize("mode", ["i2v", "flf2v"])
+@pytest.mark.parametrize("output_schema", ["legacy", "native_v3"])
 async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transfer(
-    settings, fake, tmp_path, monkeypatch, mode
+    settings, fake, tmp_path, monkeypatch, mode, output_schema
 ):
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
@@ -44,6 +45,14 @@ async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transf
         mode
     ]
     body, info = fixture["registration"], fixture["object_info"]
+    if output_schema == "native_v3":
+        native = json.loads((Path(__file__).parent / "fixtures/native-video-v3.json").read_text())
+        info.update(native["node_specs"])
+        output = body["graph"]["6"]["inputs"]
+        output["format.codec"] = output.pop("codec")
+        for target in body["declaration"]["constants"]:
+            if target == {"node": "6", "input": "codec"}:
+                target["input"] = "format.codec"
     shared = tmp_path / "shared"
     shared.mkdir()
     settings = settings.model_copy(
@@ -123,6 +132,9 @@ async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transf
             assert set(job["managed_inputs"]) == set(images)
             assert (await internal.post("jobs.submit", json=args)).status_code == 409
             assert len(fake.prompts) == 1
+            output = fake.prompts[0]["prompt"]["6"]["inputs"]
+            if output_schema == "native_v3":
+                assert output["format.codec"] == "h264" and "codec" not in output
             prefix = fake.prompts[0]["prompt"]["6"]["inputs"]["filename_prefix"]
             fake.finish()
             fake.history["prompt-1"]["outputs"] = {
