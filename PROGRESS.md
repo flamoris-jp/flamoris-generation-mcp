@@ -1,3 +1,7 @@
+# 2026-10-29 — MiniMax H3 comparison
+
+Match Controller #34 through the existing 25-tool/internal-HTTP authority. All 217 local tests, Ruff and wheel build pass, including eight video adapter cases for Wan/H3, I2V/FLF2V and native/legacy output schemas. H3 model installation, real execution and visual acceptance remain pending.
+
 # 2026-10-19 — Controller #26 COMBO fix
 
 Generation 1.1.1 pins Controller 1.1.1 for ComfyUI V3 static COMBO registration. Existing 25-tool and Studio 1.1.0 contracts remain compatible. Supports settings-preserving updates from 1.1.0. Live GPU/Studio acceptance is pending.

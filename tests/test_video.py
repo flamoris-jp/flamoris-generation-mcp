@@ -20,13 +20,13 @@ from test_input_uploads import image
 from flamoris_generation_mcp.server import create_server
 
 
-def clip():
+def clip(fps=16, frames=5):
     buffer = io.BytesIO()
     with av.open(buffer, mode="w", format="mp4") as container:
-        stream = container.add_stream("libx264", rate=16)
+        stream = container.add_stream("libx264", rate=fps)
         stream.width = stream.height = 64
         stream.pix_fmt = "yuv420p"
-        for _ in range(5):
+        for _ in range(frames):
             for packet in stream.encode(av.VideoFrame.from_image(Image.new("RGB", (64, 64)))):
                 container.mux(packet)
         for packet in stream.encode():
@@ -36,8 +36,9 @@ def clip():
 
 @pytest.mark.parametrize("mode", ["i2v", "flf2v"])
 @pytest.mark.parametrize("output_schema", ["legacy", "native_v3"])
+@pytest.mark.parametrize("family", ["wan", "h3"])
 async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transfer(
-    settings, fake, tmp_path, monkeypatch, mode, output_schema
+    settings, fake, tmp_path, monkeypatch, mode, output_schema, family
 ):
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
@@ -45,13 +46,41 @@ async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transf
         mode
     ]
     body, info = fixture["registration"], fixture["object_info"]
+    if family == "h3":
+        legacy_output = info["SaveVideo"]
+        fixture = json.loads(
+            (Path(__file__).parent / "fixtures/minimax-h3-contract.json").read_text()
+        )
+        body, info = fixture["registration"], fixture["object_info"]
+        info["SaveVideo"] = legacy_output
+        output = body["graph"]["13"]["inputs"]
+        output["codec"] = output.pop("format.codec")
+        for target in body["declaration"]["constants"]:
+            if target == {"node": "13", "input": "format.codec"}:
+                target["input"] = "codec"
+        for folder in ("diffusion_models", "text_encoders", "vae"):
+            path = settings.model_root / folder / "fixture.safetensors"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"synthetic fixture, not model weights")
+        if mode == "flf2v":
+            body["declaration"]["video"]["mode"] = mode
+            body["graph"]["14"] = {"class_type": "LoadImage", "inputs": {"image": "$end_image"}}
+            body["graph"]["5"]["inputs"]["last_frame"] = ["14", 0]
+            body["declaration"]["parameters"]["end_image"] = {
+                "type": "string",
+                "role": "managed_input",
+                "label": "End",
+                "required": True,
+                "targets": [{"node": "14", "input": "image"}],
+            }
+    output_id = body["declaration"]["output"]["node"]
     if output_schema == "native_v3":
         native = json.loads((Path(__file__).parent / "fixtures/native-video-v3.json").read_text())
         info.update(native["node_specs"])
-        output = body["graph"]["6"]["inputs"]
+        output = body["graph"][output_id]["inputs"]
         output["format.codec"] = output.pop("codec")
         for target in body["declaration"]["constants"]:
-            if target == {"node": "6", "input": "codec"}:
+            if target == {"node": output_id, "input": "codec"}:
                 target["input"] = "format.codec"
     shared = tmp_path / "shared"
     shared.mkdir()
@@ -62,7 +91,7 @@ async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transf
             "controller_token": SecretStr("fixture-controller-credential-32chars"),
         }
     )
-    data = clip()
+    data = clip(24, 22) if family == "h3" else clip()
 
     def handle(request):
         if request.url.path.startswith("/object_info/"):
@@ -86,6 +115,9 @@ async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transf
             assert any(c["id"] == "video.generate" for c in catalog["capabilities"])
             definition = (await client.call_tool("comfy.register", body)).structured_content
             assert definition["video"]["mode"] == mode
+            assert definition["video"]["profile"] == (
+                "minimax-h3-video-v1" if family == "h3" else "wan-video-v1"
+            )
             assert definition["readiness"]["generation_verified"] is False
             images = {}
             for role in ("start_image", "end_image") if mode == "flf2v" else ("start_image",):
@@ -132,13 +164,13 @@ async def test_mcp_video_and_internal_http_share_inputs_jobs_and_verified_transf
             assert set(job["managed_inputs"]) == set(images)
             assert (await internal.post("jobs.submit", json=args)).status_code == 409
             assert len(fake.prompts) == 1
-            output = fake.prompts[0]["prompt"]["6"]["inputs"]
+            output = fake.prompts[0]["prompt"][output_id]["inputs"]
             if output_schema == "native_v3":
                 assert output["format.codec"] == "h264" and "codec" not in output
-            prefix = fake.prompts[0]["prompt"]["6"]["inputs"]["filename_prefix"]
+            prefix = output["filename_prefix"]
             fake.finish()
             fake.history["prompt-1"]["outputs"] = {
-                "6": {
+                output_id: {
                     "images": [
                         {
                             "filename": prefix.split("/")[-1] + "_00001_.mp4",
