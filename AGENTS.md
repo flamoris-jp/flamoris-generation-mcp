@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## 2026-10-29 MiniMax H3
+
+The user requests a silent H3 comparison and matching Studio integration.
+Controller #34 owns the bounded version-3 declaration. Keep this facade thin,
+pin the matched Controller, and test H3 through the same 25-tool/internal-HTTP
+authority and managed-input lifecycle. No automatic downloads, GPU activation,
+node-policy mutation, second authority or replay. Actual GPU acceptance is separate.
+
 ## 2026-10-28 Controller #31
 
 The user resumes AnimeGen/Wan video integration and short-clip testing. Follow docs/VIDEO.md and the Controller-owned contract. Keep this package a thin facade, with one shared Controller, unchanged 25 operation schemas, input leases, scoped cancellation and unknown/no-replay. Real graph/model/launch-setting evidence remains required; do not claim source tests prove live GPU success. No merge is requested.

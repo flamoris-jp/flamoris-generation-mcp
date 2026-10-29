@@ -1,5 +1,20 @@
 # AnimeGen / Wan video candidate
 
+## MiniMax H3 (1.3.0)
+
+The matched Controller 1.3.0 adds declaration version 3 for the optional silent
+`minimax-h3-video-v1` profile. See the owning
+[H3 contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/main/docs/MINIMAX_H3.md)
+and [Controller #34](https://github.com/flamoris-jp/flamoris-generation-controller/issues/34).
+H3 uses 17k+5 frames, dimensions in multiples of 32 and fixed 24 FPS. Wan
+declaration version 2, identities and behavior remain unchanged.
+
+There are no new MCP operations. Model installation, operator-approved node
+policy, installed contracts and real GPU qualification are operational steps;
+the facade does not perform them. Synthetic H3 tests cover shared MCP/HTTP input
+ownership, one submission, duplicate admission rejection and verified silent MP4
+transfer using both native and legacy output metadata schemas.
+
 Controller [#31](https://github.com/flamoris-jp/flamoris-generation-controller/issues/31)
 owns the resumed video implementation from [#25](https://github.com/flamoris-jp/flamoris-generation-mcp/issues/25).
 Generation MCP 1.2.1 pins the corresponding Controller source candidate and
@@ -13,7 +28,7 @@ Use the existing `comfy.register/get`, `inputs.*`, `workflows.build/save`,
 `declaration` remains an ordinary JSON object, so this feature needs no new
 tool or wire argument in the Hub's current generic static catalog.
 
-The Controller [video contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/fd31bf6957dedb2958f673b1d275871c016f0917/docs/VIDEO.md)
+The Controller [video contract](https://github.com/flamoris-jp/flamoris-generation-controller/blob/14674286e14214dc1f51ded1721ee4820175d443/docs/VIDEO.md)
 defines declaration v2, metadata v4, schema-11 saved recipes, `video.generate`,
 the bounded `wan-video-v1` profile and exact output validation. That fixed
 commit is published in Controller PR #33. The 1.2.0 base was released;
